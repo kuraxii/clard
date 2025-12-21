@@ -43,10 +43,7 @@ fn start_no_args() {
 #[test]
 fn start_with_args() {
     let mut runner = RUNNER.clone();
-    let mut cmd = runner
-        .args(&["start", "acceptance", "test"])
-        .capture_stdout()
-        .run();
+    let mut cmd = runner.args(&["start", "acceptance", "test"]).capture_stdout().run();
 
     cmd.stdout().expect_line("Hello, acceptance test!");
     cmd.wait().unwrap().expect_success();
@@ -69,7 +66,7 @@ fn start_with_config_no_args() {
 #[test]
 fn start_with_config_and_args() {
     let mut config = ClardRsConfig::default();
-    config.hello.recipient = "configured recipient".to_owned();
+    config.proxy = "configured recipient".to_owned();
 
     let mut runner = RUNNER.clone();
     let mut cmd = runner

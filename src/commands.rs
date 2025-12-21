@@ -12,20 +12,20 @@
 
 mod groups;
 mod metaversion;
-mod proxys;
+mod proxyise;
 mod traffic;
 
+use std::{fs, path::PathBuf};
+
+use abscissa_core::{Command, Configurable, FrameworkError, Runnable};
+
 use crate::{
-    commands::{
-        groups::GroupsCmd, metaversion::BackendVersionCmd, proxys::ProxysCmd, traffic::TrafficCmd,
-    },
+    commands::{groups::GroupsCmd, metaversion::BackendVersionCmd, proxyise::ProxiesCmd, traffic::TrafficCmd},
     config::ClardRsConfig,
 };
-use abscissa_core::{Command, Configurable, FrameworkError, Runnable, config::Override};
-use std::path::PathBuf;
 
 /// ClardRs Configuration Filename
-pub const CONFIG_FILE: &str = "clard_rs.toml";
+pub const CONFIG_FILE: &str = "~/.config/clard-rs/clard-rs.toml";
 
 /// ClardRs Subcommands
 /// Subcommands need to be listed in an enum.
@@ -34,7 +34,7 @@ pub enum ClardRsCmd {
     /// The `backend-version` subcommand
     BackendVersion(BackendVersionCmd),
     /// Proxys
-    Proxys(ProxysCmd),
+    Proxies(ProxiesCmd),
     /// Groups
     Groups(GroupsCmd),
     /// Display real-time traffic of clash
@@ -63,38 +63,42 @@ impl Runnable for EntryPoint {
     }
 }
 
-/// This trait allows you to define how application configuration is loaded.
+/// 加载配置文件
 impl Configurable<ClardRsConfig> for EntryPoint {
-    /// Location of the configuration file
+    /// 优先采用命令行参数中的配置路径，其次使用默认配置路径
     fn config_path(&self) -> Option<PathBuf> {
-        // Check if the config file exists, and if it does not, ignore it.
-        // If you'd like for a missing configuration file to be a hard error
-        // instead, always return `Some(CONFIG_FILE)` here.
         let filename = self
             .config
             .as_ref()
-            .map(PathBuf::from)
-            .unwrap_or_else(|| CONFIG_FILE.into());
+            .map(|path| PathBuf::from(shellexpand::tilde(path).into_owned()))
+            .unwrap_or_else(|| shellexpand::tilde(CONFIG_FILE).into_owned().into());
 
-        if filename.exists() {
+        filename.try_exists().map_or(None, |_| {
+            if let Some(parent) = filename.parent() {
+                fs::create_dir_all(parent).unwrap();
+            }
+
+            // 将默认配置结构体转为 TOML 字符串
+            let default_toml = toml::to_string_pretty(&ClardRsConfig::default()).unwrap();
+
+            fs::write(filename.clone(), default_toml).unwrap();
             Some(filename)
-        } else {
-            None
-        }
+        })
     }
 
-    /// Apply changes to the config after it's been loaded, e.g. overriding
-    /// values in a config file using command-line options.
-    ///
-    /// This can be safely deleted if you don't want to override config
-    /// settings from command-line options.
+    /// 在配置加载后应用更改，例如使用命令行选项覆盖配置文件中的值。如果您不想使用命令行选项覆盖配置设置，可以安全地删除它。
     fn process_config(&self, config: ClardRsConfig) -> Result<ClardRsConfig, FrameworkError> {
-        match &self.cmd {
-            ClardRsCmd::BackendVersion(_) => Ok(config),
-            ClardRsCmd::Traffic(_) => Ok(config), 
-            // If you don't need special overrides for some
-            // subcommands, you can just use a catch all
-            _ => Ok(config),
-        }
+        Ok(config)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn shellexpand() {
+        let expanded = shellexpand::tilde(CONFIG_FILE).into_owned();
+        println!("{}", expanded);
     }
 }

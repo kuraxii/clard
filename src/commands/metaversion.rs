@@ -1,34 +1,29 @@
 //! `start` subcommand - example of how to write a subcommand
 
-/// App-local prelude includes `app_reader()`/`app_writer()`/`app_config()`
-/// accessors along with logging macros. Customize as you see fit.
-use crate::prelude::*;
-
-use crate::config::ClardRsConfig;
 use abscissa_core::{Command, FrameworkError, Runnable, config};
 
-use reqwest::Client;
-use tokio::runtime::Runtime;
-/// `start` subcommand
+use serde::{Deserialize, Serialize};
+
+use crate::{config::ClardRsConfig, ipc::http, prelude::*};
+use crate::application::APP;
+
+use reqwest::{Method, Url};
+/// `BackendVersion` subcommand
 ///
 /// The `Parser` proc macro generates an option parser based on the struct
 /// definition, and is defined in the `clap` crate. See their documentation
 /// for a more comprehensive example:
-///
-/// <https://docs.rs/clap/>
 #[derive(clap::Parser, Command, Debug)]
 pub struct BackendVersionCmd;
 
 impl BackendVersionCmd {
-    fn get(&self, unix_sock: &str) -> Result<(), Box<dyn std::error::Error>> {
-        let rt = Runtime::new().unwrap();
-        rt.block_on(async {
-            let client = Client::builder().unix_socket(unix_sock).build()?;
+    fn get(&self, unix_sock: &str) -> Result<()> {
 
-            let response = client.get("http://localhost/version").send().await?;
-            println!("{}", response.error_for_status()?.text().await?);
-            Ok(())
-        })
+        let url = http::get_http_url("version");
+        let bv = http::blocking::get_uds::<BackendVersion>(unix_sock, &url);
+        println!("version: {:?}", bv);
+
+        Ok(())
     }
 }
 
@@ -38,4 +33,11 @@ impl Runnable for BackendVersionCmd {
         let unix_sock = "/tmp/verge/verge-mihomo.sock";
         self.get(unix_sock).unwrap();
     }
+}
+
+///
+#[derive(Debug, Serialize, Deserialize, Clone)]
+pub struct BackendVersion {
+    pub meta: bool,
+    pub version: String,
 }

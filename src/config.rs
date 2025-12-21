@@ -11,8 +11,9 @@ use serde::{Deserialize, Serialize};
 #[serde(deny_unknown_fields)]
 pub struct ClardRsConfig {
     /// An example configuration section
-    pub hello: ExampleSection,
+    pub proxy: Proxy,
 }
+
 
 /// Default configuration settings.
 ///
@@ -21,25 +22,38 @@ pub struct ClardRsConfig {
 impl Default for ClardRsConfig {
     fn default() -> Self {
         Self {
-            hello: ExampleSection::default(),
+            proxy: Proxy::default(),
         }
     }
 }
 
-/// Example configuration section.
-///
-/// Delete this and replace it with your actual configuration structs.
+#[derive(Clone, Debug, Deserialize, Serialize)]
+struct Port(u16);
+
+
+/// 代理相关配置： 代理端口...
 #[derive(Clone, Debug, Deserialize, Serialize)]
 #[serde(deny_unknown_fields)]
-pub struct ExampleSection {
-    /// Example configuration value
-    pub recipient: String,
+pub struct Proxy {
+    mixed: Port,
 }
 
-impl Default for ExampleSection {
+impl Default for Proxy {
     fn default() -> Self {
         Self {
-            recipient: "world".to_owned(),
+            mixed: Port(7891)
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn toml() {
+        let config = ClardRsConfig::default();
+        let toml = toml::to_string_pretty(&config).unwrap();
+        println!("{:?}", toml);
     }
 }

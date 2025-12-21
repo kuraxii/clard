@@ -1,6 +1,5 @@
 //! ClardRs Abscissa Application
 
-use crate::{commands::EntryPoint, config::ClardRsConfig};
 use abscissa_core::{
     Application, FrameworkError, StandardPaths,
     application::{self, AppCell},
@@ -8,6 +7,8 @@ use abscissa_core::{
     trace,
 };
 
+use crate::{commands::EntryPoint, config::ClardRsConfig};
+use crate::ipc::backend::{Backend, BackendType};
 /// Application state
 pub static APP: AppCell<ClardRsApp> = AppCell::new();
 
@@ -16,7 +17,8 @@ pub static APP: AppCell<ClardRsApp> = AppCell::new();
 pub struct ClardRsApp {
     /// Application configuration.
     config: CfgCell<ClardRsConfig>,
-
+    ///
+    pub backend: Backend,
     /// Application state.
     state: application::State<Self>,
 }
@@ -29,6 +31,7 @@ impl Default for ClardRsApp {
     fn default() -> Self {
         Self {
             config: CfgCell::default(),
+            backend: Backend::init(BackendType::UDS("/tmp/verge/verge-mihomo.sock".into())).unwrap(),
             state: application::State::default(),
         }
     }
