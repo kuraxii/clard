@@ -1,13 +1,12 @@
 [package]
-name = "clard_rs"
+name = "clard"
 authors = []
 version = "0.1.0"
 edition = "2024"
 rust-version = "1.85.0"
 
 [dependencies]
-abscissa_core = "0.9.0"
-clap = "4"
+clap = {version = "4", features = ["derive"]}
 serde = { version = "1", features = ["serde_derive"] }
 serde_json = "1"
 thiserror = "1"
@@ -26,9 +25,10 @@ dashmap = "6.1.0"
 toml = "0.9.10"
 shellexpand = "3.1.1"
 tracing = "0.1.44"
+urlencoding = "2.1.3"
 
 
 [dev-dependencies]
-abscissa_core = { version = "0.9.0", features = ["testing"] }
+
 once_cell = "1.2"
 

@@ -12,17 +12,17 @@ use tokio::{
     io::{AsyncRead, AsyncWrite},
     net::{TcpStream, UnixStream},
     sync::mpsc::{UnboundedSender, unbounded_channel},
-    time::Timeout,
 };
 use tokio_tungstenite::{WebSocketStream, client_async, tungstenite::Message};
 use tracing::{error, info, warn};
 
 use super::{
-    backend::BackendType,
+    backend::Protocol,
     error::{IpcError, Result},
 };
 
 /// websocket 控制消息
+#[derive(Debug)]
 pub enum WsControl {
     /// 发送消息
     Send(Message),
@@ -31,6 +31,7 @@ pub enum WsControl {
 }
 
 /// Stream 枚举 以支持TCP 与 unix套接字
+#[derive(Debug)]
 pub enum MaybeStream {
     /// TCP流
     TCP(TcpStream),
@@ -41,7 +42,7 @@ pub enum MaybeStream {
 /// 连接websocket callback 模式
 /// 返回sender 可以由上层主动关闭连接
 pub async fn connect_with<T, F>(
-    backend_type: BackendType,
+    backend_type: Protocol,
     url: Url,
     handle_message: F,
 ) -> Result<UnboundedSender<WsControl>>
@@ -126,15 +127,15 @@ pub type WsWriter = SplitSink<WebSocketStream<Box<dyn AsyncStream + Send>>, Mess
 
 /// 连接websocket stream模式
 pub async fn connect<T>(
-    backend_type: BackendType,
+    protocol: Protocol,
     url: Url,
 ) -> Result<(WsWriter, impl Stream<Item = Result<WebSocketMessage<T>>>)>
 where
     T: serde::de::DeserializeOwned,
 {
-    let stream: Box<dyn AsyncStream + Send + 'static> = match backend_type {
-        BackendType::UDS(path) => Box::new(UnixStream::connect(path).await?),
-        BackendType::TCP(addr) => Box::new(TcpStream::connect(addr).await?),
+    let stream: Box<dyn AsyncStream + Send + 'static> = match protocol {
+        Protocol::UDS(path) => Box::new(UnixStream::connect(path).await?),
+        Protocol::TCP(addr) => Box::new(TcpStream::connect(addr).await?),
     };
 
     let request = Request::builder()
@@ -183,7 +184,7 @@ pub fn generate_websocket_key() -> String {
 }
 
 ///
-#[derive(Deserialize, Serialize)]
+#[derive(Debug, Deserialize, Serialize)]
 pub struct CloseFrame {
     ///
     pub code: u16,
@@ -192,7 +193,7 @@ pub struct CloseFrame {
 }
 
 /// websocket wapper
-#[derive(Deserialize, Serialize)]
+#[derive(Debug, Deserialize, Serialize)]
 #[serde(tag = "type", content = "data")]
 pub enum WebSocketMessage<T> {
     /// 文本消息体

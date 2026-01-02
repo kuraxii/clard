@@ -62,7 +62,7 @@ curl -H 'Authorization: Bearer ${secret}' http://${controller-api}/configs?force
 | :--- | :--- | :--- |
 | **`/version`** | `GET` | 获取 Clash 版本 |
 
-### 🗑️ 缓存 (Cache)
+### 🗑️ 缓存 (Cache) 
 
 | 路径 | 方法 | 描述 |
 | :--- | :--- | :--- |
@@ -150,5 +150,35 @@ curl -H 'Authorization: Bearer ${secret}' http://${controller-api}/configs?force
 
 -----
 
-您想了解其中某个 API 的具体使用方式或更多细节吗？
+
+命令设计
+基本命令
+```bash
+clard start   # 开启代理
+clard mode # 输出当前模式 显示当前模式的代理
+clard proxy list # 输出当前模式下的代理，并进行标号  使用标号进行代理选择 
+clard proxy set # 使用标号进行代理设置
+
+clard group list # 输出代理组，并进行标号  使用标号进行代理选择 
+clard group list # 设置代理组代理
+
+
+
+```
+
+全局设置
+```bash
+-l,--log=<info,debug...> # 日志等级
+
+
+```
+
+
+#### tui
+
+##### 查看连接
+
+clard dashboard    查看 所有活动的连接  以及总流量情况
+
+
 

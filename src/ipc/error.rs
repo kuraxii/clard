@@ -1,6 +1,5 @@
 use std::result;
 
-use reqwest::Url;
 use thiserror::Error;
 
 pub type Result<T, E = IpcError> = result::Result<T, E>;
@@ -35,9 +34,12 @@ pub enum IpcError {
     #[error("不支持的方法: {0}")]
     MethodNotSupported(String),
 
+    #[error("backend 初始化失败: {0}")]
+    FailedBackend(String),
+
+    #[error("backend 初始化失败: {0}")]
+    ResponseError(String),
 
     #[error("其他错误 todo: 待实现")]
     Other
-    
-
 }

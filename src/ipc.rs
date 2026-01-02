@@ -8,3 +8,6 @@ pub mod error;
 pub mod http;
 /// 后端
 pub mod backend;
+
+/// 前后端通信相关数据结构
+pub mod models;

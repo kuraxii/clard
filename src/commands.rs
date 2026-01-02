@@ -17,8 +17,6 @@ mod traffic;
 
 use std::{fs, path::PathBuf};
 
-use abscissa_core::{Command, Configurable, FrameworkError, Runnable};
-
 use crate::{
     commands::{groups::GroupsCmd, metaversion::BackendVersionCmd, proxyise::ProxiesCmd, traffic::TrafficCmd},
     config::ClardRsConfig,
@@ -29,7 +27,7 @@ pub const CONFIG_FILE: &str = "~/.config/clard-rs/clard-rs.toml";
 
 /// ClardRs Subcommands
 /// Subcommands need to be listed in an enum.
-#[derive(clap::Parser, Command, Debug, Runnable)]
+#[derive(clap::Parser, Debug)]
 pub enum ClardRsCmd {
     /// The `backend-version` subcommand
     BackendVersion(BackendVersionCmd),
@@ -42,7 +40,7 @@ pub enum ClardRsCmd {
 }
 
 /// Entry point for the application. It needs to be a struct to allow using subcommands!
-#[derive(clap::Parser, Command, Debug)]
+#[derive(clap::Parser, Debug)]
 #[command(author, about, version)]
 pub struct EntryPoint {
     #[command(subcommand)]
@@ -57,15 +55,9 @@ pub struct EntryPoint {
     pub config: Option<String>,
 }
 
-impl Runnable for EntryPoint {
-    fn run(&self) {
-        self.cmd.run()
-    }
-}
-
 /// 加载配置文件
-impl Configurable<ClardRsConfig> for EntryPoint {
-    /// 优先采用命令行参数中的配置路径，其次使用默认配置路径
+/// 优先采用命令行参数中的配置路径，其次使用默认配置路径
+impl EntryPoint {
     fn config_path(&self) -> Option<PathBuf> {
         let filename = self
             .config
@@ -84,11 +76,6 @@ impl Configurable<ClardRsConfig> for EntryPoint {
             fs::write(filename.clone(), default_toml).unwrap();
             Some(filename)
         })
-    }
-
-    /// 在配置加载后应用更改，例如使用命令行选项覆盖配置文件中的值。如果您不想使用命令行选项覆盖配置设置，可以安全地删除它。
-    fn process_config(&self, config: ClardRsConfig) -> Result<ClardRsConfig, FrameworkError> {
-        Ok(config)
     }
 }
 
