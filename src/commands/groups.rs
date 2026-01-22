@@ -3,9 +3,7 @@
 use std::collections::HashMap;
 
 
-use reqwest::{Method, Url};
 use serde::{Deserialize, Serialize};
-use tokio::runtime::Runtime;
 
 use crate::{error::Result };
 /// Groups 子命
@@ -24,8 +22,6 @@ pub enum ProxiesAction {
 
 impl GroupsCmd {
     async fn get(&self) -> Result<()> {
-        let mut url = Url::parse("http://localhost").unwrap();
-        url.set_path("group");
 
         // let response = APP
         //     .backend

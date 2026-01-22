@@ -1,9 +1,17 @@
 [package]
 name = "clard"
-authors = []
+authors = ["zj.zhu.cn@gmail.com"]
 version = "0.1.0"
 edition = "2024"
 rust-version = "1.85.0"
+
+[[bin]]
+name = "clard"
+path = "src/bin/main.rs"
+# 第二个可执行文件
+[[bin]]
+name = "clard-cli"
+path = "src/bin/cli.rs"
 
 [dependencies]
 clap = {version = "4", features = ["derive"]}
