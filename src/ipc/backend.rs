@@ -5,16 +5,14 @@ use super::{
     models::{
         BackendVersion, BaseConfig, Connections, CoreUpdaterChannel, Groups, Proxy, ResponseError, RuleProviders, Rules,
     },
-    websocket::WsControl,
+    websocket::{WebSocketMessage, WsControl, connect_stream},
 };
-use crate::ipc::websocket::{self, WebSocketMessage};
-use dashmap::DashMap;
+
 use http::Method;
-use rand::random;
 use reqwest::{Client, RequestBuilder, Url};
 use serde::de::DeserializeOwned;
 use serde_json::json;
-use tokio::sync::mpsc::UnboundedSender;
+use tokio::sync::mpsc;
 
 /// websocket id 通过id索引
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
@@ -71,7 +69,6 @@ impl BackendBuilder {
                 Protocol::UDS(unix_path) => Client::builder().unix_socket(unix_path).build()?,
                 Protocol::TCP(_) => Client::new(),
             },
-            ws_connects: DashMap::new(),
         })
     }
 }
@@ -81,7 +78,6 @@ impl BackendBuilder {
 pub struct Backend {
     protocol: Protocol,
     client: Client,
-    ws_connects: DashMap<WebSocketId, UnboundedSender<WsControl>>,
 }
 
 impl Backend {
@@ -117,25 +113,26 @@ impl Backend {
         })
     }
 
-    /// 关闭 websocket 连接
-    pub async fn close_connect(&self, id: WebSocketId) -> Result<()> {
-        self.ws_connects
-            .get(&id)
-            .ok_or(IpcError::Other)?
-            .send(WsControl::Close)
-            .map_err(|e| IpcError::Mpsc(e.to_string()))
-    }
-
-    /// 连接websocket 自定义谓词
-    pub async fn connect_to_websocket_with<T, F>(&self, url: Url, handle_message: F) -> Result<WebSocketId>
+    /// 订阅实时数据
+    /// 返回数据接收器 控制发送器
+    pub async fn subscribe<T>(&self, url: Url) -> Result<(mpsc::UnboundedReceiver<T>, mpsc::UnboundedSender<WsControl>)>
     where
         T: DeserializeOwned + Send + 'static,
-        F: Fn(WebSocketMessage<T>) + Send + 'static,
     {
-        let id = WebSocketId(random());
-        let sender = websocket::connect_with::<T, F>(self.protocol.clone(), url, handle_message).await?;
-        self.ws_connects.insert(id, sender);
-        Ok(id)
+        let (mut msg_rx, ctrl_tx) = connect_stream::<T>(self.protocol.clone(), url).await?;
+
+        let (ui_tx, ui_rx) = mpsc::unbounded_channel::<T>();
+        tokio::spawn(async move {
+            while let Some(msg) = msg_rx.recv().await {
+                if let WebSocketMessage::Text(v) = msg {
+                    if ui_tx.send(v).is_err() {
+                        break;
+                    }
+                }
+            }
+        });
+
+        Ok((ui_rx, ctrl_tx))
     }
 
     /// clash 业务实现
@@ -295,7 +292,7 @@ impl Backend {
     /// 对指定代理进行延迟测试
     ///
     /// 一般用于代理节点的延迟测试，也可传代理组名称（只会测试代理组下选中的代理节点）
-    pub async fn delay_proxy_for_name(&self, proxy_name: &str, test_url: &str, timeout: u32) -> Result<()> {
+    pub async fn delay_proxy_for_name(&self, _proxy_name: &str, _test_url: &str, _timeout: u32) -> Result<()> {
         todo!();
     }
 
@@ -494,6 +491,8 @@ impl Backend {
 
 #[cfg(test)]
 mod tests {
+    use tracing::info;
+
     use super::*;
     fn backend() -> Result<Backend> {
         Ok(Backend::builder()
@@ -515,6 +514,19 @@ mod tests {
         assert!(result.is_ok());
         let version = result.unwrap();
         println!("version: {:?}", version);
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn test_get_traffic() -> Result<()> {
+        // let backend = backend()?;
+        // let url = Url::parse(&websocket::get_websocket_url("traffic")).unwrap();
+        // let (mut traffic_rx, ctrl_tx) = backend.subscribe::<Traffic>(url).await?;
+
+        // while let Some(traffic) = traffic_rx.recv().await {
+        //     println!("traffic: {:?}", traffic);
+        // }
+
         Ok(())
     }
 
@@ -595,7 +607,7 @@ mod tests {
         Ok(())
     }
 
-     #[tokio::test]
+    #[tokio::test]
     async fn get_rules() -> Result<()> {
         let backend = backend()?;
         let result = backend.get_rules().await;
@@ -603,7 +615,6 @@ mod tests {
         assert!(result.is_ok());
 
         println!("reules: {}", serde_json::to_string(&result.unwrap()).unwrap());
-
 
         Ok(())
     }

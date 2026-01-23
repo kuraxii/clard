@@ -1,4 +1,3 @@
-
 use base64::{Engine, engine::general_purpose};
 use futures_util::{SinkExt, Stream, StreamExt, stream::SplitSink};
 use http::{
@@ -11,10 +10,10 @@ use serde::{Deserialize, Serialize};
 use tokio::{
     io::{AsyncRead, AsyncWrite},
     net::{TcpStream, UnixStream},
-    sync::mpsc::{UnboundedSender, unbounded_channel},
+    sync::mpsc::{UnboundedReceiver, UnboundedSender, unbounded_channel},
 };
 use tokio_tungstenite::{WebSocketStream, client_async, tungstenite::Message};
-use tracing::{error, info, warn};
+use tracing::{debug, error, info, warn};
 
 use super::{
     backend::Protocol,
@@ -61,7 +60,7 @@ where
 
         loop {
             tokio::select! {
-                // 使用 biased 确保优先处理关闭和发送指令
+                // 使用 biased 确保优先处理外部指令
                 biased;
 
                 // 处理外部发送指令
@@ -91,14 +90,11 @@ where
                     match ws_in {
                         Some(Ok(message)) => {
                             let is_close = matches!(message, WebSocketMessage::Close(_));
-                            // 使用回调/闭包处理数据
-                            handle_message(message);
-
-                            // 如果是close消息则退出
                             if is_close {
                                 let _ = writer.close().await;
                                 break;
                             }
+                            handle_message(message);
                         }
                         Some(Err(e)) => {
                             error!("WebSocket Stream Error: {:?}", e);
@@ -116,6 +112,57 @@ where
     });
 
     Ok(tx)
+}
+
+/// 返回数据接收端和控制发送端
+pub async fn connect_stream<T>(
+    backend_type: Protocol,
+    url: Url,
+) -> Result<(UnboundedReceiver<WebSocketMessage<T>>, UnboundedSender<WsControl>)>
+where
+    T: serde::de::DeserializeOwned + Send + 'static,
+{
+    // 1. 建立基础流
+    let url_clone = url.clone();
+    let (mut writer, mut stream) = connect::<T>(backend_type, url).await?;
+
+    // UI 数据接收通道 (to UI)
+    let (msg_tx, msg_rx) = unbounded_channel::<WebSocketMessage<T>>();
+    // 控制指令通道 (from UI)
+    let (ctrl_tx, mut ctrl_rx) = unbounded_channel::<WsControl>();
+
+    // 2. 启动后台任务：负责 socket 读取 -> msg_channel
+    tokio::spawn(async move {
+        debug!("WebSocket worker started for URL: {}", url_clone);
+        loop {
+            tokio::select! {
+                biased;
+                // 1. 处理控制指令
+                ctl = ctrl_rx.recv() => {
+                    match ctl {
+                        Some(WsControl::Send(msg)) => { if writer.send(msg).await.is_err() { break; } },
+                        Some(WsControl::Close) | None => { let _ = writer.close().await; break; },
+                    }
+                }
+                // 2. 处理网络数据
+                msg = stream.next() => {
+                    match msg {
+                        Some(Ok(message)) => {
+                            let is_close = matches!(message, WebSocketMessage::Close(_));
+                            if msg_tx.send(message).is_err() {
+                                break;
+                            }
+                            if is_close { let _ = writer.close().await; break; }
+                        }
+                        _ => break,
+                    }
+                }
+            }
+        }
+        debug!("WebSocket worker exited");
+    });
+
+    Ok((msg_rx, ctrl_tx))
 }
 
 /// trait 绑定  只要实现了AsyncRead + AsyncWrite + Unpin的类型就可以被视为 AsyncStream

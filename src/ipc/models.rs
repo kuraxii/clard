@@ -2,12 +2,7 @@ use std::{collections::HashMap, fmt::Display};
 
 use serde::{Deserialize, Serialize};
 
-#[allow(missing_docs)]
-#[derive(Debug, Serialize, Deserialize, Clone)]
-pub struct BackendVersion {
-    pub meta: bool,
-    pub version: String,
-}
+
 
 #[allow(missing_docs)]
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -672,4 +667,21 @@ pub struct GeoXUrl {
     pub mmdb: String,
     pub asn: String,
     pub geo_site: String,
+}
+
+
+
+/// commands 使用
+
+#[derive(Debug, Serialize, Deserialize)]
+pub struct Traffic {
+    pub up: u64,
+    pub down: u64,
+}
+
+#[allow(missing_docs)]
+#[derive(Debug, Serialize, Deserialize, Clone)]
+pub struct BackendVersion {
+    pub meta: bool,
+    pub version: String,
 }

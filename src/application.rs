@@ -1,7 +1,7 @@
 //! ClardRs Abscissa Application
 
 use crate::ipc::backend::{Backend, Protocol};
-use crate::{commands::EntryPoint, config::ClardRsConfig};
+use crate::{ config::ClardRsConfig};
 
 /// ClardRs Application
 #[derive(Debug)]
