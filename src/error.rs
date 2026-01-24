@@ -4,9 +4,9 @@ use thiserror::Error;
 
 use crate::ipc::error::IpcError;
 
-pub(crate) type Result<T, E = ClardError> = std::result::Result<T, E>;
+pub type Result<T, E = ClardError> = std::result::Result<T, E>;
 #[derive(Debug, Error)]
-pub(crate) enum ClardError {
+pub enum ClardError {
     #[error("HTTP错误 : {0}")]
     Http(#[from] reqwest::Error),
 
@@ -15,5 +15,8 @@ pub(crate) enum ClardError {
 
     #[error("IPC Failed: {0}")]
     Ipc(#[from] IpcError),
+
+    #[error("other error")]
+    Other,
 }
 

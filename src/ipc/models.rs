@@ -116,9 +116,13 @@ pub enum ProxyType {
 #[derive(Debug, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct Connections {
+    /// 总下载量
     pub download_total: u64,
+    /// 总上传量
     pub upload_total: u64,
+    /// 连接
     pub connections: Option<Vec<Connection>>,
+    /// 内存占用
     pub memory: u32,
 }
 

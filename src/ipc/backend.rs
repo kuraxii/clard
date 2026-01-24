@@ -489,10 +489,18 @@ impl Backend {
     }
 }
 
+pub async fn get_uds<T>(usd_path: &str, url: &str) -> Result<T>
+where
+    T: DeserializeOwned,
+{
+    let client = Client::builder().unix_socket(usd_path).build()?;
+    let response = client.get(url).send().await?.error_for_status()?;
+    Ok(response.json::<T>().await?)
+}
+
+
 #[cfg(test)]
 mod tests {
-    use tracing::info;
-
     use super::*;
     fn backend() -> Result<Backend> {
         Ok(Backend::builder()

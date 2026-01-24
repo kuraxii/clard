@@ -2,40 +2,24 @@
 
 #![deny(warnings, missing_docs, trivial_casts, unused_qualifications)]
 
-
-
-
 use clap::Parser;
-use clard::commands::{Cli, ClardRsCmd};
+use clard::{commands::{ClardRsCmd, Cli}, start_clard};
+use clard::error::Result;
 
 #[tokio::main(flavor = "multi_thread")]
-async fn main() {
+async fn main() -> Result<()>{
     let cli = Cli::parse();
 
     if cli.tui {
-        println!("do tui");
-        return;
+        let _ = start_clard().await?;
     }
 
     match cli.cmd {
         Some(ClardRsCmd::Test(name)) => println!("test! {:?}", name),
         None =>println!("none"),
     };
+
+    Ok(())
 }
 
 
-/*
- let cli = Cli::parse();
-    let addr = format!("{}:{}", cli.host, cli.port);
-
-    let result = match cli.command {
-        Command::Get { key } => run_get(&addr, &key).await,
-        Command::Set { key, value } => run_set(&addr, &key, value).await,
-    };
-
-    if let Err(e) = result {
-        eprintln!("Error: {:?}", e);
-        std::process::exit(1);
-    }
-
-*/

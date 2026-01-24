@@ -67,3 +67,8 @@ For more information, see:
 - [ ] 更新 UI
 - [ ] 更新 Geo
 
+### tui 架构 M(app) -- V(canvas) -- C(controller)
+
+app 存储tui 组件之间的状态机状态、获取的数据
+canvas 负责绘制，以及组件内部状态管理
+controller 负责整理存储的数据 排序

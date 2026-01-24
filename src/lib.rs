@@ -21,3 +21,45 @@ pub mod commands;
 pub mod config;
 pub mod error;
 pub mod ipc;
+pub mod app;
+pub mod event;
+use serde_json::ser;
+use tokio_util::sync::CancellationToken;
+
+use tokio::sync::mpsc;
+
+use error::Result;
+use event::{ClardEvent, handle_key_event, handle_mouse_event};
+use app::APP;
+
+use crate::event::listen_input_event;
+
+
+pub async fn start_clard() -> Result<()> {
+    let (sender, mut receiver) = mpsc::channel::<ClardEvent>(32);
+    let token = CancellationToken::new();
+
+    let mut app = APP::init();
+
+    tokio::spawn(listen_input_event(token.clone(), sender.clone()));
+
+    loop{
+        if let Some(recv) = receiver.recv().await{
+            match recv{
+                ClardEvent::Resize => {},
+                ClardEvent::KeyInput(event) => {
+                    handle_key_event(event, &mut app);
+                },
+                ClardEvent::PasteEvent(paste) => {}
+                ClardEvent::MouseInput(event) => {
+                    handle_mouse_event(event, &mut app);
+                },
+                ClardEvent::Terminal => {token.cancel(); break;}
+            }
+        }
+    }
+
+
+
+    Ok(())
+}
