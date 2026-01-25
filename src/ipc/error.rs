@@ -21,7 +21,6 @@ pub enum IpcError {
     #[error("reqwest error: {0}")]
     Reqwest(#[from] reqwest::Error),
 
-
     #[error("invalid url")]
     InvalidUrl,
 
@@ -41,5 +40,5 @@ pub enum IpcError {
     ResponseError(String),
 
     #[error("其他错误 todo: 待实现")]
-    Other
+    Other,
 }

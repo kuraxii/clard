@@ -1,11 +1,9 @@
-mod state;
-
-use std::default;
-
-use tokio::sync::mpsc;
+pub mod state;
+use state::MenuState;
 /// WindowState
 /// 用于记录窗口的状态，MENU、Preview、PROXY、CONNECTIONS、RULE、TEST
-enum WindowState {
+#[derive(Debug, PartialEq, Eq)]
+pub enum WindowState {
     /// 菜单页面
     Memu,
     /// 预览页面
@@ -17,20 +15,66 @@ enum WindowState {
     /// 规则页面
     Rules,
     /// ip 测试页面
-    NetTest
+    NetTest,
 }
 
-
-
-
-
-pub struct APP{
-    window_state: WindowState,
+#[derive(Debug)]
+pub struct APP {
+    pub current_page: WindowState,
+    pub menusate: MenuState,
 }
 
 impl APP {
-    pub fn init() -> Self{
-
-        APP { window_state: WindowState::Memu }
+    pub fn init() -> Self {
+        APP {
+            current_page: WindowState::Memu,
+            menusate: MenuState::init(),
+        }
     }
+
+    pub fn on_up_key(&mut self) {
+        match self.current_page {
+            WindowState::Memu => self.menusate.prev(),
+            WindowState::Preview => todo!(),
+            WindowState::Proxy => todo!(),
+            WindowState::Connects => todo!(),
+            WindowState::Rules => todo!(),
+            WindowState::NetTest => todo!(),
+        }
+    }
+
+    pub fn on_down_key(&mut self) {
+        match self.current_page {
+            WindowState::Memu => self.menusate.next(),
+            WindowState::Preview => todo!(),
+            WindowState::Proxy => todo!(),
+            WindowState::Connects => todo!(),
+            WindowState::Rules => todo!(),
+            WindowState::NetTest => todo!(),
+        }
+    }
+
+    pub fn on_left_key(&mut self) {}
+
+    pub fn on_right_key(&mut self) {}
+
+    pub fn on_home_key(&mut self) {}
+
+    pub fn on_end_key(&mut self) {}
+
+    pub fn on_pagedown_key(&mut self) {}
+
+    pub fn on_pageup_key(&mut self) {}
+
+    pub fn on_backspace_key(&mut self) {}
+
+    pub fn on_delete_key(&mut self) {}
+
+    pub fn on_tab_key(&mut self) {}
+
+    pub fn on_esc_key(&mut self) {}
+
+    pub fn on_enter_key(&mut self) {}
+
+    pub fn on_char(&mut self, char: char) {}
 }

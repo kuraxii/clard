@@ -2,8 +2,6 @@ use std::{collections::HashMap, fmt::Display};
 
 use serde::{Deserialize, Serialize};
 
-
-
 #[allow(missing_docs)]
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ResponseError {
@@ -339,7 +337,6 @@ pub enum VehicleType {
     Inline,
 }
 
-
 #[derive(Debug, Serialize, Deserialize)]
 #[serde(rename_all(serialize = "camelCase", deserialize = "kebab-case"))]
 pub struct BaseConfig {
@@ -570,7 +567,6 @@ impl Display for TunStack {
     }
 }
 
-
 #[derive(Debug, Serialize, Deserialize)]
 #[serde(rename_all(serialize = "camelCase", deserialize = "kebab-case"))]
 pub struct TuicServer {
@@ -672,8 +668,6 @@ pub struct GeoXUrl {
     pub asn: String,
     pub geo_site: String,
 }
-
-
 
 /// commands 使用
 

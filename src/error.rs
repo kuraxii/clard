@@ -19,4 +19,3 @@ pub enum ClardError {
     #[error("other error")]
     Other,
 }
-

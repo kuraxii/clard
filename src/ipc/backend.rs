@@ -1,5 +1,11 @@
 use std::{net::SocketAddr, path::PathBuf};
 
+use http::Method;
+use reqwest::{Client, RequestBuilder, Url};
+use serde::de::DeserializeOwned;
+use serde_json::json;
+use tokio::sync::mpsc;
+
 use super::{
     error::{IpcError, Result},
     models::{
@@ -7,12 +13,6 @@ use super::{
     },
     websocket::{WebSocketMessage, WsControl, connect_stream},
 };
-
-use http::Method;
-use reqwest::{Client, RequestBuilder, Url};
-use serde::de::DeserializeOwned;
-use serde_json::json;
-use tokio::sync::mpsc;
 
 /// websocket id 通过id索引
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
@@ -497,7 +497,6 @@ where
     let response = client.get(url).send().await?.error_for_status()?;
     Ok(response.json::<T>().await?)
 }
-
 
 #[cfg(test)]
 mod tests {

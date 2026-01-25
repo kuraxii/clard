@@ -15,30 +15,33 @@ pub enum ClardEvent {
     Terminal,
 }
 
-pub fn handle_key_event(event: KeyEvent, app: &mut APP) {
+pub fn handle_key_event(event: KeyEvent, app: &mut APP, sender: mpsc::Sender<ClardEvent>) {
     if event.modifiers.is_empty() {
         match event.code {
-            KeyCode::Char('q') => {}
-            KeyCode::Up => {}
-            KeyCode::Left => {}
-            KeyCode::Right => {}
-            KeyCode::Down => {}
-            KeyCode::Home => {}
-            KeyCode::End => {}
-            KeyCode::PageDown => {}
-            KeyCode::PageUp => {}
-            KeyCode::Backspace => {}
-            KeyCode::Delete => {}
-            KeyCode::Tab => {}
-            KeyCode::Esc => {}
-            KeyCode::Enter => {}
-            KeyCode::Char(caught_cahr) => {}
+            KeyCode::Up => app.on_up_key(),
+            KeyCode::Left => app.on_left_key(),
+            KeyCode::Right => app.on_right_key(),
+            KeyCode::Down => app.on_down_key(),
+            KeyCode::Home => app.on_home_key(),
+            KeyCode::End => app.on_end_key(),
+            KeyCode::PageDown => app.on_pagedown_key(),
+            KeyCode::PageUp => app.on_pageup_key(),
+            KeyCode::Backspace => app.on_backspace_key(),
+            KeyCode::Delete => app.on_delete_key(),
+            KeyCode::Tab => app.on_tab_key(),
+            KeyCode::Esc => app.on_esc_key(),
+            KeyCode::Enter => app.on_enter_key(),
+            KeyCode::Char(caught_cahr) => app.on_char(caught_cahr),
             _ => {}
         }
     } else {
         if let KeyModifiers::CONTROL = event.modifiers {
             match event.code {
-                KeyCode::Char('c') => {}
+                KeyCode::Char('c') => {
+                    tokio::spawn(async move {
+                        let _ = sender.send(ClardEvent::Terminal).await.is_err();
+                    });
+                }
                 KeyCode::Char(caught_cahr) => {}
                 _ => {}
             }
@@ -54,7 +57,6 @@ pub fn handle_mouse_event(event: MouseEvent, app: &mut APP) {
         _ => {}
     }
 }
-
 
 /// 监听输入事件  按键、鼠标、粘贴
 pub async fn listen_input_event(cancel_token: CancellationToken, clard_event_sender: mpsc::Sender<ClardEvent>) {

@@ -8,7 +8,6 @@ pub struct ClardRsConfig {
     pub proxy: Proxy,
 }
 
-
 /// Default configuration settings.
 ///
 /// Note: if your needs are as simple as below, you can
@@ -24,7 +23,6 @@ impl Default for ClardRsConfig {
 #[derive(Clone, Debug, Deserialize, Serialize)]
 struct Port(u16);
 
-
 /// 代理相关配置： 代理端口...
 #[derive(Clone, Debug, Deserialize, Serialize)]
 #[serde(deny_unknown_fields)]
@@ -34,9 +32,7 @@ pub struct Proxy {
 
 impl Default for Proxy {
     fn default() -> Self {
-        Self {
-            mixed: Port(7891)
-        }
+        Self { mixed: Port(7891) }
     }
 }
 
