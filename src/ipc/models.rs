@@ -10,12 +10,12 @@ pub struct ResponseError {
 
 /// 代理组
 #[allow(missing_docs)]
-#[derive(Debug, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Groups {
     pub proxies: Vec<Proxy>,
 }
 #[allow(missing_docs)]
-#[derive(Debug, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct Proxy {
     // group type need
@@ -43,6 +43,8 @@ pub struct Proxy {
     // single proxy type need
     #[serde(skip_serializing_if = "Option::is_none", default)]
     pub id: Option<String>,
+    #[serde(rename = "provider-name", skip_serializing_if = "Option::is_none", default)]
+    pub provider_name: Option<String>,
 
     // basic fields
     pub alive: bool,
@@ -67,21 +69,21 @@ pub struct Proxy {
 }
 
 #[allow(missing_docs)]
-#[derive(Debug, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Extra {
     pub alive: bool,
     pub history: Vec<DelayHistory>,
 }
 
 #[allow(missing_docs)]
-#[derive(Debug, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct DelayHistory {
     pub time: String,
     pub delay: u16,
 }
 
 #[allow(missing_docs)]
-#[derive(Debug, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub enum ProxyType {
     Direct,
     Reject,
@@ -111,7 +113,7 @@ pub enum ProxyType {
     LoadBalance,
 }
 /// connections
-#[derive(Debug, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct Connections {
     /// 总下载量
@@ -124,7 +126,7 @@ pub struct Connections {
     pub memory: u32,
 }
 
-#[derive(Debug, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct Connection {
     pub id: String,
@@ -136,7 +138,7 @@ pub struct Connection {
     pub rule: String,
     pub rule_payload: String,
 }
-#[derive(Debug, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct ConnectionMetaData {
     pub network: Network,
@@ -182,7 +184,7 @@ pub struct ConnectionMetaData {
     pub dscp: u8,
     pub sniff_host: String,
 }
-#[derive(Debug, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub enum DNSMode {
     #[serde(rename = "normal")]
     Normal,
@@ -193,7 +195,7 @@ pub enum DNSMode {
     #[serde(rename = "hosts")]
     Hosts,
 }
-#[derive(Debug, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub enum Network {
     #[serde(rename = "tcp")]
     TCP,
@@ -202,7 +204,7 @@ pub enum Network {
     #[serde(rename = "all")]
     ALLNet,
 }
-#[derive(Debug, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub enum ConnectionType {
     HTTP,
     HTTPS,
@@ -237,12 +239,12 @@ pub enum ConnectionType {
 }
 
 /// rules
-#[derive(Debug, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Rules {
     pub rules: Vec<Rule>,
 }
 
-#[derive(Debug, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Rule {
     #[serde(rename = "type")]
     pub rule_type: RuleType,
@@ -251,7 +253,7 @@ pub struct Rule {
     pub size: i32,
 }
 
-#[derive(Debug, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub enum RuleType {
     Domain,
     DomainSuffix,
@@ -287,12 +289,12 @@ pub enum RuleType {
     NOT,
 }
 
-#[derive(Debug, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct RuleProviders {
     pub providers: HashMap<String, RuleProvider>,
 }
 
-#[derive(Debug, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub enum RuleBehavior {
     Domain,
     #[serde(rename = "IPCIDR")]
@@ -300,7 +302,7 @@ pub enum RuleBehavior {
     Classical,
 }
 
-#[derive(Debug, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub enum RuleFormat {
     #[serde(rename = "YamlRule")]
     Yaml,
@@ -310,7 +312,7 @@ pub enum RuleFormat {
     Mrs,
 }
 
-#[derive(Debug, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct RuleProvider {
     pub behavior: RuleBehavior,
@@ -323,13 +325,13 @@ pub struct RuleProvider {
     pub vehicle_type: VehicleType,
 }
 
-#[derive(Debug, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub enum ProviderType {
     Proxy,
     Rule,
 }
 
-#[derive(Debug, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub enum VehicleType {
     File,
     HTTP,
@@ -337,7 +339,7 @@ pub enum VehicleType {
     Inline,
 }
 
-#[derive(Debug, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all(serialize = "camelCase", deserialize = "kebab-case"))]
 pub struct BaseConfig {
     pub port: u16,
@@ -380,7 +382,7 @@ pub struct BaseConfig {
     pub disable_keep_alive: bool,
 }
 
-#[derive(Debug, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all(serialize = "camelCase", deserialize = "kebab-case"))]
 pub struct TunConfig {
     pub enable: bool,
@@ -507,7 +509,7 @@ pub struct TunConfig {
     pub sendmsgx: Option<bool>,
 }
 
-#[derive(Debug, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub enum CoreUpdaterChannel {
     #[serde(rename = "release")]
     ReleaseChannel,
@@ -548,7 +550,7 @@ impl Display for ClashMode {
 }
 
 /// tun stack enum
-#[derive(Debug, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub enum TunStack {
     Mixed,
     #[serde(rename = "gVisor")]
@@ -567,7 +569,7 @@ impl Display for TunStack {
     }
 }
 
-#[derive(Debug, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all(serialize = "camelCase", deserialize = "kebab-case"))]
 pub struct TuicServer {
     pub enable: bool,
@@ -608,7 +610,7 @@ pub struct TuicServer {
     pub mux_option: Option<MuxOption>,
 }
 
-#[derive(Debug, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 
 pub struct MuxOption {
     #[serde(skip_serializing_if = "Option::is_none", default)]
@@ -618,7 +620,7 @@ pub struct MuxOption {
     pub brutal: Option<BrutalOption>,
 }
 
-#[derive(Debug, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct BrutalOption {
     pub enabled: bool,
 
@@ -629,7 +631,7 @@ pub struct BrutalOption {
     pub down: Option<String>,
 }
 
-#[derive(Debug, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]
 pub enum FindProcessMode {
     Strict,
@@ -637,7 +639,7 @@ pub enum FindProcessMode {
     Off,
 }
 
-#[derive(Debug, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]
 pub enum LogLevel {
     DEBUG,
@@ -660,7 +662,7 @@ impl Display for LogLevel {
     }
 }
 
-#[derive(Debug, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all(serialize = "camelCase", deserialize = "kebab-case"))]
 pub struct GeoXUrl {
     pub geo_ip: String,
@@ -671,7 +673,7 @@ pub struct GeoXUrl {
 
 /// commands 使用
 
-#[derive(Debug, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Traffic {
     pub up: u64,
     pub down: u64,
@@ -682,4 +684,19 @@ pub struct Traffic {
 pub struct BackendVersion {
     pub meta: bool,
     pub version: String,
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_parse_full_groups() {
+        let json = r#"{"proxies": []}"#;
+        let groups: Result<Groups, _> = serde_json::from_str(&json);
+        match groups {
+            Ok(_) => println!("Groups parsed successfully"),
+            Err(e) => panic!("Failed to parse groups: {:?}", e),
+        }
+    }
 }

@@ -74,7 +74,7 @@ impl BackendBuilder {
 }
 
 /// mihomo 后端管理
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct Backend {
     protocol: Protocol,
     client: Client,
@@ -292,8 +292,27 @@ impl Backend {
     /// 对指定代理进行延迟测试
     ///
     /// 一般用于代理节点的延迟测试，也可传代理组名称（只会测试代理组下选中的代理节点）
-    pub async fn delay_proxy_for_name(&self, _proxy_name: &str, _test_url: &str, _timeout: u32) -> Result<()> {
-        todo!();
+    pub async fn delay_proxy_for_name(&self, proxy_name: &str, test_url: &str, timeout: u32) -> Result<u16> {
+        let proxy_name_encode = urlencoding::encode(proxy_name);
+        let req = self.build_request(Method::GET, &format!("/proxies/{}/delay", proxy_name_encode))?
+            .query(&[("url", test_url), ("timeout", &timeout.to_string())]);
+            
+        let res = req.send().await?;
+        if !res.status().is_success() {
+            let err_msg = res.json::<ResponseError>().await.map_or_else(
+                |msg| format!("delay test for [{}] failed: {}", proxy_name, msg),
+                |err| err.message.to_string(),
+            );
+            return Err(IpcError::ResponseError(err_msg));
+        }
+        
+        #[derive(serde::Deserialize)]
+        struct DelayResp {
+            delay: u16,
+        }
+        
+        let delay_res = res.json::<DelayResp>().await?;
+        Ok(delay_res.delay)
     }
 
     /// 获取所有的规则信息
@@ -326,7 +345,7 @@ impl Backend {
     }
 
     /// 更新规则提供者信息
-    pub async fn update_rule_provider(&self, provider_name: &str) -> Result<()> {
+    pub async fn update_rule_provider(&self, _provider_name: &str) -> Result<()> {
         todo!();
         // let provider_name_encode = urlencoding::encode(provider_name);
         // let client = self.build_request(Method::PUT, &format!("/providers/rules/{provider_name_encode}"))?;
@@ -357,7 +376,7 @@ impl Backend {
     }
 
     /// 重新加载配置
-    pub async fn reload_config(&self, force: bool, config_path: &str) -> Result<()> {
+    pub async fn reload_config(&self, _force: bool, _config_path: &str) -> Result<()> {
         todo!();
         // let body = json!({ "path": config_path });
         // let client = self
@@ -383,7 +402,7 @@ impl Backend {
     }
 
     /// 更新基础配置
-    pub async fn patch_base_config<D: serde::Serialize + Clone + Sync>(&self, data: &D) -> Result<()> {
+    pub async fn patch_base_config<D: serde::Serialize + Clone + Sync>(&self, _data: &D) -> Result<()> {
         todo!();
         // let client = { self.build_request(Method::PATCH, "/configs")?.json(&data) };
         // let response = { self.send_by_protocol(client).await? };
@@ -430,7 +449,7 @@ impl Backend {
     }
 
     /// 升级核心
-    pub async fn upgrade_core(&self, channel: CoreUpdaterChannel, force: bool) -> Result<()> {
+    pub async fn upgrade_core(&self, _channel: CoreUpdaterChannel, _force: bool) -> Result<()> {
         todo!();
         // let client = self
         //     .build_request(Method::POST, "/upgrade")?
@@ -597,7 +616,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn request_select_node_for_group() -> Result<()> {
+    async fn select_node_for_group() -> Result<()> {
         let backend = backend()?;
         let group = backend.get_group_by_name("📺 动画疯").await.unwrap();
         let now = group.now.unwrap();

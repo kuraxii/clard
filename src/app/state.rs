@@ -1,3 +1,7 @@
+use tokio::sync::mpsc::UnboundedSender;
+
+use crate::event::ClardEvent;
+
 #[derive(Debug)]
 pub struct MenuState {
     current_item: MenuItem,
@@ -29,6 +33,15 @@ impl MenuState {
     pub fn last(&mut self) {
         self.current_item = MenuItem::last();
     }
+
+    pub fn on_char(&self, char: char, event_sender: UnboundedSender<ClardEvent>) {
+        match char {
+            'q' => {
+                let _ = event_sender.send(ClardEvent::Terminal);
+            }
+            _ => {}
+        }
+    }
 }
 
 #[derive(Debug, PartialEq, Eq, Clone, Copy)]
@@ -49,20 +62,22 @@ impl MenuItem {
         Self::NetTest,
     ];
     pub fn next(&self) -> Self {
-        Self::ALL
-            .iter()
-            .position(|&x| x == *self)
-            .and_then(|position| Self::ALL.get(position + 1))
-            .cloned()
-            .unwrap_or(*self)
+        match self {
+            Self::Preview => Self::Proxy,
+            Self::Proxy => Self::Connections,
+            Self::Connections => Self::Rules,
+            Self::Rules => Self::NetTest,
+            Self::NetTest => Self::NetTest, // 或者循环到 Preview
+        }
     }
     pub fn prev(&self) -> Self {
-        Self::ALL
-            .iter()
-            .position(|&x| x == *self)
-            .and_then(|position| Self::ALL.get(position - 1))
-            .cloned()
-            .unwrap_or(*self)
+        match self {
+            Self::Preview => Self::Preview,
+            Self::Proxy => Self::Preview,
+            Self::Connections => Self::Proxy,
+            Self::Rules => Self::Connections,
+            Self::NetTest => Self::Rules,
+        }
     }
 
     pub fn first() -> Self {
@@ -83,3 +98,4 @@ impl MenuItem {
         }
     }
 }
+

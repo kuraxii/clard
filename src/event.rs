@@ -13,9 +13,14 @@ pub enum ClardEvent {
     MouseInput(MouseEvent),
     PasteEvent(String),
     Terminal,
+    UpdateGroups(crate::ipc::models::Groups),
+    UpdateVersion(crate::ipc::models::BackendVersion),
+    UpdateConnections(crate::ipc::models::Connections),
+    NodeTested(String, u16),
+    Error(String),
 }
 
-pub fn handle_key_event(event: KeyEvent, app: &mut APP, sender: mpsc::Sender<ClardEvent>) {
+pub fn handle_key_event(event: KeyEvent, app: &mut APP, sender: mpsc::UnboundedSender<ClardEvent>) {
     if event.modifiers.is_empty() {
         match event.code {
             KeyCode::Up => app.on_up_key(),
@@ -39,27 +44,27 @@ pub fn handle_key_event(event: KeyEvent, app: &mut APP, sender: mpsc::Sender<Cla
             match event.code {
                 KeyCode::Char('c') => {
                     tokio::spawn(async move {
-                        let _ = sender.send(ClardEvent::Terminal).await.is_err();
+                        let _ = sender.send(ClardEvent::Terminal);
                     });
                 }
-                KeyCode::Char(caught_cahr) => {}
+                KeyCode::Char(_caught_cahr) => {}
                 _ => {}
             }
         }
     }
 }
 
-pub fn handle_mouse_event(event: MouseEvent, app: &mut APP) {
+pub fn handle_mouse_event(event: MouseEvent, _app: &mut APP) {
     match event.kind {
         MouseEventKind::ScrollUp => {}
         MouseEventKind::ScrollDown => {}
-        MouseEventKind::Down(button) => {}
+        MouseEventKind::Down(_button) => {}
         _ => {}
     }
 }
 
 /// 监听输入事件  按键、鼠标、粘贴
-pub async fn listen_input_event(cancel_token: CancellationToken, clard_event_sender: mpsc::Sender<ClardEvent>) {
+pub async fn listen_input_event(cancel_token: CancellationToken, clard_event_sender: mpsc::UnboundedSender<ClardEvent>) {
     let mut reader = EventStream::new();
     let mut mouse_timer = Instant::now();
 
@@ -72,7 +77,7 @@ pub async fn listen_input_event(cancel_token: CancellationToken, clard_event_sen
             maybe_event = reader.next() => {
                 match maybe_event{
                     Some(Ok(Event::Key(key_event))) if key_event.kind == KeyEventKind::Press => {
-                        if clard_event_sender.send(ClardEvent::KeyInput(key_event)).await.is_err(){
+                        if clard_event_sender.send(ClardEvent::KeyInput(key_event)).is_err(){
                             break;
                         }
                     },
@@ -82,26 +87,26 @@ pub async fn listen_input_event(cancel_token: CancellationToken, clard_event_sen
                             MouseEventKind::ScrollDown | MouseEventKind::ScrollUp => {
                                 if Instant::now().duration_since(mouse_timer).as_millis() >= 20
                                 {
-                                    if clard_event_sender.send(ClardEvent::MouseInput(mouse)).await.is_err() {
+                                    if clard_event_sender.send(ClardEvent::MouseInput(mouse)).is_err() {
                                         break;
                                     }
                                     mouse_timer = Instant::now();
                                 }
                                 }
                                 _ => {
-                                    if clard_event_sender.send(ClardEvent::MouseInput(mouse)).await.is_err() {
+                                    if clard_event_sender.send(ClardEvent::MouseInput(mouse)).is_err() {
                                         break;
                                     }
                                 }
                         }
                     },
                     Some(Ok(Event::Resize(_, _))) => {
-                        if clard_event_sender.send(ClardEvent::Resize).await.is_err() {
+                        if clard_event_sender.send(ClardEvent::Resize).is_err() {
                             break;
                         }
                     }
                     Some(Ok(Event::Paste(paste))) => {
-                        if clard_event_sender.send(ClardEvent::PasteEvent(paste)).await.is_err(){
+                        if clard_event_sender.send(ClardEvent::PasteEvent(paste)).is_err(){
                             break;
                         }
                     }
