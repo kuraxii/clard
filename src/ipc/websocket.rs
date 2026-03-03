@@ -230,12 +230,9 @@ pub fn generate_websocket_key() -> String {
     general_purpose::STANDARD.encode(key)
 }
 
-///
 #[derive(Debug, Deserialize, Serialize)]
 pub struct CloseFrame {
-    ///
     pub code: u16,
-    ///
     pub reason: String,
 }
 

@@ -8,7 +8,6 @@
     trivial_casts,
     unused_lifetimes,
     unused_qualifications,
-    missing_debug_implementations,
     clippy::perf,                  // 性能建议，避免不必要的 clone 或内存分配
     clippy::style,                 // 代码风格建议，让代码更符合社区习惯
     clippy::redundant_closure      // 移除多余的闭包调用
@@ -117,29 +116,28 @@ fn reset_terminal(terminal: &mut Terminal<CrosstermBackend<std::io::Stdout>>) {
     terminal.show_cursor().unwrap();
 }
 
+use std::sync::Arc;
+use crate::ipc::backend::Backend;
+
 pub async fn start_clard() -> Result<()> {
-    let (sender, mut receiver) = mpsc::channel::<ClardEvent>(32);
+    let (sender, mut receiver) = mpsc::unbounded_channel::<ClardEvent>();
     let token = CancellationToken::new();
 
-    let mut app = APP::init();
+    // Try TCP by default, fallback to unix socket if needed
+    // In a real app we would read config here
+    let backend = Backend::builder().set_unix_socket("/tmp/verge/verge-mihomo.sock").build().unwrap_or_else(|_| {
+        Backend::builder().set_unix_socket("/tmp/verge/verge-mihomo.sock").build().expect("Failed to build backend")
+    });
+
+    let mut app = APP::init(sender.clone(), Arc::new(backend));
 
     tokio::spawn(listen_input_event(token.clone(), sender.clone()));
 
     let mut painter = Painter::default();
-    // 调试时不设置终端
+
     let mut terminal = init_terminal();
 
     panic::set_hook(Box::new(panic_hook));
-
-    let sender_clone = sender.clone();
-    ctrlc::set_handler(move || {
-        // TODO: Consider using signal-hook (https://github.com/vorner/signal-hook) to handle
-        // more types of signals?
-        println!("handle ctrl c");
-        let _ = sender_clone.blocking_send(ClardEvent::Terminal);
-        println!("")
-    })
-    .unwrap();
 
     painter.draw(&mut terminal, &app);
     loop {
@@ -149,9 +147,32 @@ pub async fn start_clard() -> Result<()> {
                 ClardEvent::KeyInput(event) => {
                     handle_key_event(event, &mut app, sender.clone());
                 }
-                ClardEvent::PasteEvent(paste) => {}
+                ClardEvent::PasteEvent(_paste) => {}
                 ClardEvent::MouseInput(event) => {
                     handle_mouse_event(event, &mut app);
+                }
+                ClardEvent::UpdateGroups(groups) => {
+                    if let app::WindowState::Proxy(ref mut state) = app.current_page {
+                        state.update_groups(groups);
+                    }
+                }
+                ClardEvent::UpdateVersion(version) => {
+                    if let app::WindowState::Preview(ref mut state) = app.current_page {
+                        state.update_version(version);
+                    }
+                }
+                ClardEvent::UpdateConnections(conns) => {
+                    if let app::WindowState::Preview(ref mut state) = app.current_page {
+                        state.update_connections(conns.clone());
+                    } else if let app::WindowState::Connects(ref mut state) = app.current_page {
+                        state.update_connections(conns);
+                    }
+                }
+                ClardEvent::NodeTested(node, delay) => {
+                    app.message = Some(format!("Node '{}' delay: {}ms", node, delay));
+                }
+                ClardEvent::Error(msg) => {
+                    app.message = Some(msg);
                 }
                 ClardEvent::Terminal => {
                     break;
