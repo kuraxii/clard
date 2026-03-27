@@ -294,9 +294,10 @@ impl Backend {
     /// 一般用于代理节点的延迟测试，也可传代理组名称（只会测试代理组下选中的代理节点）
     pub async fn delay_proxy_for_name(&self, proxy_name: &str, test_url: &str, timeout: u32) -> Result<u16> {
         let proxy_name_encode = urlencoding::encode(proxy_name);
-        let req = self.build_request(Method::GET, &format!("/proxies/{}/delay", proxy_name_encode))?
+        let req = self
+            .build_request(Method::GET, &format!("/proxies/{}/delay", proxy_name_encode))?
             .query(&[("url", test_url), ("timeout", &timeout.to_string())]);
-            
+
         let res = req.send().await?;
         if !res.status().is_success() {
             let err_msg = res.json::<ResponseError>().await.map_or_else(
@@ -305,12 +306,12 @@ impl Backend {
             );
             return Err(IpcError::ResponseError(err_msg));
         }
-        
+
         #[derive(serde::Deserialize)]
         struct DelayResp {
             delay: u16,
         }
-        
+
         let delay_res = res.json::<DelayResp>().await?;
         Ok(delay_res.delay)
     }
@@ -331,180 +332,156 @@ impl Backend {
 
     /// 获取所有规则提供者信息
     pub async fn get_rule_providers(&self) -> Result<RuleProviders> {
-        todo!();
-        // let client = self.build_request(Method::GET, "/providers/rules")?;
-        // let response = self.send_by_protocol(client).await?;
-        // if !response.status().is_success() {
-        //     let err_msg = response.json::<ErrorResponse>().await.map_or_else(
-        //         |e| format!("get all rule providers failed, {}", e),
-        //         |err_res| err_res.message.to_string(),
-        //     );
-        //     ret_failed_resp!("{}", err_msg);
-        // }
-        // Ok(response.json::<RuleProviders>().await?)
+        let req = self.build_request(Method::GET, "/providers/rules")?;
+        let res = req.send().await?;
+        if !res.status().is_success() {
+            let err_msg = res.json::<ResponseError>().await.map_or_else(
+                |msg| format!("get all rule providers failed: {msg}"),
+                |err| err.message.to_string(),
+            );
+            return Err(IpcError::ResponseError(err_msg));
+        }
+        Ok(res.json::<RuleProviders>().await?)
     }
 
     /// 更新规则提供者信息
-    pub async fn update_rule_provider(&self, _provider_name: &str) -> Result<()> {
-        todo!();
-        // let provider_name_encode = urlencoding::encode(provider_name);
-        // let client = self.build_request(Method::PUT, &format!("/providers/rules/{provider_name_encode}"))?;
-        // let response = self.send_by_protocol(client).await?;
-        // if !response.status().is_success() {
-        //     let err_msg = response.json::<ErrorResponse>().await.map_or_else(
-        //         |e| format!("update rule provider[{}] failed, {}", provider_name, e),
-        //         |err_res| err_res.message.to_string(),
-        //     );
-        //     ret_failed_resp!("{}", err_msg);
-        // }
-        // Ok(())
+    pub async fn update_rule_provider(&self, provider_name: &str) -> Result<()> {
+        let provider_name_encode = urlencoding::encode(provider_name);
+        let req = self.build_request(Method::PUT, &format!("/providers/rules/{provider_name_encode}"))?;
+        let res = req.send().await?;
+        if !res.status().is_success() {
+            let err_msg = res.json::<ResponseError>().await.map_or_else(
+                |msg| format!("update rule provider [{provider_name}] failed: {msg}"),
+                |err| err.message.to_string(),
+            );
+            return Err(IpcError::ResponseError(err_msg));
+        }
+        Ok(())
     }
 
     /// 获取基础配置
     pub async fn get_base_config(&self) -> Result<BaseConfig> {
-        todo!();
-        // let client = self.build_request(Method::GET, "/configs")?;
-        // let response = self.send_by_protocol(client).await?;
-        // if !response.status().is_success() {
-        //     let err_msg = response.json::<ErrorResponse>().await.map_or_else(
-        //         |e| format!("get base config failed, {}", e),
-        //         |err_res| err_res.message.to_string(),
-        //     );
-        //     ret_failed_resp!("{}", err_msg);
-        // }
-        // Ok(response.json::<BaseConfig>().await?)
+        let req = self.build_request(Method::GET, "/configs")?;
+        let res = req.send().await?;
+        if !res.status().is_success() {
+            let err_msg = res.json::<ResponseError>().await.map_or_else(
+                |msg| format!("get base config failed: {msg}"),
+                |err| err.message.to_string(),
+            );
+            return Err(IpcError::ResponseError(err_msg));
+        }
+        Ok(res.json::<BaseConfig>().await?)
     }
 
     /// 重新加载配置
-    pub async fn reload_config(&self, _force: bool, _config_path: &str) -> Result<()> {
-        todo!();
-        // let body = json!({ "path": config_path });
-        // let client = self
-        //     .build_request(Method::PUT, "/configs")?
-        //     .timeout(Duration::from_secs(60))
-        //     .query(&[("force", force)])
-        //     .json(&body);
-        // let response_result = self.send_by_protocol(client).await;
-        // if matches!(self.protocol, Protocol::LocalSocket)
-        //     && let Ok(pool) = IpcConnectionPool::global()
-        // {
-        //     pool.clear_pool().await;
-        // }
-        // let response = response_result?;
-        // if !response.status().is_success() {
-        //     let err_msg = response.json::<ErrorResponse>().await.map_or_else(
-        //         |e| format!("reload base config failed, {}", e),
-        //         |err_res| err_res.message.to_string(),
-        //     );
-        //     ret_failed_resp!("{}", err_msg);
-        // }
-        // Ok(())
+    pub async fn reload_config(&self, force: bool, config_path: &str) -> Result<()> {
+        let body = json!({ "path": config_path });
+        let req = self
+            .build_request(Method::PUT, "/configs")?
+            .query(&[("force", force)])
+            .json(&body);
+        let res = req.send().await?;
+        if !res.status().is_success() {
+            let err_msg = res.json::<ResponseError>().await.map_or_else(
+                |msg| format!("reload base config failed: {msg}"),
+                |err| err.message.to_string(),
+            );
+            return Err(IpcError::ResponseError(err_msg));
+        }
+        Ok(())
     }
 
     /// 更新基础配置
-    pub async fn patch_base_config<D: serde::Serialize + Clone + Sync>(&self, _data: &D) -> Result<()> {
-        todo!();
-        // let client = { self.build_request(Method::PATCH, "/configs")?.json(&data) };
-        // let response = { self.send_by_protocol(client).await? };
-        // if !response.status().is_success() {
-        //     let err_msg = response.json::<ErrorResponse>().await.map_or_else(
-        //         |e| format!("patch base config failed, {}", e),
-        //         |err_res| err_res.message.to_string(),
-        //     );
-        //     ret_failed_resp!("{}", err_msg);
-        // }
-        // Ok(())
+    pub async fn patch_base_config<D: serde::Serialize + Clone + Sync>(&self, data: &D) -> Result<()> {
+        let req = self.build_request(Method::PATCH, "/configs")?.json(data);
+        let res = req.send().await?;
+        if !res.status().is_success() {
+            let err_msg = res.json::<ResponseError>().await.map_or_else(
+                |msg| format!("patch base config failed: {msg}"),
+                |err| err.message.to_string(),
+            );
+            return Err(IpcError::ResponseError(err_msg));
+        }
+        Ok(())
     }
 
     /// 更新 Geo, 同 [`upgrade_geo`](crate::mihomo::Mihomo::upgrade_geo)
     pub async fn update_geo(&self) -> Result<()> {
-        todo!();
-        // let client = self
-        //     .build_request(Method::POST, "/configs/geo")?
-        //     .timeout(Duration::from_secs(60));
-        // let response = self.send_by_protocol(client).await?;
-        // if !response.status().is_success() {
-        //     let err_msg = response.json::<ErrorResponse>().await.map_or_else(
-        //         |e| format!("update geo database failed, {}", e),
-        //         |err_res| err_res.message.to_string(),
-        //     );
-        //     ret_failed_resp!("{}", err_msg);
-        // }
-        // Ok(())
+        let req = self.build_request(Method::POST, "/configs/geo")?;
+        let res = req.send().await?;
+        if !res.status().is_success() {
+            let err_msg = res.json::<ResponseError>().await.map_or_else(
+                |msg| format!("update geo database failed: {msg}"),
+                |err| err.message.to_string(),
+            );
+            return Err(IpcError::ResponseError(err_msg));
+        }
+        Ok(())
     }
 
     /// 重启核心
     pub async fn restart(&self) -> Result<()> {
-        todo!();
-        // let client = self.build_request(Method::POST, "/restart")?;
-        // let response = self.send_by_protocol(client).await?;
-        // if !response.status().is_success() {
-        //     let err_msg = response.json::<ErrorResponse>().await.map_or_else(
-        //         |e| format!("restart core failed, {}", e),
-        //         |err_res| err_res.message.to_string(),
-        //     );
-        //     ret_failed_resp!("{}", err_msg);
-        // }
-        // Ok(())
+        let req = self.build_request(Method::POST, "/restart")?;
+        let res = req.send().await?;
+        if !res.status().is_success() {
+            let err_msg = res.json::<ResponseError>().await.map_or_else(
+                |msg| format!("restart core failed: {msg}"),
+                |err| err.message.to_string(),
+            );
+            return Err(IpcError::ResponseError(err_msg));
+        }
+        Ok(())
     }
 
     /// 升级核心
-    pub async fn upgrade_core(&self, _channel: CoreUpdaterChannel, _force: bool) -> Result<()> {
-        todo!();
-        // let client = self
-        //     .build_request(Method::POST, "/upgrade")?
-        //     .timeout(Duration::from_secs(60))
-        //     .query(&[("channel", &channel.to_string()), ("force", &force.to_string())]);
-        // let response = self.send_by_protocol(client).await?;
-        // if !response.status().is_success() {
-        //     let err_msg = response.json::<ErrorResponse>().await.map_or_else(
-        //         |e| format!("upgrade core failed, {}", e),
-        //         |err_res| {
-        //             let msg = err_res.message;
-        //             if msg.to_lowercase().contains("already using latest version") {
-        //                 "already using latest version".to_string()
-        //             } else {
-        //                 msg.to_string()
-        //             }
-        //         },
-        //     );
-        //     ret_failed_resp!("{}", err_msg);
-        // }
-        // Ok(())
+    pub async fn upgrade_core(&self, channel: CoreUpdaterChannel, force: bool) -> Result<()> {
+        let req = self
+            .build_request(Method::POST, "/upgrade")?
+            .query(&[("channel", channel.to_string()), ("force", force.to_string())]);
+        let res = req.send().await?;
+        if !res.status().is_success() {
+            let err_msg = res.json::<ResponseError>().await.map_or_else(
+                |msg| format!("upgrade core failed: {msg}"),
+                |err| {
+                    let msg = err.message;
+                    if msg.to_lowercase().contains("already using latest version") {
+                        "already using latest version".to_string()
+                    } else {
+                        msg
+                    }
+                },
+            );
+            return Err(IpcError::ResponseError(err_msg));
+        }
+        Ok(())
     }
 
     /// 更新 UI
     pub async fn upgrade_ui(&self) -> Result<()> {
-        todo!();
-        // let client = self
-        //     .build_request(Method::POST, "/upgrade/ui")?
-        //     .timeout(Duration::from_secs(60));
-        // let response = self.send_by_protocol(client).await?;
-        // if !response.status().is_success() {
-        //     let err_msg = response.json::<ErrorResponse>().await.map_or_else(
-        //         |e| format!("upgrade ui failed, {}", e),
-        //         |err_res| err_res.message.to_string(),
-        //     );
-        //     ret_failed_resp!("{}", err_msg);
-        // }
-        // Ok(())
+        let req = self.build_request(Method::POST, "/upgrade/ui")?;
+        let res = req.send().await?;
+        if !res.status().is_success() {
+            let err_msg = res.json::<ResponseError>().await.map_or_else(
+                |msg| format!("upgrade ui failed: {msg}"),
+                |err| err.message.to_string(),
+            );
+            return Err(IpcError::ResponseError(err_msg));
+        }
+        Ok(())
     }
 
     /// 更新 Geo
     pub async fn upgrade_geo(&self) -> Result<()> {
-        todo!();
-        // let client = self
-        //     .build_request(Method::POST, "/upgrade/geo")?
-        //     .timeout(Duration::from_secs(60));
-        // let response = self.send_by_protocol(client).await?;
-        // if !response.status().is_success() {
-        //     let err_msg = response.json::<ErrorResponse>().await.map_or_else(
-        //         |e| format!("upgrade geo database failed, {}", e),
-        //         |err_res| err_res.message.to_string(),
-        //     );
-        //     ret_failed_resp!("{}", err_msg);
-        // }
-        // Ok(())
+        let req = self.build_request(Method::POST, "/upgrade/geo")?;
+        let res = req.send().await?;
+        if !res.status().is_success() {
+            let err_msg = res.json::<ResponseError>().await.map_or_else(
+                |msg| format!("upgrade geo database failed: {msg}"),
+                |err| err.message.to_string(),
+            );
+            return Err(IpcError::ResponseError(err_msg));
+        }
+        Ok(())
     }
 }
 
@@ -520,26 +497,136 @@ where
 #[cfg(test)]
 mod tests {
     use super::*;
-    fn backend() -> Result<Backend> {
-        Ok(Backend::builder()
-            .set_unix_socket("/tmp/verge/verge-mihomo.sock")
-            .build()?)
+    use serde_json::Value;
+    use tokio::io::{AsyncReadExt, AsyncWriteExt};
+    use tokio::net::TcpListener;
+
+    #[derive(Debug)]
+    struct CapturedRequest {
+        method: String,
+        path: String,
+        query: Option<String>,
+        body: String,
+    }
+
+    fn find_bytes(haystack: &[u8], needle: &[u8]) -> Option<usize> {
+        haystack.windows(needle.len()).position(|window| window == needle)
+    }
+
+    async fn spawn_mock_server(status: &str, body: &str) -> Result<(SocketAddr, tokio::task::JoinHandle<CapturedRequest>)> {
+        let listener = TcpListener::bind("127.0.0.1:0").await?;
+        let addr = listener.local_addr()?;
+        let response = format!(
+            "HTTP/1.1 {status}\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{body}",
+            body.len()
+        );
+
+        let handle = tokio::spawn(async move {
+            let (mut stream, _) = listener.accept().await.expect("accept failed");
+
+            let mut buf = Vec::new();
+            let mut tmp = [0u8; 1024];
+            let mut header_end = None;
+            let mut content_len = 0usize;
+
+            loop {
+                let n = stream.read(&mut tmp).await.expect("read failed");
+                if n == 0 {
+                    break;
+                }
+                buf.extend_from_slice(&tmp[..n]);
+
+                if header_end.is_none()
+                    && let Some(pos) = find_bytes(&buf, b"\r\n\r\n")
+                {
+                    header_end = Some(pos + 4);
+                    let head = String::from_utf8_lossy(&buf[..pos]);
+                    for line in head.lines() {
+                        if let Some((name, value)) = line.split_once(':')
+                            && name.trim().eq_ignore_ascii_case("content-length")
+                        {
+                            content_len = value.trim().parse::<usize>().unwrap_or(0);
+                        }
+                    }
+                }
+
+                if let Some(end) = header_end
+                    && buf.len() >= end + content_len
+                {
+                    break;
+                }
+            }
+
+            let end = header_end.expect("header end not found");
+            let head = String::from_utf8_lossy(&buf[..end - 4]);
+            let mut lines = head.lines();
+            let req_line = lines.next().expect("missing request line");
+            let mut parts = req_line.split_whitespace();
+            let method = parts.next().unwrap_or_default().to_string();
+            let uri = parts.next().unwrap_or_default();
+            let (path, query) = match uri.split_once('?') {
+                Some((p, q)) => (p.to_string(), Some(q.to_string())),
+                None => (uri.to_string(), None),
+            };
+            let body_text = String::from_utf8_lossy(&buf[end..]).to_string();
+
+            stream
+                .write_all(response.as_bytes())
+                .await
+                .expect("write response failed");
+
+            CapturedRequest {
+                method,
+                path,
+                query,
+                body: body_text,
+            }
+        });
+
+        Ok((addr, handle))
+    }
+
+    fn backend_tcp(addr: SocketAddr) -> Result<Backend> {
+        Backend::builder().set_tcp_addr(&addr.to_string()).build()
+    }
+
+    async fn mock_backend_ok() -> Result<(Backend, tokio::task::JoinHandle<CapturedRequest>)> {
+        let (addr, handle) = spawn_mock_server("200 OK", "{}").await?;
+        Ok((backend_tcp(addr)?, handle))
+    }
+
+    async fn wait_request(handle: tokio::task::JoinHandle<CapturedRequest>) -> CapturedRequest {
+        handle.await.expect("mock server task failed")
+    }
+
+    fn assert_method_path(req: &CapturedRequest, method: &str, path: &str) {
+        assert_eq!(req.method, method);
+        assert_eq!(req.path, path);
+    }
+
+    fn assert_response_error<T>(result: Result<T>, expected: &str) {
+        assert!(matches!(result, Err(IpcError::ResponseError(msg)) if msg == expected));
     }
 
     #[test]
     fn build_backend() -> Result<()> {
-        let _ = backend();
+        let _ = Backend::builder().set_tcp_addr("127.0.0.1:9090").build()?;
         Ok(())
     }
 
     #[tokio::test]
     async fn test_get_version() -> Result<()> {
-        let backend = backend()?;
+        let (addr, handle) = spawn_mock_server("200 OK", r#"{"meta":false,"version":"1.0.0"}"#).await?;
+        let backend = backend_tcp(addr)?;
         let result = backend.get_version().await;
 
         assert!(result.is_ok());
-        let version = result.unwrap();
-        println!("version: {:?}", version);
+        let version = result?;
+        assert_eq!(version.version, "1.0.0");
+        assert!(!version.meta);
+
+        let req = wait_request(handle).await;
+        assert_method_path(&req, "GET", "/version");
         Ok(())
     }
 
@@ -558,89 +645,390 @@ mod tests {
 
     #[tokio::test]
     async fn flush_fakeip() -> Result<()> {
-        let backend = backend()?;
+        let (backend, handle) = mock_backend_ok().await?;
         let result = backend.flush_fakeip().await;
         assert!(result.is_ok());
+
+        let req = wait_request(handle).await;
+        assert_method_path(&req, "POST", "/cache/fakeip/flush");
+
         Ok(())
     }
 
     #[tokio::test]
     async fn flush_dns() -> Result<()> {
-        let backend = backend()?;
+        let (backend, handle) = mock_backend_ok().await?;
         let result = backend.flush_dns().await;
 
         assert!(result.is_ok());
+
+        let req = wait_request(handle).await;
+        assert_method_path(&req, "POST", "/cache/dns/flush");
+
         Ok(())
     }
 
     #[tokio::test]
     async fn get_connections() -> Result<()> {
-        let backend = backend()?;
+        let (addr, handle) =
+            spawn_mock_server("200 OK", r#"{"downloadTotal":1,"uploadTotal":2,"connections":[],"memory":3}"#).await?;
+        let backend = backend_tcp(addr)?;
         let result = backend.get_connections().await;
 
         assert!(result.is_ok());
-        println!("connects: {:?}", result.unwrap());
+        let conns = result?;
+        assert_eq!(conns.download_total, 1);
+        assert_eq!(conns.upload_total, 2);
+        assert_eq!(conns.memory, 3);
+
+        let req = wait_request(handle).await;
+        assert_method_path(&req, "GET", "/connections");
 
         Ok(())
     }
 
     #[tokio::test]
     async fn close_all_connections() -> Result<()> {
-        let backend = backend()?;
+        let (backend, handle) = mock_backend_ok().await?;
         let result = backend.close_all_connections().await;
 
         assert!(result.is_ok());
+
+        let req = wait_request(handle).await;
+        assert_method_path(&req, "DELETE", "/connections");
+
         Ok(())
     }
 
     #[tokio::test]
     async fn get_groups() -> Result<()> {
-        let backend = backend()?;
+        let (addr, handle) = spawn_mock_server("200 OK", r#"{"proxies":[]}"#).await?;
+        let backend = backend_tcp(addr)?;
         let result = backend.get_groups().await;
 
         assert!(result.is_ok());
-        println!("group: {:?}", result.unwrap());
+        let groups = result?;
+        assert!(groups.proxies.is_empty());
+
+        let req = wait_request(handle).await;
+        assert_method_path(&req, "GET", "/group");
 
         Ok(())
     }
 
     #[tokio::test]
     async fn get_group_by_name() -> Result<()> {
-        let backend = backend()?;
-        let result = backend.get_group_by_name("🔰 选择节点").await;
+        let body = r#"{"alive":true,"history":[],"extra":{},"name":"test-group","udp":true,"uot":false,"type":"Selector","xudp":false,"tfo":false,"mptcp":false,"smux":false,"interface":"","dialer-proxy":"","routing-mark":0}"#;
+        let (addr, handle) = spawn_mock_server("200 OK", body).await?;
+        let backend = backend_tcp(addr)?;
+        let result = backend.get_group_by_name("test-group").await;
 
         assert!(result.is_ok());
-        println!("group: {:?}", result.unwrap());
+        let group = result?;
+        assert_eq!(group.name, "test-group");
+
+        let req = wait_request(handle).await;
+        assert_method_path(&req, "GET", "/group/test-group");
 
         Ok(())
     }
 
     #[tokio::test]
     async fn select_node_for_group() -> Result<()> {
-        let backend = backend()?;
-        let group = backend.get_group_by_name("📺 动画疯").await.unwrap();
-        let now = group.now.unwrap();
-        let new = group
-            .all
-            .iter()
-            .flat_map(|v| v.iter())
-            .find(|value| **value != now)
-            .unwrap()
-            .clone();
-        println!("now: {}, new:{}", now, new);
-        let result = backend.select_node_for_group("📺 动画疯", &new).await;
+        let (backend, handle) = mock_backend_ok().await?;
+        let result = backend.select_node_for_group("group a/b", "node-1").await;
         assert!(result.is_ok());
+
+        let req = wait_request(handle).await;
+        assert_method_path(&req, "PUT", "/proxies/group%20a%2Fb");
+        let body: Value = serde_json::from_str(&req.body)?;
+        assert_eq!(body["name"], "node-1");
+
         Ok(())
     }
 
     #[tokio::test]
     async fn get_rules() -> Result<()> {
-        let backend = backend()?;
+        let (addr, handle) = spawn_mock_server("200 OK", r#"{"rules":[]}"#).await?;
+        let backend = backend_tcp(addr)?;
         let result = backend.get_rules().await;
 
         assert!(result.is_ok());
+        let rules = result?;
+        assert!(rules.rules.is_empty());
 
-        println!("reules: {}", serde_json::to_string(&result.unwrap()).unwrap());
+        let req = wait_request(handle).await;
+        assert_method_path(&req, "GET", "/rules");
+
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn test_get_rule_providers() -> Result<()> {
+        let (addr, handle) = spawn_mock_server("200 OK", r#"{"providers":{}}"#).await?;
+        let backend = backend_tcp(addr)?;
+
+        let result = backend.get_rule_providers().await;
+        assert!(result.is_ok());
+
+        let req = wait_request(handle).await;
+        assert_method_path(&req, "GET", "/providers/rules");
+        assert!(req.query.is_none());
+
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn test_get_rule_providers_error_path() -> Result<()> {
+        let (addr, _handle) =
+            spawn_mock_server("500 Internal Server Error", r#"{"message":"providers failed"}"#).await?;
+        let backend = backend_tcp(addr)?;
+
+        let result = backend.get_rule_providers().await;
+        assert_response_error(result, "providers failed");
+
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn test_update_rule_provider() -> Result<()> {
+        let (backend, handle) = mock_backend_ok().await?;
+
+        let result = backend.update_rule_provider("my-provider").await;
+        assert!(result.is_ok());
+
+        let req = wait_request(handle).await;
+        assert_method_path(&req, "PUT", "/providers/rules/my-provider");
+
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn test_update_rule_provider_error_path() -> Result<()> {
+        let (addr, _handle) =
+            spawn_mock_server("500 Internal Server Error", r#"{"message":"update provider failed"}"#).await?;
+        let backend = backend_tcp(addr)?;
+
+        let result = backend.update_rule_provider("my-provider").await;
+        assert_response_error(result, "update provider failed");
+
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn test_get_base_config_error_path() -> Result<()> {
+        let (addr, _handle) = spawn_mock_server("500 Internal Server Error", r#"{"message":"cfg failed"}"#).await?;
+        let backend = backend_tcp(addr)?;
+
+        let result = backend.get_base_config().await;
+        assert_response_error(result, "cfg failed");
+
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn test_reload_config() -> Result<()> {
+        let (backend, handle) = mock_backend_ok().await?;
+
+        let result = backend.reload_config(true, "/etc/mihomo/config.yaml").await;
+        assert!(result.is_ok());
+
+        let req = wait_request(handle).await;
+        assert_method_path(&req, "PUT", "/configs");
+        assert!(req.query.as_deref().unwrap_or_default().contains("force=true"));
+        let body: Value = serde_json::from_str(&req.body)?;
+        assert_eq!(body["path"], "/etc/mihomo/config.yaml");
+
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn test_reload_config_error_path() -> Result<()> {
+        let (addr, _handle) =
+            spawn_mock_server("500 Internal Server Error", r#"{"message":"reload failed"}"#).await?;
+        let backend = backend_tcp(addr)?;
+
+        let result = backend.reload_config(true, "/etc/mihomo/config.yaml").await;
+        assert_response_error(result, "reload failed");
+
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn test_patch_base_config() -> Result<()> {
+        let (backend, handle) = mock_backend_ok().await?;
+        let payload = serde_json::json!({"mode": "rule", "allow-lan": true});
+
+        let result = backend.patch_base_config(&payload).await;
+        assert!(result.is_ok());
+
+        let req = wait_request(handle).await;
+        assert_method_path(&req, "PATCH", "/configs");
+        let body: Value = serde_json::from_str(&req.body)?;
+        assert_eq!(body["mode"], "rule");
+        assert_eq!(body["allow-lan"], true);
+
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn test_patch_base_config_error_path() -> Result<()> {
+        let (addr, _handle) =
+            spawn_mock_server("500 Internal Server Error", r#"{"message":"patch failed"}"#).await?;
+        let backend = backend_tcp(addr)?;
+        let payload = serde_json::json!({"mode": "rule"});
+
+        let result = backend.patch_base_config(&payload).await;
+        assert_response_error(result, "patch failed");
+
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn test_update_geo() -> Result<()> {
+        let (backend, handle) = mock_backend_ok().await?;
+
+        let result = backend.update_geo().await;
+        assert!(result.is_ok());
+
+        let req = wait_request(handle).await;
+        assert_method_path(&req, "POST", "/configs/geo");
+
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn test_update_geo_error_path() -> Result<()> {
+        let (addr, _handle) =
+            spawn_mock_server("500 Internal Server Error", r#"{"message":"update geo failed"}"#).await?;
+        let backend = backend_tcp(addr)?;
+
+        let result = backend.update_geo().await;
+        assert_response_error(result, "update geo failed");
+
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn test_restart() -> Result<()> {
+        let (backend, handle) = mock_backend_ok().await?;
+
+        let result = backend.restart().await;
+        assert!(result.is_ok());
+
+        let req = wait_request(handle).await;
+        assert_method_path(&req, "POST", "/restart");
+
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn test_restart_error_path() -> Result<()> {
+        let (addr, _handle) =
+            spawn_mock_server("500 Internal Server Error", r#"{"message":"restart failed"}"#).await?;
+        let backend = backend_tcp(addr)?;
+
+        let result = backend.restart().await;
+        assert_response_error(result, "restart failed");
+
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn test_upgrade_core() -> Result<()> {
+        let (backend, handle) = mock_backend_ok().await?;
+
+        let result = backend
+            .upgrade_core(CoreUpdaterChannel::ReleaseChannel, true)
+            .await;
+        assert!(result.is_ok());
+
+        let req = wait_request(handle).await;
+        assert_method_path(&req, "POST", "/upgrade");
+        let query = req.query.unwrap_or_default();
+        assert!(query.contains("channel=release"));
+        assert!(query.contains("force=true"));
+
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn test_upgrade_core_error_path() -> Result<()> {
+        let (addr, _handle) =
+            spawn_mock_server("500 Internal Server Error", r#"{"message":"upgrade core failed"}"#).await?;
+        let backend = backend_tcp(addr)?;
+
+        let result = backend
+            .upgrade_core(CoreUpdaterChannel::ReleaseChannel, true)
+            .await;
+        assert_response_error(result, "upgrade core failed");
+
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn test_upgrade_core_latest_version_message_normalized() -> Result<()> {
+        let (addr, _handle) = spawn_mock_server(
+            "500 Internal Server Error",
+            r#"{"message":"Already using latest version v1.2.3"}"#,
+        )
+        .await?;
+        let backend = backend_tcp(addr)?;
+
+        let result = backend
+            .upgrade_core(CoreUpdaterChannel::ReleaseChannel, true)
+            .await;
+        assert_response_error(result, "already using latest version");
+
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn test_upgrade_ui() -> Result<()> {
+        let (backend, handle) = mock_backend_ok().await?;
+
+        let result = backend.upgrade_ui().await;
+        assert!(result.is_ok());
+
+        let req = wait_request(handle).await;
+        assert_method_path(&req, "POST", "/upgrade/ui");
+
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn test_upgrade_ui_error_path() -> Result<()> {
+        let (addr, _handle) =
+            spawn_mock_server("500 Internal Server Error", r#"{"message":"upgrade ui failed"}"#).await?;
+        let backend = backend_tcp(addr)?;
+
+        let result = backend.upgrade_ui().await;
+        assert_response_error(result, "upgrade ui failed");
+
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn test_upgrade_geo() -> Result<()> {
+        let (backend, handle) = mock_backend_ok().await?;
+
+        let result = backend.upgrade_geo().await;
+        assert!(result.is_ok());
+
+        let req = wait_request(handle).await;
+        assert_method_path(&req, "POST", "/upgrade/geo");
+
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn test_upgrade_geo_error_path() -> Result<()> {
+        let (addr, _handle) =
+            spawn_mock_server("500 Internal Server Error", r#"{"message":"upgrade geo failed"}"#).await?;
+        let backend = backend_tcp(addr)?;
+
+        let result = backend.upgrade_geo().await;
+        assert_response_error(result, "upgrade geo failed");
 
         Ok(())
     }
