@@ -35,12 +35,7 @@ impl MenuState {
     }
 
     pub fn on_char(&self, char: char, event_sender: UnboundedSender<ClardEvent>) {
-        match char {
-            'q' => {
-                let _ = event_sender.send(ClardEvent::Terminal);
-            }
-            _ => {}
-        }
+        let _ = (char, event_sender);
     }
 }
 
@@ -98,4 +93,3 @@ impl MenuItem {
         }
     }
 }
-

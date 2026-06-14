@@ -135,7 +135,7 @@ impl Backend {
         Ok((ui_rx, ctrl_tx))
     }
 
-    /// clash 业务实现
+    // clash 业务实现
 
     /// 获取后端版本
     pub async fn get_version(&self) -> Result<BackendVersion> {
@@ -318,13 +318,13 @@ impl Backend {
 
     /// 获取所有的规则信息
     pub async fn get_rules(&self) -> Result<Rules> {
-        let req = self.build_request(Method::GET, &format!("/rules"))?;
+        let req = self.build_request(Method::GET, "/rules")?;
         let res = req.send().await?;
         if !res.status().is_success() {
             let err_msg = res
                 .json::<ResponseError>()
                 .await
-                .map_or_else(|msg| format!("Get groups failed: {msg}"), |err| err.message.to_string());
+                .map_or_else(|msg| format!("get rules failed: {msg}"), |err| err.message.to_string());
             return Err(IpcError::ResponseError(err_msg));
         }
         Ok(res.json::<Rules>().await?)
@@ -461,10 +461,10 @@ impl Backend {
         let req = self.build_request(Method::POST, "/upgrade/ui")?;
         let res = req.send().await?;
         if !res.status().is_success() {
-            let err_msg = res.json::<ResponseError>().await.map_or_else(
-                |msg| format!("upgrade ui failed: {msg}"),
-                |err| err.message.to_string(),
-            );
+            let err_msg = res
+                .json::<ResponseError>()
+                .await
+                .map_or_else(|msg| format!("upgrade ui failed: {msg}"), |err| err.message.to_string());
             return Err(IpcError::ResponseError(err_msg));
         }
         Ok(())
@@ -513,7 +513,10 @@ mod tests {
         haystack.windows(needle.len()).position(|window| window == needle)
     }
 
-    async fn spawn_mock_server(status: &str, body: &str) -> Result<(SocketAddr, tokio::task::JoinHandle<CapturedRequest>)> {
+    async fn spawn_mock_server(
+        status: &str,
+        body: &str,
+    ) -> Result<(SocketAddr, tokio::task::JoinHandle<CapturedRequest>)> {
         let listener = TcpListener::bind("127.0.0.1:0").await?;
         let addr = listener.local_addr()?;
         let response = format!(
@@ -670,8 +673,11 @@ mod tests {
 
     #[tokio::test]
     async fn get_connections() -> Result<()> {
-        let (addr, handle) =
-            spawn_mock_server("200 OK", r#"{"downloadTotal":1,"uploadTotal":2,"connections":[],"memory":3}"#).await?;
+        let (addr, handle) = spawn_mock_server(
+            "200 OK",
+            r#"{"downloadTotal":1,"uploadTotal":2,"connections":[],"memory":3}"#,
+        )
+        .await?;
         let backend = backend_tcp(addr)?;
         let result = backend.get_connections().await;
 
@@ -844,8 +850,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_reload_config_error_path() -> Result<()> {
-        let (addr, _handle) =
-            spawn_mock_server("500 Internal Server Error", r#"{"message":"reload failed"}"#).await?;
+        let (addr, _handle) = spawn_mock_server("500 Internal Server Error", r#"{"message":"reload failed"}"#).await?;
         let backend = backend_tcp(addr)?;
 
         let result = backend.reload_config(true, "/etc/mihomo/config.yaml").await;
@@ -873,8 +878,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_patch_base_config_error_path() -> Result<()> {
-        let (addr, _handle) =
-            spawn_mock_server("500 Internal Server Error", r#"{"message":"patch failed"}"#).await?;
+        let (addr, _handle) = spawn_mock_server("500 Internal Server Error", r#"{"message":"patch failed"}"#).await?;
         let backend = backend_tcp(addr)?;
         let payload = serde_json::json!({"mode": "rule"});
 
@@ -924,8 +928,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_restart_error_path() -> Result<()> {
-        let (addr, _handle) =
-            spawn_mock_server("500 Internal Server Error", r#"{"message":"restart failed"}"#).await?;
+        let (addr, _handle) = spawn_mock_server("500 Internal Server Error", r#"{"message":"restart failed"}"#).await?;
         let backend = backend_tcp(addr)?;
 
         let result = backend.restart().await;
@@ -938,9 +941,7 @@ mod tests {
     async fn test_upgrade_core() -> Result<()> {
         let (backend, handle) = mock_backend_ok().await?;
 
-        let result = backend
-            .upgrade_core(CoreUpdaterChannel::ReleaseChannel, true)
-            .await;
+        let result = backend.upgrade_core(CoreUpdaterChannel::ReleaseChannel, true).await;
         assert!(result.is_ok());
 
         let req = wait_request(handle).await;
@@ -958,9 +959,7 @@ mod tests {
             spawn_mock_server("500 Internal Server Error", r#"{"message":"upgrade core failed"}"#).await?;
         let backend = backend_tcp(addr)?;
 
-        let result = backend
-            .upgrade_core(CoreUpdaterChannel::ReleaseChannel, true)
-            .await;
+        let result = backend.upgrade_core(CoreUpdaterChannel::ReleaseChannel, true).await;
         assert_response_error(result, "upgrade core failed");
 
         Ok(())
@@ -975,9 +974,7 @@ mod tests {
         .await?;
         let backend = backend_tcp(addr)?;
 
-        let result = backend
-            .upgrade_core(CoreUpdaterChannel::ReleaseChannel, true)
-            .await;
+        let result = backend.upgrade_core(CoreUpdaterChannel::ReleaseChannel, true).await;
         assert_response_error(result, "already using latest version");
 
         Ok(())

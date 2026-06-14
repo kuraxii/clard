@@ -693,7 +693,7 @@ mod tests {
     #[test]
     fn test_parse_full_groups() {
         let json = r#"{"proxies": []}"#;
-        let groups: Result<Groups, _> = serde_json::from_str(&json);
+        let groups: Result<Groups, _> = serde_json::from_str(json);
         match groups {
             Ok(_) => println!("Groups parsed successfully"),
             Err(e) => panic!("Failed to parse groups: {:?}", e),

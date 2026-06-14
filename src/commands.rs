@@ -1,5 +1,3 @@
-
-
 /// ClardRs Configuration Filename
 pub const CONFIG_FILE: &str = "~/.config/clard-rs/clard-rs.toml";
 
@@ -29,9 +27,6 @@ pub struct Cli {
     #[arg(long)]
     pub tui: bool,
 }
-
-/// 加载配置文件
-/// 优先采用命令行参数中的配置路径，其次使用默认配置路径
 
 // fn config_path(&self) -> Option<PathBuf> {
 //     let filename = self

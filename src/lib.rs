@@ -25,6 +25,7 @@ pub mod ipc;
 use std::{
     io::stdout,
     panic::{self, PanicHookInfo},
+    path::Path,
 };
 
 use app::APP;
@@ -82,9 +83,9 @@ pub fn reset_stdout() {
     );
 }
 
-fn init_terminal() -> Terminal<CrosstermBackend<std::io::Stdout>> {
+fn init_terminal() -> Result<Terminal<CrosstermBackend<std::io::Stdout>>> {
     // 原始模式 原样捕捉所有的按键事件
-    enable_raw_mode().unwrap();
+    enable_raw_mode()?;
     let mut stdout = stdout();
     execute!(
         stdout,
@@ -92,50 +93,75 @@ fn init_terminal() -> Terminal<CrosstermBackend<std::io::Stdout>> {
         EnterAlternateScreen,
         EnableMouseCapture,
         EnableBracketedPaste
-    )
-    .unwrap();
+    )?;
 
     let backend = CrosstermBackend::new(stdout);
-    let mut terminal = Terminal::new(backend).unwrap();
-    terminal.clear().unwrap();
-    terminal.hide_cursor().unwrap();
-    terminal
+    let mut terminal = Terminal::new(backend)?;
+    terminal.clear()?;
+    terminal.hide_cursor()?;
+    Ok(terminal)
 }
 
 /// 还原终端
-fn reset_terminal(terminal: &mut Terminal<CrosstermBackend<std::io::Stdout>>) {
-    disable_raw_mode().unwrap();
+fn reset_terminal(terminal: &mut Terminal<CrosstermBackend<std::io::Stdout>>) -> Result<()> {
+    disable_raw_mode()?;
     execute!(
         terminal.backend_mut(),
         DisableMouseCapture,
         DisableBracketedPaste,
         LeaveAlternateScreen,
         Show
-    )
-    .unwrap();
-    terminal.show_cursor().unwrap();
+    )?;
+    terminal.show_cursor()?;
+    Ok(())
 }
 
 use std::sync::Arc;
+
 use crate::ipc::backend::Backend;
+
+const DEFAULT_UNIX_SOCKET: &str = "/tmp/verge/verge-mihomo.sock";
+const DEFAULT_TCP_ADDR: &str = "127.0.0.1:9090";
+
+fn default_backend() -> Result<Backend> {
+    let backend = if Path::new(DEFAULT_UNIX_SOCKET).exists() {
+        Backend::builder().set_unix_socket(DEFAULT_UNIX_SOCKET).build()?
+    } else {
+        Backend::builder().set_tcp_addr(DEFAULT_TCP_ADDR).build()?
+    };
+
+    Ok(backend)
+}
 
 pub async fn start_clard() -> Result<()> {
     let (sender, mut receiver) = mpsc::unbounded_channel::<ClardEvent>();
     let token = CancellationToken::new();
 
-    // Try TCP by default, fallback to unix socket if needed
-    // In a real app we would read config here
-    let backend = Backend::builder().set_unix_socket("/tmp/verge/verge-mihomo.sock").build().unwrap_or_else(|_| {
-        Backend::builder().set_unix_socket("/tmp/verge/verge-mihomo.sock").build().expect("Failed to build backend")
-    });
+    // In a real app we would read config here. For now, prefer the Verge socket
+    // when it exists and otherwise use the common mihomo external controller port.
+    let backend = default_backend()?;
 
-    let mut app = APP::init(sender.clone(), Arc::new(backend));
+    let mut app = APP::init(sender.clone(), Arc::new(backend.clone()));
 
     tokio::spawn(listen_input_event(token.clone(), sender.clone()));
 
-    let mut painter = Painter::default();
+    // Subscribe to traffic real-time updates
+    let traffic_url = reqwest::Url::parse(&ipc::websocket::get_websocket_url("traffic")).unwrap();
+    if let Ok((mut traffic_rx, ctrl_tx)) = backend.subscribe::<ipc::models::Traffic>(traffic_url).await {
+        let sender_clone = sender.clone();
+        tokio::spawn(async move {
+            let _ctrl_tx = ctrl_tx;
+            while let Some(traffic) = traffic_rx.recv().await {
+                if sender_clone.send(ClardEvent::UpdateTraffic(traffic)).is_err() {
+                    break;
+                }
+            }
+        });
+    }
 
-    let mut terminal = init_terminal();
+    let mut painter = Painter;
+
+    let mut terminal = init_terminal()?;
 
     panic::set_hook(Box::new(panic_hook));
 
@@ -161,6 +187,11 @@ pub async fn start_clard() -> Result<()> {
                         state.update_version(version);
                     }
                 }
+                ClardEvent::PreviewIpInfoUpdated(direct_ip, proxy_ip) => {
+                    if let app::WindowState::Preview(ref mut state) = app.current_page {
+                        state.update_ip_info(direct_ip, proxy_ip);
+                    }
+                }
                 ClardEvent::UpdateConnections(conns) => {
                     if let app::WindowState::Preview(ref mut state) = app.current_page {
                         state.update_connections(conns.clone());
@@ -168,8 +199,39 @@ pub async fn start_clard() -> Result<()> {
                         state.update_connections(conns);
                     }
                 }
+                ClardEvent::UpdateRules(rules) => {
+                    if let app::WindowState::Rules(ref mut state) = app.current_page {
+                        state.update_rules(rules.rules);
+                    }
+                }
+                ClardEvent::UpdateTraffic(traffic) => {
+                    if let app::WindowState::Preview(ref mut state) = app.current_page {
+                        state.update_traffic(traffic);
+                    }
+                }
                 ClardEvent::NodeTested(node, delay) => {
                     app.message = Some(format!("Node '{}' delay: {}ms", node, delay));
+                    if let app::WindowState::NetTest(ref mut state) = app.current_page {
+                        state.update_node_latency(&node, delay);
+                        state.finish_testing_if_complete();
+                    }
+                }
+                ClardEvent::NetTestNodesReady(nodes) => {
+                    if let app::WindowState::NetTest(ref mut state) = app.current_page {
+                        state.set_nodes(nodes);
+                    }
+                }
+                ClardEvent::NetTestError(node, err) => {
+                    if let app::WindowState::NetTest(ref mut state) = app.current_page {
+                        state.update_node_error(&node, err);
+                        state.finish_testing_if_complete();
+                    }
+                }
+                ClardEvent::AnalysisResultUpdated(result) => {
+                    if let app::WindowState::NetTest(ref mut state) = app.current_page {
+                        state.analysis_result = *result;
+                        state.analysis_testing = false;
+                    }
                 }
                 ClardEvent::Error(msg) => {
                     app.message = Some(msg);
@@ -185,6 +247,6 @@ pub async fn start_clard() -> Result<()> {
     // 退出循环 取消所有异步操作
     token.cancel();
 
-    reset_terminal(&mut terminal);
+    reset_terminal(&mut terminal)?;
     Ok(())
 }

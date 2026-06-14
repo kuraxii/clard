@@ -14,10 +14,13 @@ async fn main() -> Result<()> {
     let cli = Cli::parse();
 
     // --tui 优先
-    if !cli.tui && cli.cmd.is_some() {
-        match cli.cmd.unwrap() {
-            ClardRsCmd::Test(name) => println!("Test! {:?}", name),
-        }
+    if !cli.tui {
+        match cli.cmd {
+            Some(cmd) => match cmd {
+                ClardRsCmd::Test(name) => println!("Test! {:?}", name),
+            },
+            None => start_clard().await?,
+        };
     } else {
         start_clard().await?
     }

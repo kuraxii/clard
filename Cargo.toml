@@ -5,6 +5,10 @@ version = "0.1.0"
 edition = "2024"
 rust-version = "1.85.0"
 
+[[example]]
+name = "key_event_test"
+path = "examples/key_event_test.rs"
+
 [dependencies]
 clap = { version = "4", features = ["derive"] }
 serde = { version = "1", features = ["serde_derive"] }
@@ -22,7 +26,7 @@ tokio = { version = "1", features = [
 ] }
 tokio-tungstenite = "0.28.0"
 bytes = "1"
-reqwest = { version = "0.12.25", features = ["json", "blocking"] }
+reqwest = { version = "0.12.25", features = ["json", "blocking", "socks", "native-tls-vendored"] }
 colored = "3.0.0"
 ratatui = "0.29.0"
 futures-util = "0.3.31"
@@ -42,4 +46,3 @@ ctrlc = "3.5.1"
 [dev-dependencies]
 
 once_cell = "1.2"
-

@@ -1,10 +1,11 @@
-use ratatui::widgets::ListState;
-use crate::ipc::models::{Connections, Connection};
+use ratatui::widgets::TableState;
+
+use crate::ipc::models::{Connection, Connections};
 
 #[derive(Debug)]
 pub struct ConnectionsState {
     pub connections_data: Option<Connections>,
-    pub list_state: ListState,
+    pub list_state: TableState,
     pub connections: Vec<Connection>,
 }
 
@@ -12,7 +13,7 @@ impl ConnectionsState {
     pub fn new() -> Self {
         Self {
             connections_data: None,
-            list_state: ListState::default(),
+            list_state: TableState::default(),
             connections: Vec::new(),
         }
     }
@@ -38,7 +39,11 @@ impl ConnectionsState {
         if !self.connections.is_empty() {
             let i = match self.list_state.selected() {
                 Some(i) => {
-                    if i >= self.connections.len() - 1 { 0 } else { i + 1 }
+                    if i >= self.connections.len() - 1 {
+                        0
+                    } else {
+                        i + 1
+                    }
                 }
                 None => 0,
             };
@@ -50,11 +55,21 @@ impl ConnectionsState {
         if !self.connections.is_empty() {
             let i = match self.list_state.selected() {
                 Some(i) => {
-                    if i == 0 { self.connections.len() - 1 } else { i - 1 }
+                    if i == 0 {
+                        self.connections.len() - 1
+                    } else {
+                        i - 1
+                    }
                 }
                 None => 0,
             };
             self.list_state.select(Some(i));
         }
+    }
+}
+
+impl Default for ConnectionsState {
+    fn default() -> Self {
+        Self::new()
     }
 }

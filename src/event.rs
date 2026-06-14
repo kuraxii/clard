@@ -16,7 +16,13 @@ pub enum ClardEvent {
     UpdateGroups(crate::ipc::models::Groups),
     UpdateVersion(crate::ipc::models::BackendVersion),
     UpdateConnections(crate::ipc::models::Connections),
+    UpdateRules(crate::ipc::models::Rules),
+    UpdateTraffic(crate::ipc::models::Traffic),
     NodeTested(String, u16),
+    NetTestNodesReady(Vec<String>),
+    NetTestError(String, String),
+    AnalysisResultUpdated(Box<crate::app::checker::AnalysisResult>),
+    PreviewIpInfoUpdated(Option<crate::app::checker::IPInfo>, Option<crate::app::checker::IPInfo>),
     Error(String),
 }
 
@@ -64,7 +70,10 @@ pub fn handle_mouse_event(event: MouseEvent, _app: &mut APP) {
 }
 
 /// 监听输入事件  按键、鼠标、粘贴
-pub async fn listen_input_event(cancel_token: CancellationToken, clard_event_sender: mpsc::UnboundedSender<ClardEvent>) {
+pub async fn listen_input_event(
+    cancel_token: CancellationToken,
+    clard_event_sender: mpsc::UnboundedSender<ClardEvent>,
+) {
     let mut reader = EventStream::new();
     let mut mouse_timer = Instant::now();
 

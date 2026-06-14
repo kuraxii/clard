@@ -13,6 +13,9 @@ pub enum ClardError {
     #[error("Json : {0}")]
     Json(#[from] serde_json::Error),
 
+    #[error("IO错误 : {0}")]
+    Io(#[from] std::io::Error),
+
     #[error("IPC Failed: {0}")]
     Ipc(#[from] IpcError),
 

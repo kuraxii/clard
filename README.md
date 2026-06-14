@@ -1,18 +1,6 @@
 # Clard
 
-Clard is an application.
-
-## Getting Started
-
-This application is authored using [Abscissa], a Rust application framework.
-
-For more information, see:
-
-[Documentation]
-
-[Abscissa]: https://github.com/iqlusioninc/abscissa
-[Documentation]: https://docs.rs/abscissa_core/
-
+Clard is a terminal UI client for managing mihomo/Clash-compatible backends.
 
 ## TODO 列表
 
