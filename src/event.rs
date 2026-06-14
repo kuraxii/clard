@@ -14,15 +14,11 @@ pub enum ClardEvent {
     PasteEvent(String),
     Terminal,
     UpdateGroups(crate::ipc::models::Groups),
-    UpdateVersion(crate::ipc::models::BackendVersion),
     UpdateConnections(crate::ipc::models::Connections),
-    UpdateRules(crate::ipc::models::Rules),
-    UpdateTraffic(crate::ipc::models::Traffic),
     NodeTested(String, u16),
     NetTestNodesReady(Vec<String>),
     NetTestError(String, String),
     AnalysisResultUpdated(Box<crate::app::checker::AnalysisResult>),
-    PreviewIpInfoUpdated(Option<crate::app::checker::IPInfo>, Option<crate::app::checker::IPInfo>),
     Error(String),
 }
 

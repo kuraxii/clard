@@ -9,7 +9,7 @@ use tokio::sync::mpsc;
 use super::{
     error::{IpcError, Result},
     models::{
-        BackendVersion, BaseConfig, Connections, CoreUpdaterChannel, Groups, Proxy, ResponseError, RuleProviders, Rules,
+        BackendVersion, BaseConfig, Connections, CoreUpdaterChannel, Groups, Proxy, ResponseError, RuleProviders,
     },
     websocket::{WebSocketMessage, WsControl, connect_stream},
 };
@@ -316,20 +316,6 @@ impl Backend {
         Ok(delay_res.delay)
     }
 
-    /// 获取所有的规则信息
-    pub async fn get_rules(&self) -> Result<Rules> {
-        let req = self.build_request(Method::GET, "/rules")?;
-        let res = req.send().await?;
-        if !res.status().is_success() {
-            let err_msg = res
-                .json::<ResponseError>()
-                .await
-                .map_or_else(|msg| format!("get rules failed: {msg}"), |err| err.message.to_string());
-            return Err(IpcError::ResponseError(err_msg));
-        }
-        Ok(res.json::<Rules>().await?)
-    }
-
     /// 获取所有规则提供者信息
     pub async fn get_rule_providers(&self) -> Result<RuleProviders> {
         let req = self.build_request(Method::GET, "/providers/rules")?;
@@ -497,6 +483,7 @@ where
 #[cfg(test)]
 mod tests {
     use super::*;
+
     use serde_json::Value;
     use tokio::io::{AsyncReadExt, AsyncWriteExt};
     use tokio::net::TcpListener;
@@ -749,22 +736,6 @@ mod tests {
         assert_method_path(&req, "PUT", "/proxies/group%20a%2Fb");
         let body: Value = serde_json::from_str(&req.body)?;
         assert_eq!(body["name"], "node-1");
-
-        Ok(())
-    }
-
-    #[tokio::test]
-    async fn get_rules() -> Result<()> {
-        let (addr, handle) = spawn_mock_server("200 OK", r#"{"rules":[]}"#).await?;
-        let backend = backend_tcp(addr)?;
-        let result = backend.get_rules().await;
-
-        assert!(result.is_ok());
-        let rules = result?;
-        assert!(rules.rules.is_empty());
-
-        let req = wait_request(handle).await;
-        assert_method_path(&req, "GET", "/rules");
 
         Ok(())
     }

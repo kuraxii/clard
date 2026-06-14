@@ -1,37 +1,29 @@
 pub mod checker;
 pub mod connections;
 pub mod nettest;
-pub mod preview;
 pub mod proxy;
-pub mod rules;
 pub mod state;
 
 use std::sync::Arc;
 
 use connections::ConnectionsState;
 use nettest::NetTestState;
-use preview::PreviewState;
 use proxy::ProxyState;
-use rules::RulesState;
 use state::{MenuItem, MenuState};
 use tokio::sync::mpsc::UnboundedSender;
 
 use crate::{event::ClardEvent, ipc::backend::Backend};
 
 /// WindowState
-/// 用于记录窗口的状态，MENU、Preview、PROXY、CONNECTIONS、RULE、TEST
+/// 用于记录窗口的状态，MENU、PROXY、CONNECTIONS、TEST
 #[derive(Debug)]
 pub enum WindowState {
     /// 菜单页面
     Memu,
-    /// 预览页面
-    Preview(PreviewState),
     /// 代理查看选择页面
     Proxy(ProxyState),
     /// 连接流量统计页面
     Connects(ConnectionsState),
-    /// 规则页面
-    Rules(RulesState),
     /// ip 测试页面
     NetTest(NetTestState),
 }
@@ -70,46 +62,12 @@ impl APP {
         });
     }
 
-    pub fn fetch_preview(&self) {
-        let backend = self.backend.clone();
-        let sender = self.event_sender.clone();
-        tokio::spawn(async move {
-            if let Ok(version) = backend.get_version().await {
-                let _ = sender.send(ClardEvent::UpdateVersion(version));
-            }
-            if let Ok(conns) = backend.get_connections().await {
-                let _ = sender.send(ClardEvent::UpdateConnections(conns));
-            }
-
-            let direct_ip_future = checker::check_ip_direct();
-            let proxy_url = "http://127.0.0.1:7890";
-            let proxy_ip_future = checker::check_ip_proxy(proxy_url);
-            let (direct_ip, proxy_ip) = tokio::join!(direct_ip_future, proxy_ip_future);
-            let _ = sender.send(ClardEvent::PreviewIpInfoUpdated(direct_ip.ok(), proxy_ip.ok()));
-        });
-    }
-
     pub fn fetch_connections(&self) {
         let backend = self.backend.clone();
         let sender = self.event_sender.clone();
         tokio::spawn(async move {
             if let Ok(conns) = backend.get_connections().await {
                 let _ = sender.send(ClardEvent::UpdateConnections(conns));
-            }
-        });
-    }
-
-    pub fn fetch_rules(&self) {
-        let backend = self.backend.clone();
-        let sender = self.event_sender.clone();
-        tokio::spawn(async move {
-            match backend.get_rules().await {
-                Ok(rules) => {
-                    let _ = sender.send(ClardEvent::UpdateRules(rules));
-                }
-                Err(e) => {
-                    let _ = sender.send(ClardEvent::Error(format!("Fetch rules error: {}", e)));
-                }
             }
         });
     }
@@ -194,17 +152,9 @@ impl APP {
                 self.current_page = WindowState::Proxy(ProxyState::new());
                 self.fetch_groups();
             }
-            MenuItem::Preview => {
-                self.current_page = WindowState::Preview(PreviewState::new());
-                self.fetch_preview();
-            }
             MenuItem::Connections => {
                 self.current_page = WindowState::Connects(ConnectionsState::new());
                 self.fetch_connections();
-            }
-            MenuItem::Rules => {
-                self.current_page = WindowState::Rules(RulesState::new());
-                self.fetch_rules();
             }
             MenuItem::NetTest => {
                 self.current_page = WindowState::NetTest(NetTestState::new());
@@ -217,10 +167,8 @@ impl APP {
     pub fn on_up_key(&mut self) {
         match &mut self.current_page {
             WindowState::Memu => self.menusate.prev(),
-            WindowState::Preview(_) => {}
             WindowState::Proxy(state) => state.on_up_key(),
             WindowState::Connects(state) => state.on_up_key(),
-            WindowState::Rules(state) => state.on_up_key(),
             WindowState::NetTest(state) => state.on_up_key(),
         }
     }
@@ -228,10 +176,8 @@ impl APP {
     pub fn on_down_key(&mut self) {
         match &mut self.current_page {
             WindowState::Memu => self.menusate.next(),
-            WindowState::Preview(_) => {}
             WindowState::Proxy(state) => state.on_down_key(),
             WindowState::Connects(state) => state.on_down_key(),
-            WindowState::Rules(state) => state.on_down_key(),
             WindowState::NetTest(state) => state.on_down_key(),
         }
     }
@@ -354,7 +300,13 @@ impl APP {
                     });
                 }
             }
-            WindowState::Connects(state) if char == 'x' || char == 'd' => {
+            WindowState::Connects(state) if char == 'u' => {
+                state.sort_by_upload();
+            }
+            WindowState::Connects(state) if char == 'd' => {
+                state.sort_by_download();
+            }
+            WindowState::Connects(state) if char == 'x' => {
                 if let Some(idx) = state.list_state.selected() {
                     if let Some(conn) = state.connections.get(idx) {
                         let backend = self.backend.clone();

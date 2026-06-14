@@ -4,17 +4,15 @@ use ratatui::{
     layout::{Constraint, Direction, Layout, Rect},
     style::{Color, Modifier, Style},
     text::{Line, Span},
-    widgets::{Block, Borders, Cell, List, ListItem, Paragraph, Row, Sparkline, Table, Tabs},
+    widgets::{Block, Borders, Cell, List, ListItem, Paragraph, Row, Table, Tabs},
 };
 
 use crate::app::{
     APP, WindowState,
     checker::UnlockStatus,
-    connections::ConnectionsState,
+    connections::{ConnectionsSort, ConnectionsState},
     nettest::{NetTestState, NetTestTab, TestStatus},
-    preview::PreviewState,
     proxy::{ProxyFocus, ProxyState},
-    rules::RulesState,
     state::MenuItem,
 };
 
@@ -31,74 +29,14 @@ impl Painter {
                 WindowState::Proxy(state) => {
                     ProxyLayout::draw_proxy(f, area, state, &app.message);
                 }
-                WindowState::Preview(state) => {
-                    PreviewLayout::draw_preview(f, area, state, &app.message);
-                }
                 WindowState::Connects(state) => {
                     ConnectionsLayout::draw_connections(f, area, state, &app.message);
                 }
                 WindowState::NetTest(state) => {
                     NetTestLayout::draw_nettest(f, area, state, &app.message);
                 }
-                WindowState::Rules(state) => {
-                    RulesLayout::draw_rules(f, area, state, &app.message);
-                }
             }
         });
-    }
-}
-
-struct RulesLayout;
-impl RulesLayout {
-    fn draw_rules(f: &mut Frame<'_>, area: Rect, state: &RulesState, msg: &Option<String>) {
-        let chunks = Layout::default()
-            .direction(Direction::Vertical)
-            .constraints([Constraint::Min(0), Constraint::Length(3)].as_ref())
-            .split(area);
-
-        let header_cells = ["Type", "Payload", "Proxy", "Size"]
-            .iter()
-            .map(|h| Cell::from(*h).style(Style::default().fg(Color::Yellow)));
-        let header = Row::new(header_cells)
-            .style(Style::default().bg(Color::DarkGray))
-            .height(1)
-            .bottom_margin(1);
-
-        let rows = state.rules.iter().map(|rule| {
-            Row::new(vec![
-                Cell::from(format!("{:?}", rule.rule_type)),
-                Cell::from(rule.payload.clone()),
-                Cell::from(rule.proxy.clone()),
-                Cell::from(rule.size.to_string()),
-            ])
-        });
-
-        let table = Table::new(
-            rows,
-            [
-                Constraint::Percentage(16),
-                Constraint::Percentage(54),
-                Constraint::Percentage(20),
-                Constraint::Percentage(10),
-            ],
-        )
-        .header(header)
-        .block(
-            Block::default()
-                .borders(Borders::ALL)
-                .title("Rules [Esc to Menu, Up/Down to navigate]"),
-        )
-        .row_highlight_style(Style::default().add_modifier(Modifier::BOLD).bg(Color::DarkGray))
-        .highlight_symbol(">> ");
-
-        let mut list_state = state.list_state.clone();
-        f.render_stateful_widget(table, chunks[0], &mut list_state);
-
-        let footer_text = msg
-            .clone()
-            .unwrap_or_else(|| format!("Loaded {} rules", state.rules.len()));
-        let footer = Paragraph::new(footer_text).block(Block::default().borders(Borders::ALL).title("Status"));
-        f.render_widget(footer, chunks[1]);
     }
 }
 
@@ -118,114 +56,6 @@ impl MenuLayout {
             .collect();
         let menu_list = List::new(iterms).block(Block::default().borders(Borders::ALL).title("Menu [Enter]"));
         f.render_widget(menu_list, area);
-    }
-}
-
-struct PreviewLayout;
-impl PreviewLayout {
-    fn draw_preview(f: &mut Frame<'_>, area: Rect, state: &PreviewState, msg: &Option<String>) {
-        let chunks = Layout::default()
-            .direction(Direction::Vertical)
-            .constraints(
-                [
-                    Constraint::Length(10),
-                    Constraint::Length(7),
-                    Constraint::Length(7),
-                    Constraint::Min(0),
-                ]
-                .as_ref(),
-            )
-            .split(area);
-
-        // System + Core + IP Block
-        let core_version = state
-            .version
-            .as_ref()
-            .map(|v| format!("{} (meta: {})", v.version, v.meta))
-            .unwrap_or_else(|| "Loading...".to_string());
-
-        let direct_ip_text = state
-            .direct_ip
-            .as_ref()
-            .map(|ip| format!("{} / {}", ip.ip, ip.region))
-            .unwrap_or_else(|| "N/A".to_string());
-        let proxy_ip_text = state
-            .proxy_ip
-            .as_ref()
-            .map(|ip| format!("{} / {}", ip.ip, ip.region))
-            .unwrap_or_else(|| "N/A".to_string());
-
-        let version_text = format!(
-            "Core Version: {}\nVerge Version: {}\nDistribution: {}\nKernel: {}\nDirect IP: {}\nProxy IP: {}",
-            core_version,
-            state.system_info.verge_version,
-            state.system_info.distribution,
-            state.system_info.kernel_version,
-            direct_ip_text,
-            proxy_ip_text
-        );
-        let version_p = Paragraph::new(version_text).block(Block::default().borders(Borders::ALL).title("System Info"));
-        f.render_widget(version_p, chunks[0]);
-
-        // Traffic/Connections Block
-        let conn_text = match &state.connections {
-            Some(c) => format!(
-                "Total Download: {} bytes\nTotal Upload: {} bytes\nMemory: {} bytes\nActive Connections: {}",
-                c.download_total,
-                c.upload_total,
-                c.memory,
-                c.connections.as_ref().map_or(0, |v| v.len())
-            ),
-            None => "Loading connection data...".to_string(),
-        };
-        let conn_p =
-            Paragraph::new(conn_text).block(Block::default().borders(Borders::ALL).title("System [Esc to Menu]"));
-        f.render_widget(conn_p, chunks[1]);
-
-        // Traffic Sparkline Block
-        let traffic_chunks = Layout::default()
-            .direction(Direction::Horizontal)
-            .constraints([Constraint::Percentage(50), Constraint::Percentage(50)].as_ref())
-            .split(chunks[2]);
-
-        let up_data: Vec<u64> = state.traffic_history.iter().map(|t| t.up).collect();
-        let down_data: Vec<u64> = state.traffic_history.iter().map(|t| t.down).collect();
-
-        let up_max = up_data.iter().max().copied().unwrap_or(1);
-        let down_max = down_data.iter().max().copied().unwrap_or(1);
-
-        let current_up = state.current_traffic.as_ref().map_or(0, |t| t.up);
-        let current_down = state.current_traffic.as_ref().map_or(0, |t| t.down);
-
-        let up_sparkline = Sparkline::default()
-            .block(
-                Block::default()
-                    .title(format!("Upload ({} B/s)", current_up))
-                    .borders(Borders::ALL),
-            )
-            .data(&up_data)
-            .max(up_max)
-            .style(Style::default().fg(Color::Green));
-
-        let down_sparkline = Sparkline::default()
-            .block(
-                Block::default()
-                    .title(format!("Download ({} B/s)", current_down))
-                    .borders(Borders::ALL),
-            )
-            .data(&down_data)
-            .max(down_max)
-            .style(Style::default().fg(Color::Cyan));
-
-        f.render_widget(up_sparkline, traffic_chunks[0]);
-        f.render_widget(down_sparkline, traffic_chunks[1]);
-
-        // Message Block
-        let msg_text = msg
-            .clone()
-            .unwrap_or_else(|| "Press [Esc] to return to Menu".to_string());
-        let msg_p = Paragraph::new(msg_text).block(Block::default().borders(Borders::ALL).title("Status"));
-        f.render_widget(msg_p, chunks[3]);
     }
 }
 
@@ -324,9 +154,20 @@ impl ConnectionsLayout {
             .constraints([Constraint::Min(0), Constraint::Length(3)].as_ref())
             .split(area);
 
-        let header_cells = ["Host", "Network", "Upload", "Download", "Rule", "Chains"]
-            .iter()
-            .map(|h| Cell::from(*h).style(Style::default().fg(Color::Yellow)));
+        let upload_header = if state.sort == ConnectionsSort::Upload {
+            "Upload ↓"
+        } else {
+            "Upload"
+        };
+        let download_header = if state.sort == ConnectionsSort::Download {
+            "Download ↓"
+        } else {
+            "Download"
+        };
+
+        let header_cells = ["Host", "Network", upload_header, download_header, "Rule", "Chains"]
+            .into_iter()
+            .map(|h| Cell::from(h).style(Style::default().fg(Color::Yellow)));
         let header = Row::new(header_cells)
             .style(Style::default().bg(Color::DarkGray))
             .height(1)
@@ -340,8 +181,8 @@ impl ConnectionsLayout {
             };
 
             let network_str = format!("{:?}", c.metadata.network);
-            let up_str = format!("{} B", c.upload);
-            let down_str = format!("{} B", c.download);
+            let up_str = format_network_bytes(c.upload);
+            let down_str = format_network_bytes(c.download);
             let rule_str = c.rule.clone();
             let chain_str = c.chains.join(" -> ");
 
@@ -370,7 +211,7 @@ impl ConnectionsLayout {
         .block(
             Block::default()
                 .borders(Borders::ALL)
-                .title("Connections [Esc to Menu, 'x' or 'd' to close connection]"),
+                .title("Connections [Esc to Menu, 'u' upload sort, 'd' download sort, 'x' close]"),
         )
         .row_highlight_style(Style::default().add_modifier(Modifier::BOLD).bg(Color::DarkGray))
         .highlight_symbol(">> ");
@@ -378,10 +219,43 @@ impl ConnectionsLayout {
         let mut list_state = state.list_state.clone();
         f.render_stateful_widget(t, chunks[0], &mut list_state);
 
-        let footer_text = msg.clone().unwrap_or_else(|| "Connections Manager".to_string());
+        let footer_text = msg.clone().unwrap_or_else(|| {
+            state.connections_data.as_ref().map_or_else(
+                || "Connections Manager".to_string(),
+                |data| {
+                    format!(
+                        "Active: {} | Upload: {} | Download: {} | Memory: {}",
+                        state.connections.len(),
+                        format_network_bytes(data.upload_total),
+                        format_network_bytes(data.download_total),
+                        format_network_bytes(u64::from(data.memory))
+                    )
+                },
+            )
+        });
         let footer = Paragraph::new(footer_text).block(Block::default().borders(Borders::ALL).title("Status"));
         f.render_widget(footer, chunks[1]);
     }
+}
+
+fn format_network_bytes(bytes: u64) -> String {
+    const UNITS: [&str; 6] = ["B", "KB", "MB", "GB", "TB", "PB"];
+
+    let mut value = bytes as f64;
+    let mut unit = 0;
+    while value >= 1000.0 && unit < UNITS.len() - 1 {
+        value /= 1024.0;
+        unit += 1;
+    }
+
+    if unit == 0 {
+        return format!("{} {}", bytes, UNITS[unit]);
+    }
+
+    let formatted = format!("{:.1}", value);
+    let formatted = formatted.strip_suffix(".0").unwrap_or(&formatted);
+
+    format!("{} {}", formatted, UNITS[unit])
 }
 
 struct NetTestLayout;
@@ -545,5 +419,20 @@ impl NetTestLayout {
         }
         let footer = Paragraph::new(footer_text).block(Block::default().borders(Borders::ALL).title("Status"));
         f.render_widget(footer, chunks[2]);
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::format_network_bytes;
+
+    #[test]
+    fn format_network_bytes_upgrades_when_value_exceeds_three_digits() {
+        assert_eq!(format_network_bytes(999), "999 B");
+        assert_eq!(format_network_bytes(1000), "1 KB");
+        assert_eq!(format_network_bytes(10 * 1024), "10 KB");
+        assert_eq!(format_network_bytes(1536), "1.5 KB");
+        assert_eq!(format_network_bytes(1000 * 1024), "1 MB");
+        assert_eq!(format_network_bytes(1024 * 1024), "1 MB");
     }
 }

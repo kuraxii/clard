@@ -2,11 +2,18 @@ use ratatui::widgets::TableState;
 
 use crate::ipc::models::{Connection, Connections};
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ConnectionsSort {
+    Upload,
+    Download,
+}
+
 #[derive(Debug)]
 pub struct ConnectionsState {
     pub connections_data: Option<Connections>,
     pub list_state: TableState,
     pub connections: Vec<Connection>,
+    pub sort: ConnectionsSort,
 }
 
 impl ConnectionsState {
@@ -15,11 +22,13 @@ impl ConnectionsState {
             connections_data: None,
             list_state: TableState::default(),
             connections: Vec::new(),
+            sort: ConnectionsSort::Download,
         }
     }
 
     pub fn update_connections(&mut self, data: Connections) {
         self.connections = data.connections.clone().unwrap_or_default();
+        self.apply_sort();
         self.connections_data = Some(data);
 
         if self.list_state.selected().is_none() && !self.connections.is_empty() {
@@ -66,10 +75,69 @@ impl ConnectionsState {
             self.list_state.select(Some(i));
         }
     }
+
+    pub fn sort_by_upload(&mut self) {
+        self.sort = ConnectionsSort::Upload;
+        self.apply_sort();
+        self.select_first_if_needed();
+    }
+
+    pub fn sort_by_download(&mut self) {
+        self.sort = ConnectionsSort::Download;
+        self.apply_sort();
+        self.select_first_if_needed();
+    }
+
+    fn apply_sort(&mut self) {
+        match self.sort {
+            ConnectionsSort::Upload => self.connections.sort_by(|a, b| b.upload.cmp(&a.upload)),
+            ConnectionsSort::Download => self.connections.sort_by(|a, b| b.download.cmp(&a.download)),
+        }
+    }
+
+    fn select_first_if_needed(&mut self) {
+        if self.connections.is_empty() {
+            self.list_state.select(None);
+        } else if self.list_state.selected().is_none() {
+            self.list_state.select(Some(0));
+        }
+    }
 }
 
 impl Default for ConnectionsState {
     fn default() -> Self {
         Self::new()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::ConnectionsState;
+    use crate::ipc::models::Connections;
+
+    #[test]
+    fn sorts_connections_by_download_by_default_and_switches_with_keys() {
+        let data: Connections = serde_json::from_str(
+            r#"{
+                "downloadTotal":0,
+                "uploadTotal":0,
+                "memory":0,
+                "connections":[
+                    {"id":"a","upload":300,"download":100,"start":"","chains":[],"rule":"","rulePayload":"","metadata":{"network":"tcp","type":"HTTP","sourceIP":"","destinationIP":"","sourceGeoIP":null,"destinationGeoIP":null,"sourceIPASN":"","destinationIPASN":"","sourcePort":"","destinationPort":"","inboundIP":"","inboundPort":"","inboundName":"","inboundUser":"","host":"","dnsMode":"normal","uid":0,"process":"","processPath":"","specialProxy":"","specialRules":"","remoteDestination":"","dscp":0,"sniffHost":""}},
+                    {"id":"b","upload":100,"download":300,"start":"","chains":[],"rule":"","rulePayload":"","metadata":{"network":"tcp","type":"HTTP","sourceIP":"","destinationIP":"","sourceGeoIP":null,"destinationGeoIP":null,"sourceIPASN":"","destinationIPASN":"","sourcePort":"","destinationPort":"","inboundIP":"","inboundPort":"","inboundName":"","inboundUser":"","host":"","dnsMode":"normal","uid":0,"process":"","processPath":"","specialProxy":"","specialRules":"","remoteDestination":"","dscp":0,"sniffHost":""}}
+                ]
+            }"#,
+        )
+        .unwrap();
+
+        let mut state = ConnectionsState::new();
+        state.update_connections(data);
+        assert_eq!(state.connections[0].id, "b");
+
+        state.sort_by_upload();
+        assert_eq!(state.connections[0].id, "a");
+
+        state.sort_by_download();
+        assert_eq!(state.connections[0].id, "b");
     }
 }

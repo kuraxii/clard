@@ -26,6 +26,7 @@ use std::{
     io::stdout,
     panic::{self, PanicHookInfo},
     path::Path,
+    time::Duration,
 };
 
 use app::APP;
@@ -40,7 +41,7 @@ use crossterm::{
 use error::Result;
 use event::{ClardEvent, handle_key_event, handle_mouse_event};
 use ratatui::{Terminal, prelude::CrosstermBackend};
-use tokio::sync::mpsc;
+use tokio::{sync::mpsc, time::MissedTickBehavior};
 use tokio_util::sync::CancellationToken;
 
 use crate::event::listen_input_event;
@@ -145,102 +146,80 @@ pub async fn start_clard() -> Result<()> {
 
     tokio::spawn(listen_input_event(token.clone(), sender.clone()));
 
-    // Subscribe to traffic real-time updates
-    let traffic_url = reqwest::Url::parse(&ipc::websocket::get_websocket_url("traffic")).unwrap();
-    if let Ok((mut traffic_rx, ctrl_tx)) = backend.subscribe::<ipc::models::Traffic>(traffic_url).await {
-        let sender_clone = sender.clone();
-        tokio::spawn(async move {
-            let _ctrl_tx = ctrl_tx;
-            while let Some(traffic) = traffic_rx.recv().await {
-                if sender_clone.send(ClardEvent::UpdateTraffic(traffic)).is_err() {
-                    break;
-                }
-            }
-        });
-    }
-
     let mut painter = Painter;
 
     let mut terminal = init_terminal()?;
 
     panic::set_hook(Box::new(panic_hook));
 
+    let mut connections_refresh = tokio::time::interval(Duration::from_secs(1));
+    connections_refresh.set_missed_tick_behavior(MissedTickBehavior::Skip);
+
     painter.draw(&mut terminal, &app);
     loop {
-        if let Some(recv) = receiver.recv().await {
-            match recv {
-                ClardEvent::Resize => {}
-                ClardEvent::KeyInput(event) => {
-                    handle_key_event(event, &mut app, sender.clone());
-                }
-                ClardEvent::PasteEvent(_paste) => {}
-                ClardEvent::MouseInput(event) => {
-                    handle_mouse_event(event, &mut app);
-                }
-                ClardEvent::UpdateGroups(groups) => {
-                    if let app::WindowState::Proxy(ref mut state) = app.current_page {
-                        state.update_groups(groups);
-                    }
-                }
-                ClardEvent::UpdateVersion(version) => {
-                    if let app::WindowState::Preview(ref mut state) = app.current_page {
-                        state.update_version(version);
-                    }
-                }
-                ClardEvent::PreviewIpInfoUpdated(direct_ip, proxy_ip) => {
-                    if let app::WindowState::Preview(ref mut state) = app.current_page {
-                        state.update_ip_info(direct_ip, proxy_ip);
-                    }
-                }
-                ClardEvent::UpdateConnections(conns) => {
-                    if let app::WindowState::Preview(ref mut state) = app.current_page {
-                        state.update_connections(conns.clone());
-                    } else if let app::WindowState::Connects(ref mut state) = app.current_page {
-                        state.update_connections(conns);
-                    }
-                }
-                ClardEvent::UpdateRules(rules) => {
-                    if let app::WindowState::Rules(ref mut state) = app.current_page {
-                        state.update_rules(rules.rules);
-                    }
-                }
-                ClardEvent::UpdateTraffic(traffic) => {
-                    if let app::WindowState::Preview(ref mut state) = app.current_page {
-                        state.update_traffic(traffic);
-                    }
-                }
-                ClardEvent::NodeTested(node, delay) => {
-                    app.message = Some(format!("Node '{}' delay: {}ms", node, delay));
-                    if let app::WindowState::NetTest(ref mut state) = app.current_page {
-                        state.update_node_latency(&node, delay);
-                        state.finish_testing_if_complete();
-                    }
-                }
-                ClardEvent::NetTestNodesReady(nodes) => {
-                    if let app::WindowState::NetTest(ref mut state) = app.current_page {
-                        state.set_nodes(nodes);
-                    }
-                }
-                ClardEvent::NetTestError(node, err) => {
-                    if let app::WindowState::NetTest(ref mut state) = app.current_page {
-                        state.update_node_error(&node, err);
-                        state.finish_testing_if_complete();
-                    }
-                }
-                ClardEvent::AnalysisResultUpdated(result) => {
-                    if let app::WindowState::NetTest(ref mut state) = app.current_page {
-                        state.analysis_result = *result;
-                        state.analysis_testing = false;
-                    }
-                }
-                ClardEvent::Error(msg) => {
-                    app.message = Some(msg);
-                }
-                ClardEvent::Terminal => {
-                    break;
+        tokio::select! {
+            _ = connections_refresh.tick() => {
+                if matches!(app.current_page, app::WindowState::Connects(_)) {
+                    app.fetch_connections();
                 }
             }
-            painter.draw(&mut terminal, &app);
+            recv = receiver.recv() => {
+                let Some(recv) = recv else {
+                    break;
+                };
+
+                match recv {
+                    ClardEvent::Resize => {}
+                    ClardEvent::KeyInput(event) => {
+                        handle_key_event(event, &mut app, sender.clone());
+                    }
+                    ClardEvent::PasteEvent(_paste) => {}
+                    ClardEvent::MouseInput(event) => {
+                        handle_mouse_event(event, &mut app);
+                    }
+                    ClardEvent::UpdateGroups(groups) => {
+                        if let app::WindowState::Proxy(ref mut state) = app.current_page {
+                            state.update_groups(groups);
+                        }
+                    }
+                    ClardEvent::UpdateConnections(conns) => {
+                        if let app::WindowState::Connects(ref mut state) = app.current_page {
+                            state.update_connections(conns);
+                        }
+                    }
+                    ClardEvent::NodeTested(node, delay) => {
+                        app.message = Some(format!("Node '{}' delay: {}ms", node, delay));
+                        if let app::WindowState::NetTest(ref mut state) = app.current_page {
+                            state.update_node_latency(&node, delay);
+                            state.finish_testing_if_complete();
+                        }
+                    }
+                    ClardEvent::NetTestNodesReady(nodes) => {
+                        if let app::WindowState::NetTest(ref mut state) = app.current_page {
+                            state.set_nodes(nodes);
+                        }
+                    }
+                    ClardEvent::NetTestError(node, err) => {
+                        if let app::WindowState::NetTest(ref mut state) = app.current_page {
+                            state.update_node_error(&node, err);
+                            state.finish_testing_if_complete();
+                        }
+                    }
+                    ClardEvent::AnalysisResultUpdated(result) => {
+                        if let app::WindowState::NetTest(ref mut state) = app.current_page {
+                            state.analysis_result = *result;
+                            state.analysis_testing = false;
+                        }
+                    }
+                    ClardEvent::Error(msg) => {
+                        app.message = Some(msg);
+                    }
+                    ClardEvent::Terminal => {
+                        break;
+                    }
+                }
+                painter.draw(&mut terminal, &app);
+            }
         }
     }
 

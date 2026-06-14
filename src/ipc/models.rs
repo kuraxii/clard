@@ -238,57 +238,6 @@ pub enum ConnectionType {
     INNER,
 }
 
-/// rules
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct Rules {
-    pub rules: Vec<Rule>,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct Rule {
-    #[serde(rename = "type")]
-    pub rule_type: RuleType,
-    pub payload: String,
-    pub proxy: String,
-    pub size: i32,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub enum RuleType {
-    Domain,
-    DomainSuffix,
-    DomainKeyword,
-    DomainRegex,
-    GeoSite,
-    GeoIP,
-    SrcGeoIP,
-    IPASN,
-    SrcIPASN,
-    IPCIDR,
-    SrcIPCIDR,
-    IPSuffix,
-    SrcIPSuffix,
-    SrcPort,
-    DstPort,
-    InPort,
-    InUser,
-    InName,
-    InType,
-    ProcessName,
-    ProcessPath,
-    ProcessNameRegex,
-    ProcessPathRegex,
-    Match,
-    RuleSet,
-    Network,
-    DSCP,
-    Uid,
-    SubRules,
-    AND,
-    OR,
-    NOT,
-}
-
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct RuleProviders {
     pub providers: HashMap<String, RuleProvider>,

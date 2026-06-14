@@ -10,7 +10,7 @@ pub struct MenuState {
 impl MenuState {
     pub fn init() -> Self {
         Self {
-            current_item: MenuItem::Preview,
+            current_item: MenuItem::Proxy,
         }
     }
 
@@ -41,37 +41,25 @@ impl MenuState {
 
 #[derive(Debug, PartialEq, Eq, Clone, Copy)]
 pub enum MenuItem {
-    Preview,
     Proxy,
     Connections,
-    Rules,
     NetTest,
 }
 
 impl MenuItem {
-    pub const ALL: [Self; 5] = [
-        Self::Preview,
-        Self::Proxy,
-        Self::Connections,
-        Self::Rules,
-        Self::NetTest,
-    ];
+    pub const ALL: [Self; 3] = [Self::Proxy, Self::Connections, Self::NetTest];
     pub fn next(&self) -> Self {
         match self {
-            Self::Preview => Self::Proxy,
             Self::Proxy => Self::Connections,
-            Self::Connections => Self::Rules,
-            Self::Rules => Self::NetTest,
-            Self::NetTest => Self::NetTest, // 或者循环到 Preview
+            Self::Connections => Self::NetTest,
+            Self::NetTest => Self::NetTest,
         }
     }
     pub fn prev(&self) -> Self {
         match self {
-            Self::Preview => Self::Preview,
-            Self::Proxy => Self::Preview,
+            Self::Proxy => Self::Proxy,
             Self::Connections => Self::Proxy,
-            Self::Rules => Self::Connections,
-            Self::NetTest => Self::Rules,
+            Self::NetTest => Self::Connections,
         }
     }
 
@@ -85,10 +73,8 @@ impl MenuItem {
 
     pub fn to_str(&self) -> &str {
         match self {
-            MenuItem::Preview => "Preview",
             MenuItem::Proxy => "Proxy",
             MenuItem::Connections => "Connections",
-            MenuItem::Rules => "Rules",
             MenuItem::NetTest => "NetTest",
         }
     }
