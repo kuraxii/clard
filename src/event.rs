@@ -23,6 +23,25 @@ pub enum ClardEvent {
 }
 
 pub fn handle_key_event(event: KeyEvent, app: &mut APP, sender: mpsc::UnboundedSender<ClardEvent>) {
+    if app.show_help {
+        if event.modifiers.is_empty() {
+            match event.code {
+                KeyCode::Esc => app.on_esc_key(),
+                KeyCode::Char('?') | KeyCode::Char('q') => {
+                    if let KeyCode::Char(c) = event.code {
+                        app.on_char(c);
+                    }
+                }
+                _ => {}
+            }
+        } else if event.modifiers == KeyModifiers::CONTROL && matches!(event.code, KeyCode::Char('c')) {
+            tokio::spawn(async move {
+                let _ = sender.send(ClardEvent::Terminal);
+            });
+        }
+        return;
+    }
+
     if event.modifiers.is_empty() {
         match event.code {
             KeyCode::Up => app.on_up_key(),

@@ -34,6 +34,7 @@ pub struct APP {
     pub event_sender: UnboundedSender<ClardEvent>,
     pub backend: Arc<Backend>,
     pub message: Option<String>,
+    pub show_help: bool,
 }
 
 impl APP {
@@ -44,6 +45,7 @@ impl APP {
             event_sender: sender,
             backend,
             message: None,
+            show_help: false,
         }
     }
 
@@ -225,6 +227,13 @@ impl APP {
                     self.trigger_analysis();
                 }
             }
+            WindowState::Proxy(state) => {
+                if state.focus == proxy::ProxyFocus::Groups {
+                    state.on_right_key();
+                } else {
+                    state.on_left_key();
+                }
+            }
             _ => {
                 self.current_page = WindowState::Memu;
             }
@@ -232,6 +241,11 @@ impl APP {
     }
 
     pub fn on_esc_key(&mut self) {
+        if self.show_help {
+            self.show_help = false;
+            return;
+        }
+
         if matches!(self.current_page, WindowState::Memu) {
             let _ = self.event_sender.send(ClardEvent::Terminal);
         } else {
@@ -273,6 +287,50 @@ impl APP {
     }
 
     pub fn on_char(&mut self, char: char) {
+        match char {
+            '?' => {
+                self.show_help = !self.show_help;
+                return;
+            }
+            'q' => {
+                let _ = self.event_sender.send(ClardEvent::Terminal);
+                return;
+            }
+            'j' => {
+                self.on_down_key();
+                return;
+            }
+            'k' => {
+                self.on_up_key();
+                return;
+            }
+            'h' => {
+                self.on_left_key();
+                return;
+            }
+            'l' => {
+                self.on_right_key();
+                return;
+            }
+            '1' => {
+                self.switch_page(MenuItem::Proxy);
+                return;
+            }
+            '2' => {
+                self.switch_page(MenuItem::Connections);
+                return;
+            }
+            '3' => {
+                self.switch_page(MenuItem::NetTest);
+                return;
+            }
+            _ => {}
+        }
+
+        if self.show_help {
+            return;
+        }
+
         match &mut self.current_page {
             WindowState::Memu => {
                 self.menusate.on_char(char, self.event_sender.clone());
