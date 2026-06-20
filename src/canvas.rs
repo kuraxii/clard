@@ -567,15 +567,27 @@ impl ConnectionsLayout {
 fn draw_connection_metrics(f: &mut Frame<'_>, area: Rect, state: &ConnectionsState, theme: Theme) {
     let data = state.connections_data.as_ref();
     let active = state.connections.len().to_string();
-    let upload = data
+    let upload_total = data
         .map(|data| format_network_bytes(data.upload_total))
         .unwrap_or_else(|| "-".to_string());
-    let download = data
+    let download_total = data
         .map(|data| format_network_bytes(data.download_total))
         .unwrap_or_else(|| "-".to_string());
     let memory = data
         .map(|data| format_network_bytes(u64::from(data.memory)))
         .unwrap_or_else(|| "-".to_string());
+    let upload_rate = state
+        .traffic
+        .as_ref()
+        .map(|traffic| format_rate(traffic.up))
+        .unwrap_or_else(|| "-".to_string());
+    let download_rate = state
+        .traffic
+        .as_ref()
+        .map(|traffic| format_rate(traffic.down))
+        .unwrap_or_else(|| "-".to_string());
+    let upload_caption = format!("total {}  {}", upload_total, sparkline_u64(&state.upload_history));
+    let download_caption = format!("total {}  {}", download_total, sparkline_u64(&state.download_history));
 
     let chunks = Layout::default()
         .direction(Direction::Horizontal)
@@ -599,13 +611,21 @@ fn draw_connection_metrics(f: &mut Frame<'_>, area: Rect, state: &ConnectionsSta
         theme.success,
         theme,
     );
-    draw_metric(f, chunks[1], "Upload", &upload, "total uploaded", theme.warning, theme);
+    draw_metric(
+        f,
+        chunks[1],
+        "Upload / s",
+        &upload_rate,
+        &upload_caption,
+        theme.warning,
+        theme,
+    );
     draw_metric(
         f,
         chunks[2],
-        "Download",
-        &download,
-        "total downloaded",
+        "Download / s",
+        &download_rate,
+        &download_caption,
         theme.primary,
         theme,
     );
@@ -1402,6 +1422,10 @@ fn format_delay(delay: u16) -> String {
     format!("{} ms", delay)
 }
 
+fn format_rate(bytes_per_second: u64) -> String {
+    format!("{}/s", format_network_bytes(bytes_per_second))
+}
+
 fn format_network_bytes(bytes: u64) -> String {
     const UNITS: [&str; 6] = ["B", "KB", "MB", "GB", "TB", "PB"];
 
@@ -1449,6 +1473,11 @@ fn sparkline_history(history: &[DelayHistory]) -> String {
 }
 
 fn sparkline_u16(values: &[u16]) -> String {
+    let values: Vec<u64> = values.iter().map(|value| u64::from(*value)).collect();
+    sparkline_u64(&values)
+}
+
+fn sparkline_u64(values: &[u64]) -> String {
     const BARS: [char; 8] = ['▁', '▂', '▃', '▄', '▅', '▆', '▇', '█'];
     if values.is_empty() {
         return String::new();
@@ -1458,12 +1487,12 @@ fn sparkline_u16(values: &[u16]) -> String {
     let visible = &values[start..];
     let min = visible.iter().min().copied().unwrap_or(0);
     let max = visible.iter().max().copied().unwrap_or(min);
-    let span = u32::from(max.saturating_sub(min)).max(1);
+    let span = max.saturating_sub(min).max(1);
 
     visible
         .iter()
         .map(|value| {
-            let idx = (u32::from(value.saturating_sub(min)) * 7 / span) as usize;
+            let idx = (value.saturating_sub(min) * 7 / span) as usize;
             BARS[idx]
         })
         .collect()

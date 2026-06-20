@@ -128,7 +128,7 @@ fn default_backend() -> Result<Backend> {
     let backend = if Path::new(DEFAULT_UNIX_SOCKET).exists() {
         Backend::builder().set_unix_socket(DEFAULT_UNIX_SOCKET).build()?
     } else {
-        Backend::builder().set_tcp_addr(DEFAULT_TCP_ADDR).build()?
+        Backend::builder().set_tcp_addr(DEFAULT_TCP_ADDR)?.build()?
     };
 
     Ok(backend)
@@ -185,6 +185,11 @@ pub async fn start_clard() -> Result<()> {
                     ClardEvent::UpdateConnections(conns) => {
                         if let app::WindowState::Connects(ref mut state) = app.current_page {
                             state.update_connections(conns);
+                        }
+                    }
+                    ClardEvent::UpdateTraffic(traffic) => {
+                        if let app::WindowState::Connects(ref mut state) = app.current_page {
+                            state.update_traffic(traffic);
                         }
                     }
                     ClardEvent::NodeTested(node, delay) => {

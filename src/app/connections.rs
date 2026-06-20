@@ -1,6 +1,6 @@
 use ratatui::widgets::TableState;
 
-use crate::ipc::models::{Connection, Connections};
+use crate::ipc::models::{Connection, Connections, Traffic};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ConnectionsSort {
@@ -14,6 +14,9 @@ pub struct ConnectionsState {
     pub list_state: TableState,
     pub connections: Vec<Connection>,
     pub sort: ConnectionsSort,
+    pub traffic: Option<Traffic>,
+    pub upload_history: Vec<u64>,
+    pub download_history: Vec<u64>,
 }
 
 impl ConnectionsState {
@@ -23,6 +26,9 @@ impl ConnectionsState {
             list_state: TableState::default(),
             connections: Vec::new(),
             sort: ConnectionsSort::Download,
+            traffic: None,
+            upload_history: Vec::new(),
+            download_history: Vec::new(),
         }
     }
 
@@ -42,6 +48,18 @@ impl ConnectionsState {
                 }
             }
         }
+    }
+
+    pub fn update_traffic(&mut self, traffic: Traffic) {
+        self.upload_history.push(traffic.up);
+        self.download_history.push(traffic.down);
+        if self.upload_history.len() > 60 {
+            self.upload_history.remove(0);
+        }
+        if self.download_history.len() > 60 {
+            self.download_history.remove(0);
+        }
+        self.traffic = Some(traffic);
     }
 
     pub fn on_down_key(&mut self) {

@@ -12,7 +12,10 @@ use proxy::ProxyState;
 use state::{MenuItem, MenuState};
 use tokio::sync::mpsc::UnboundedSender;
 
-use crate::{event::ClardEvent, ipc::backend::Backend};
+use crate::{
+    event::ClardEvent,
+    ipc::{backend::Backend, models::Traffic, websocket::get_websocket_url},
+};
 
 /// WindowState
 /// 用于记录窗口的状态，MENU、PROXY、CONNECTIONS、TEST
@@ -35,6 +38,7 @@ pub struct APP {
     pub backend: Arc<Backend>,
     pub message: Option<String>,
     pub show_help: bool,
+    traffic_subscription_started: bool,
 }
 
 impl APP {
@@ -46,6 +50,7 @@ impl APP {
             backend,
             message: None,
             show_help: false,
+            traffic_subscription_started: false,
         }
     }
 
@@ -70,6 +75,35 @@ impl APP {
         tokio::spawn(async move {
             if let Ok(conns) = backend.get_connections().await {
                 let _ = sender.send(ClardEvent::UpdateConnections(conns));
+            }
+        });
+    }
+
+    pub fn subscribe_traffic(&mut self) {
+        if self.traffic_subscription_started {
+            return;
+        }
+        self.traffic_subscription_started = true;
+
+        let backend = self.backend.clone();
+        let sender = self.event_sender.clone();
+        tokio::spawn(async move {
+            let Ok(url) = reqwest::Url::parse(&get_websocket_url("traffic")) else {
+                let _ = sender.send(ClardEvent::Error("Invalid traffic websocket URL".to_string()));
+                return;
+            };
+
+            match backend.subscribe::<Traffic>(url).await {
+                Ok((mut traffic_rx, _ctrl_tx)) => {
+                    while let Some(traffic) = traffic_rx.recv().await {
+                        if sender.send(ClardEvent::UpdateTraffic(traffic)).is_err() {
+                            break;
+                        }
+                    }
+                }
+                Err(e) => {
+                    let _ = sender.send(ClardEvent::Error(format!("Subscribe traffic error: {}", e)));
+                }
             }
         });
     }
@@ -157,6 +191,7 @@ impl APP {
             MenuItem::Connections => {
                 self.current_page = WindowState::Connects(ConnectionsState::new());
                 self.fetch_connections();
+                self.subscribe_traffic();
             }
             MenuItem::NetTest => {
                 self.current_page = WindowState::NetTest(NetTestState::new());

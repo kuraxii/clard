@@ -31,45 +31,37 @@ pub enum Protocol {
 /// `BackendBuilder` 用于配置并构建 [`Backend`] 实例。
 #[derive(Default, Debug)]
 pub struct BackendBuilder {
-    unix_path: Option<String>,
-    tcp_addr: Option<String>,
+    protocol: Option<Protocol>,
 }
 
 impl BackendBuilder {
     /// 设置 Unix Domain Socket 路径（如 `/tmp/mihomo.sock`）。
     pub fn set_unix_socket(mut self, socket_path: &str) -> Self {
-        self.unix_path = Some(socket_path.to_string());
+        self.protocol = Some(Protocol::UDS(socket_path.into()));
         self
     }
 
     /// 设置 TCP 连接地址（如 `127.0.0.1:8080`）。
-    pub fn set_tcp_addr(mut self, addr: &str) -> Self {
-        self.tcp_addr = Some(addr.to_string());
-        self
+    pub fn set_tcp_addr(mut self, addr: &str) -> Result<Self> {
+        self.protocol =
+            Some(Protocol::TCP(addr.parse::<SocketAddr>().map_err(|e| {
+                IpcError::FailedBackend(format!("无效的 TCP 地址: {}", e))
+            })?));
+        Ok(self)
     }
 
     /// 构建 Backend 实例。若 UDS 和 TCP 同时存在，优先使用 UDS。
     pub fn build(self) -> Result<Backend> {
-        let protocol = match (self.unix_path, self.tcp_addr) {
-            (Some(path), _) => Protocol::UDS(PathBuf::from(path)),
-            (None, Some(addr_str)) => {
-                let socket_addr = addr_str
-                    .parse::<SocketAddr>()
-                    .map_err(|e| IpcError::FailedBackend(format!("无效的 TCP 地址: {}", e)))?;
-                Protocol::TCP(socket_addr)
-            }
-            (None, None) => {
-                return Err(IpcError::FailedBackend("未设置任何后端类型".to_owned()));
-            }
+        let protocol = self
+            .protocol
+            .ok_or_else(|| IpcError::FailedBackend("未设置任何后端类型".into()))?;
+
+        let client = match &protocol {
+            Protocol::TCP(_) => Client::new(),
+            Protocol::UDS(path) => Client::builder().unix_socket(path.clone()).build()?,
         };
 
-        Ok(Backend {
-            protocol: protocol.clone(),
-            client: match protocol {
-                Protocol::UDS(unix_path) => Client::builder().unix_socket(unix_path).build()?,
-                Protocol::TCP(_) => Client::new(),
-            },
-        })
+        Ok(Backend { protocol, client })
     }
 }
 
@@ -577,7 +569,7 @@ mod tests {
     }
 
     fn backend_tcp(addr: SocketAddr) -> Result<Backend> {
-        Backend::builder().set_tcp_addr(&addr.to_string()).build()
+        Backend::builder().set_tcp_addr(&addr.to_string())?.build()
     }
 
     async fn mock_backend_ok() -> Result<(Backend, tokio::task::JoinHandle<CapturedRequest>)> {
@@ -600,7 +592,7 @@ mod tests {
 
     #[test]
     fn build_backend() -> Result<()> {
-        let _ = Backend::builder().set_tcp_addr("127.0.0.1:9090").build()?;
+        let _ = Backend::builder().set_tcp_addr("127.0.0.1:9090")?.build()?;
         Ok(())
     }
 
@@ -622,13 +614,15 @@ mod tests {
 
     #[tokio::test]
     async fn test_get_traffic() -> Result<()> {
-        // let backend = backend()?;
-        // let url = Url::parse(&websocket::get_websocket_url("traffic")).unwrap();
-        // let (mut traffic_rx, ctrl_tx) = backend.subscribe::<Traffic>(url).await?;
+        let backend = Backend::builder()
+            .set_unix_socket("/tmp/verge/verge-mihomo.sock")
+            .build()?;
+        let url = Url::parse(&crate::ipc::websocket::get_websocket_url("traffic")).unwrap();
+        let (mut traffic_rx, _) = backend.subscribe::<crate::ipc::models::Traffic>(url).await?;
 
-        // while let Some(traffic) = traffic_rx.recv().await {
-        //     println!("traffic: {:?}", traffic);
-        // }
+        while let Some(traffic) = traffic_rx.recv().await {
+            println!("traffic: {:?}", traffic);
+        }
 
         Ok(())
     }

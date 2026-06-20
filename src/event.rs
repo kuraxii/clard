@@ -15,6 +15,7 @@ pub enum ClardEvent {
     Terminal,
     UpdateGroups(crate::ipc::models::Groups),
     UpdateConnections(crate::ipc::models::Connections),
+    UpdateTraffic(crate::ipc::models::Traffic),
     NodeTested(String, u16),
     NetTestNodesReady(Vec<String>),
     NetTestError(String, String),
