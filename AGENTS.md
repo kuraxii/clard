@@ -1,0 +1,9 @@
+- 项目：完整代理管理工具（Rust TUI，ratatui），仅 Linux。设计总纲在 `doc/01-方案设计.md`、`doc/02-交互设计.md`、`doc/03-ui设计.md`，改动架构前先读并遵循。
+- 目标能力：内置管理 mihomo 核心、多配置文件（URL 导入 / 定时更新 / 切换）、系统代理（gsettings）、TUN（systemd）、日志系统。
+- 分层：workspace 三 crate —— `clard-core`（领域逻辑，禁止依赖 ratatui）/ `clard-tui`（UI）/ `clard-bin`（入口）。旧 `src/ipc` 迁移为 `clard-core/mihomo`，允许破坏性重构。
+- 并发模型：所有异步任务只通过 `mpsc::unbounded_channel<ClardEvent>` 回传，禁止在 `tokio::spawn` 任务里直接改 app 状态；主循环 `tokio::select!` 消费事件后统一 `painter.draw`。
+- 系统副作用（核心进程 / 系统代理 / TUN）只允许出现在 clard-core；TUI 仅发命令、消费事件。
+- 退出与 panic 必须恢复系统代理与终端，防止残留代理导致断网。
+- TUI 改动遵循 `.codex/skills/tui-design/SKILL.md` 与 `doc/03-ui设计.md` 的布局 / 配色 / 键位约定。
+- 提交：分阶段，每个可独立运行/回滚的逻辑单元立即 `git commit`。
+- 提交信息：Conventional Commits，`<type>: <中文简述>`；type 取值 feat/fix/refactor/docs/style/chore/build。
