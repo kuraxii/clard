@@ -4,6 +4,6 @@
 - 并发模型：所有异步任务只通过 `mpsc::unbounded_channel<ClardEvent>` 回传，禁止在 `tokio::spawn` 任务里直接改 app 状态；主循环 `tokio::select!` 消费事件后统一 `painter.draw`。
 - 系统副作用（核心进程 / 系统代理 / TUN）只允许出现在 clard-core；TUI 仅发命令、消费事件。
 - 退出与 panic 必须恢复系统代理与终端，防止残留代理导致断网。
-- TUI 改动遵循 `.codex/skills/tui-design/SKILL.md` 与 `doc/03-ui设计.md` 的布局 / 配色 / 键位约定。
+- TUI 改动遵循 `.pi/skills/tui-design/SKILL.md` 与 `doc/03-ui设计.md` 的布局 / 配色 / 键位约定。
 - 提交：分阶段，每个可独立运行/回滚的逻辑单元立即 `git commit`。
 - 提交信息：Conventional Commits，`<type>: <中文简述>`；type 取值 feat/fix/refactor/docs/style/chore/build。
