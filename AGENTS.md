@@ -1,20 +1,16 @@
-- 项目：完整代理管理工具（Rust，仅 Linux）。架构 = 常驻 root 服务 `clard-helper`（拥有 mihomo 核心与 TUN）+ TUI 客户端 `clard`（ratatui）。设计总纲在 `doc/01-方案设计.md`、`doc/03-ui设计.md`（当前 v0.2），改动架构前先读并遵循。
+- 项目：完整代理管理工具（Rust，仅 Linux）。架构 = 常驻 root 服务 `clard-helper`（拥有 mihomo 核心、TUN 与全部数据）+ TUI 客户端 `clard`（ratatui）。
+- **文档是唯一实现依据**：实现/改动前先读对应文档并遵循；架构、边界、安全、数据归属、存储、并发、审计、退出等约束一律以文档为准，不在本文重复。
+  - `doc/01-方案设计.md`：总体架构、组件关系（§3.4）、系统级服务与访问模型（§4）、核心生命周期、TUN、配置管理、审计——改架构前必读。
+  - `doc/03-ui设计.md`：UI/UX（布局/配色/键位/页面）——改 TUI 前必读。
+  - `doc/05-需求文档.md`：用户操作层需求清单（含每项实现方法）。
+  - `doc/04-mihomo调研.md`：mihomo 运行时接口（REST/WS）。
+  - 文档变更与代码实现应同步；发现文档过时/缺失时先改文档再实现。
 - 参考代码（改代码前先读对应实现，路径优先本机、其次上游 URL）：
   - clash-verge-rev：本机 `~/workspace/project/clash-verge-rev`（dev 分支，较新；备选 `~/workspace/repo/clash-verge-rev`），上游 https://github.com/clash-verge-rev/clash-verge-rev 。核心进程与退出清理看 `src-tauri/src/core/manager/*.rs`、`core/service.rs`、`feat/window.rs`；TUN 降级看 `feat/tun.rs`；配置生成看 `src-tauri/src/config/clash.rs`；`core/sysopt.rs` 是已弃用的系统代理逻辑，仅参考不再使用。
   - clash-verge-service-ipc（特权服务契约 v2.6）：上游 https://github.com/clash-verge-rev/clash-verge-service-ipc （本地未克隆，可浅克隆到 `~/workspace/repo/`）。启动自检/孤儿清理看 `src/core/reconcile.rs`、`runtime.rs`、`process.rs`；崩溃自愈 watchdog 看 `src/core/manager.rs`；配置投递的 `RuntimeBundle` 看 `src/core/structure.rs`。
-  - mihomo（Meta 分支）：上游 https://github.com/MetaCubeX/mihomo/tree/Meta （本地未克隆，可浅克隆到 `~/workspace/repo/mihomo`）。TUN 落地看 `listener/sing_tun/server.go`（默认设备名 `Meta`、`tun.Options` 组装）、`config/config.go`（tun/listeners 解析、`PATCH /configs` 热重载入口在 `hub/route/configs.go`）。
+  - mihomo（Meta 分支）：上游 https://github.com/MetaCubeX/mihomo/tree/Meta （本地未克隆，可浅克隆到 `~/workspace/repo/mihomo`）。TUN 落地看 `listener/sing_tun/server.go`（默认设备名 `Meta`、`tun.Options` 组装）、`config/config.go`（tun/listeners 解析、`PUT /configs` 热重载入口在 `hub/route/configs.go`）。
   - MetaCubeX/sing-tun：上游 https://github.com/MetaCubeX/sing-tun 。网卡/路由/ip rule 的创建与清理看 `tun_linux.go`（`New/configure/Close`、`unsetRules` 删除区间）；`DefaultIPRoute2TableIndex/RuleIndex` 等常量在 `tun.go`。
   - （已弃用）sysproxy-rs：https://github.com/clash-verge-rev/sysproxy-rs ，仅 doc/01 附录 A 留档，不再使用。
-- 分层：workspace 四 crate —— `clard-core`（领域逻辑，禁止依赖 ratatui）/ `clard-proto`（IPC 契约，两侧唯一耦合点）/ `clard-helper`（root daemon，禁止依赖 `clard-core` 与 ratatui，保持 root 侧代码最小）/ `clard-tui`（`[[bin]] name = "clard"`，只依赖 `clard-core` + `clard-proto`）。旧 `src/ipc` 迁移为 `clard-core/mihomo`，允许破坏性重构。
-- 所有权：核心进程 / TUN / 审计日志 / **所有数据**（profiles、`clard.toml`、配置、缓存）归 helper（/var）；TUI 是纯客户端——只做订阅下载、config_gen 转换与请求发起，**不持有任何持久文件**。**TUI 永远不是 mihomo 的父进程**，也不写任何系统网络配置；TUI 退出/崩溃/多开都不得影响后台代理。
-- 存储划分：**持久数据**（profiles 索引与内容、`clard.toml`、运行态配置副本、资产、`core.db`、`state.json`、runtime record、下载缓存）→ `/var/lib/clard/` 与 `/var/cache/clard/`（root 拥有，重启不清空）；**临时文件**（`helper.sock`、`core.sock`、`inbox/`、flock）→ `/run/clard/`（tmpfs，重启即清空）。TUI 不写 /var——下载/转换在内存，经 IPC 由 helper 落盘。
-- 数据面只有 TUN：**不写** kioslaverc / gsettings / dconf（v0.2 决策 D1，调研结论见 `doc/01` 附录 A）。手动模式仅保留绑定 127.0.0.1 的 `mixed-port`。
-- 并发模型：所有异步任务只通过 `mpsc::unbounded_channel<ClardEvent>` 回传，禁止在 `tokio::spawn` 任务里直接改 app 状态；主循环 `tokio::select!` 消费事件后统一 `painter.draw`。helper 侧同理：任何改核心状态的操作一律经 `lifecycle_lock` 串行。
-- 提权边界：TUI 全程不需要 su；提权只发生在「安装/卸载 helper」。拉起 `pkexec`/`sudo` 前必须退出 raw mode 与 alternate screen，返回后重进。
-- helper 安全底线：只执行 `/usr/libexec/clard/mihomo`（root 拥有、校验哈希，绝不执行用户可写位置的副本）；不读用户目录（unit 里 `ProtectHome=yes`），配置与资产经 IPC + `/run/clard/inbox` 哈希校验投递、物化到 `/var/lib/clard/`；RPC 一律 `SO_PEERCRED` 记录 actor uid/pid 写审计（系统级服务、不分用户，默认本地用户可连）。
-- 崩溃安全：TUN 故障必须 **fail-open**（撤 TUN 恢复直连），绝不 fail-closed。`cleanup-tun` 必须挂三处：`ExecStopPost`、helper 启动自检、手动命令。托管 `tun.device=clard0`、`iproute2-table-index=2023`、`iproute2-rule-index=9100`；一期禁用 `strict-route` 与 `auto-redirect`（残留即断网 / netfilter 残留面）。
-- 审计：系统级操作由 helper 记 intent + result 两条（同一 `op_id`），字段含 actor uid/pid、auth 方式、`cfg_sha256` 与字段级 diff、net 前后快照、err；**禁止**记录订阅凭据、节点密码、secret。双写 journald（stdout `KEY=VALUE`）+ `/var/log/clard/audit.log`。
-- 退出与 panic：TUI 退出/panic 只恢复终端与 flush 日志（它不拥有网络状态）；helper 收 TERM 必须停核心并校验 TUN 已撤销，未撤销则执行 `cleanup-tun`；被 SIGKILL 时由 `ExecStopPost` 与下次启动自检兜底。
 - TUI 改动遵循 `.pi/skills/tui-design/SKILL.md` 与 `doc/03-ui设计.md` 的布局 / 配色 / 键位约定。
 - 提交：分阶段，每个可独立运行/回滚的逻辑单元立即 `git commit`。
 - 提交信息：Conventional Commits，`<type>: <中文简述>`；type 取值 feat/fix/refactor/docs/style/chore/build。
