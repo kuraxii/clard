@@ -7,6 +7,48 @@ pub const CONFIG_FILE: &str = "~/.config/clard-rs/clard-rs.toml";
 pub enum ClardRsCmd {
     /// 执行测试子命令
     Test(TestCmd),
+    /// 订阅配置管理：URL 导入 / 列表 / 更新 / 删除 / 当前
+    Profiles(ProfilesCmd),
+}
+
+#[derive(clap::Args, Debug)]
+pub struct ProfilesCmd {
+    #[command(subcommand)]
+    pub cmd: ProfilesSub,
+}
+
+#[derive(clap::Subcommand, Debug)]
+pub enum ProfilesSub {
+    /// 从 URL 导入订阅；同 URL 已存在则覆盖更新
+    Import {
+        /// 订阅 URL
+        url: String,
+        /// 配置名（缺省取 URL host）
+        #[arg(long)]
+        name: Option<String>,
+        /// 定时更新间隔（秒，0=关闭；定时器一期不实现）
+        #[arg(long, default_value_t = 0)]
+        interval: u64,
+    },
+    /// 列出所有配置
+    List,
+    /// 重新下载并覆盖指定配置
+    Update {
+        /// 配置 uid
+        uid: String,
+    },
+    /// 删除指定配置
+    Remove {
+        /// 配置 uid
+        uid: String,
+    },
+    /// 显示当前配置
+    Current,
+    /// 切换当前配置
+    SetCurrent {
+        /// 配置 uid
+        uid: String,
+    },
 }
 
 #[derive(clap::Args, Debug)]

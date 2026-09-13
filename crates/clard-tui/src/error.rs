@@ -19,6 +19,9 @@ pub enum ClardError {
     #[error("IPC Failed: {0}")]
     Ipc(#[from] IpcError),
 
+    #[error("配置管理错误: {0}")]
+    Profiles(#[from] clard_core::profiles::ProfilesError),
+
     #[error("other error")]
     Other,
 }
