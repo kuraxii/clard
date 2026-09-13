@@ -19,6 +19,7 @@ mod canvas;
 pub mod commands;
 pub mod error;
 pub mod event;
+pub mod rpc;
 use std::{
     io::stdout,
     panic::{self, PanicHookInfo},

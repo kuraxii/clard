@@ -3,11 +3,13 @@
 #![deny(warnings, missing_docs, trivial_casts, unused_qualifications)]
 
 use clap::Parser;
-use clard_core::config_gen::ConfigGenOptions;
-use clard_core::profiles::{HttpFetcher, ImportOutcome, ProfilesStore, default_config_dir};
+use clard_core::config_gen::{ConfigGenOptions, subscription_to_yaml};
+use clard_core::profiles::{HttpFetcher, SubscriptionFetcher};
+use clard_proto::{ProfileImport, Request, Response};
 use clard_tui::{
     commands::{ClardRsCmd, Cli, ProfilesSub},
     error::Result,
+    rpc,
     start_clard,
 };
 
@@ -39,49 +41,111 @@ async fn run() -> Result<()> {
 }
 
 /// 订阅配置管理子命令（临时 CLI 入口；正式界面见 doc/02 §3.2）。
+/// 所有操作经 IPC 发给 helper（系统级服务，doc/01 §7）。
 async fn run_profiles_cmd(cmd: ProfilesSub) -> Result<()> {
-    let mut store = ProfilesStore::open(default_config_dir())?;
-    let fetcher = HttpFetcher::new(reqwest::Client::new());
     match cmd {
         ProfilesSub::Import {
             url,
             name,
             interval,
-        } => match store.import(&url, name.as_deref(), interval, &fetcher).await? {
-            ImportOutcome::Created { uid } => println!("已导入: {uid}"),
-            ImportOutcome::Updated { uid } => println!("同 URL 已覆盖更新: {uid}"),
-        },
-        ProfilesSub::List => {
-            if store.list().is_empty() {
-                println!("(无配置)");
+        } => {
+            // 下载 → 归一化/转换 → 提交 helper 存储
+            let raw = HttpFetcher::new(reqwest::Client::new()).fetch(&url).await?;
+            let yaml = subscription_to_yaml(&raw)?;
+            let resp = rpc::call(&Request::ProfileImport(ProfileImport {
+                name,
+                url,
+                interval,
+                yaml,
+            }))
+            .await?;
+            match resp {
+                Response::ProfileImported { uid, updated } => {
+                    if updated {
+                        println!("同 URL 已覆盖更新: {uid}");
+                    } else {
+                        println!("已导入: {uid}");
+                    }
+                }
+                other => return Err(rpc::unexpected(other).into()),
             }
-            for p in store.list() {
-                println!("{}  {}  {}  updated={:?}", p.uid, p.name, p.url, p.updated_at);
+        }
+        ProfilesSub::List => {
+            let resp = rpc::call(&Request::ProfileList).await?;
+            match resp {
+                Response::ProfileList { current, items } => {
+                    if items.is_empty() {
+                        println!("(无配置)");
+                    }
+                    for p in &items {
+                        let mark = if current.as_deref() == Some(p.uid.as_str()) { "*" } else { " " };
+                        println!(
+                            "{mark} {}  {}  {}  updated={:?}",
+                            p.uid, p.name, p.url, p.updated_at
+                        );
+                    }
+                }
+                other => return Err(rpc::unexpected(other).into()),
             }
         }
         ProfilesSub::Update { uid } => {
-            store.update(&uid, &fetcher).await?;
-            println!("已更新: {uid}");
+            // 取回 URL → 重新下载 → 归一化 → 同 URL 覆盖更新
+            let resp = rpc::call(&Request::ProfileGet { uid: uid.clone() }).await?;
+            let (url, interval) = match resp {
+                Response::ProfileContent { item, .. } => (item.url, item.interval),
+                other => return Err(rpc::unexpected(other).into()),
+            };
+            let raw = HttpFetcher::new(reqwest::Client::new()).fetch(&url).await?;
+            let new_yaml = subscription_to_yaml(&raw)?;
+            let resp = rpc::call(&Request::ProfileImport(ProfileImport {
+                name: None,
+                url,
+                interval,
+                yaml: new_yaml,
+            }))
+            .await?;
+            match resp {
+                Response::ProfileImported { uid: _uid, updated } => {
+                    println!("已更新: {uid}（覆盖更新: {updated}）");
+                }
+                other => return Err(rpc::unexpected(other).into()),
+            }
         }
         ProfilesSub::Remove { uid } => {
-            store.remove(&uid)?;
+            let resp = rpc::call(&Request::ProfileRemove { uid: uid.clone() }).await?;
+            rpc::expect_ok(resp)?;
             println!("已删除: {uid}");
         }
-        ProfilesSub::Current => match store.current() {
-            Some(p) => println!("{}  {}", p.uid, p.name),
-            None => println!("(无当前配置)"),
-        },
+        ProfilesSub::Current => {
+            let resp = rpc::call(&Request::ProfileList).await?;
+            match resp {
+                Response::ProfileList { current, items } => {
+                    if let Some(cur) = current {
+                        if let Some(p) = items.iter().find(|p| p.uid == cur) {
+                            println!("{}  {}", p.uid, p.name);
+                        } else {
+                            println!("(当前配置不存在)");
+                        }
+                    } else {
+                        println!("(无当前配置)");
+                    }
+                }
+                other => return Err(rpc::unexpected(other).into()),
+            }
+        }
         ProfilesSub::SetCurrent { uid } => {
-            store.set_current(&uid)?;
+            let resp = rpc::call(&Request::ProfileSetCurrent { uid: uid.clone() }).await?;
+            rpc::expect_ok(resp)?;
             println!("已切换当前配置: {uid}");
         }
         ProfilesSub::Gen { uid } => {
-            let path = store
-                .content_path(&uid)
-                .ok_or_else(|| clard_core::profiles::ProfilesError::NotFound { uid: uid.clone() })?;
-            let content = std::fs::read_to_string(&path)?;
-            let runtime =
-                clard_core::config_gen::generate(&content, None, &ConfigGenOptions::default())?;
+            // 取回原始 yaml → config_gen 生成运行时配置（打印；正式链路经 ApplyConfig 交 helper）
+            let resp = rpc::call(&Request::ProfileGet { uid: uid.clone() }).await?;
+            let yaml = match resp {
+                Response::ProfileContent { yaml, .. } => yaml,
+                other => return Err(rpc::unexpected(other).into()),
+            };
+            let runtime = clard_core::config_gen::generate(&yaml, None, &ConfigGenOptions::default())?;
             println!("{runtime}");
         }
     }

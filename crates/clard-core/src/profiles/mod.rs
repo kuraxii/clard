@@ -1,13 +1,8 @@
-//! 订阅配置（profiles）领域层：URL 导入 / 多配置管理 / 同 URL 覆盖更新 / 持久化。
+//! 订阅获取（download）：TUI 侧下载订阅原始内容（helper 不依赖本 crate）。
 //!
-//! 所有权归 TUI（用户 XDG 目录，doc/01 §7 / §3.3）；helper 不读此目录
-//! （`ProtectHome=yes`，配置经 IPC + inbox 投递）。
+//! 订阅内容的**存储与管理在 helper**（doc/01 §7）；TUI 只负责：
+//! 下载 → `config_gen` 归一化/转换 → 经 IPC `ProfileImport` 提交给 helper。
 
 pub mod download;
-pub mod store;
 
 pub use download::{DownloadError, HttpFetcher, SubscriptionFetcher};
-pub use store::{
-    ImportOutcome, NodeSelection, Profile, ProfileKind, ProfilesError, ProfilesIndex,
-    ProfilesStore, default_config_dir,
-};

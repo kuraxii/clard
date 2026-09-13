@@ -55,6 +55,14 @@ pub fn generate(
     serde_yaml_ng::to_string(&doc).map_err(|e| ConfigGenError::Yaml(e.to_string()))
 }
 
+/// 订阅原始内容 → **可存储的 yaml**（提交 `ProfileImport` 前用，§7.1）：
+/// base64 解码；节点列表转 `proxies:`；已是 yaml 则原样。不做 merge/托管注入。
+pub fn subscription_to_yaml(raw: &str) -> Result<String, ConfigGenError> {
+    let text = normalize::normalize(raw)?;
+    let doc = parse_subscription(&text)?;
+    serde_yaml_ng::to_string(&doc).map_err(|e| ConfigGenError::Yaml(e.to_string()))
+}
+
 fn parse_subscription(text: &str) -> Result<Value, ConfigGenError> {
     let t = text.trim();
     if t.is_empty() {
