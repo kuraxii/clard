@@ -7,10 +7,11 @@
   - （已弃用）sysproxy-rs：https://github.com/clash-verge-rev/sysproxy-rs ，仅 doc/01 附录 A 留档，不再使用。
 - 分层：workspace 四 crate —— `clard-core`（领域逻辑，禁止依赖 ratatui）/ `clard-proto`（IPC 契约，两侧唯一耦合点）/ `clard-helper`（root daemon，禁止依赖 `clard-core` 与 ratatui，保持 root 侧代码最小）/ `clard-tui`（`[[bin]] name = "clard"`，只依赖 `clard-core` + `clard-proto`）。旧 `src/ipc` 迁移为 `clard-core/mihomo`，允许破坏性重构。
 - 所有权：核心进程 / TUN / 审计日志归 helper；profiles、`clard.toml`、配置生成、下载缓存归 TUI（用户 XDG 目录）。**TUI 永远不是 mihomo 的父进程**，也不写任何系统网络配置；TUI 退出/崩溃/多开都不得影响后台代理。
+- 存储划分：**持久数据**（运行态配置副本、资产、`core.db`、`state.json`、runtime record）→ `/var/lib/clard/`（root 拥有，重启不清空，崩溃/重启自愈的依据）；**临时文件**（`helper.sock`、`core.sock`、`inbox/`、flock）→ `/run/clard/`（tmpfs，重启即清空）。TUI 生成运行态配置经 IPC 投递、由 helper 物化到 `/var/lib/clard/runtime/`——TUI 非特权，**不直接写 /var**。
 - 数据面只有 TUN：**不写** kioslaverc / gsettings / dconf（v0.2 决策 D1，调研结论见 `doc/01` 附录 A）。手动模式仅保留绑定 127.0.0.1 的 `mixed-port`。
 - 并发模型：所有异步任务只通过 `mpsc::unbounded_channel<ClardEvent>` 回传，禁止在 `tokio::spawn` 任务里直接改 app 状态；主循环 `tokio::select!` 消费事件后统一 `painter.draw`。helper 侧同理：任何改核心状态的操作一律经 `lifecycle_lock` 串行。
 - 提权边界：TUI 全程不需要 su；提权只发生在「安装/卸载 helper」与「变更 authorized_uid」。拉起 `pkexec`/`sudo` 前必须退出 raw mode 与 alternate screen，返回后重进。
-- helper 安全底线：只执行 `/usr/libexec/clard/mihomo`（root 拥有、校验哈希，绝不执行用户目录里的可写副本）；不读用户目录（unit 里 `ProtectHome=yes`），配置与资产经 IPC + `/run/clard/inbox` 哈希校验投递；RPC 一律 `SO_PEERCRED` 校验 uid == `authorized_uid`，拒绝要写审计。
+- helper 安全底线：只执行 `/usr/libexec/clard/mihomo`（root 拥有、校验哈希，绝不执行用户目录里的可写副本）；不读用户目录（unit 里 `ProtectHome=yes`），配置与资产经 IPC + `/run/clard/inbox` 哈希校验投递、物化到 `/var/lib/clard/runtime/`；RPC 一律 `SO_PEERCRED` 校验 uid == `authorized_uid`，拒绝要写审计。
 - 崩溃安全：TUN 故障必须 **fail-open**（撤 TUN 恢复直连），绝不 fail-closed。`cleanup-tun` 必须挂三处：`ExecStopPost`、helper 启动自检、手动命令。托管 `tun.device=clard0`、`iproute2-table-index=2023`、`iproute2-rule-index=9100`；一期禁用 `strict-route` 与 `auto-redirect`（残留即断网 / netfilter 残留面）。
 - 审计：系统级操作由 helper 记 intent + result 两条（同一 `op_id`），字段含 actor uid/pid、auth 方式、`cfg_sha256` 与字段级 diff、net 前后快照、err；**禁止**记录订阅凭据、节点密码、secret。双写 journald（stdout `KEY=VALUE`）+ `/var/log/clard/audit.log`。
 - 退出与 panic：TUI 退出/panic 只恢复终端与 flush 日志（它不拥有网络状态）；helper 收 TERM 必须停核心并校验 TUN 已撤销，未撤销则执行 `cleanup-tun`；被 SIGKILL 时由 `ExecStopPost` 与下次启动自检兜底。
