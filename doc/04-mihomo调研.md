@@ -8,7 +8,7 @@
 ## 0. 访问、鉴权与通用约定
 
 - **监听**：`external-controller`（TCP）、`external-controller-unix`（Unix socket）。clard 用后者
-  （`/run/clard/core.sock`，0600 chown 授权 uid），不经 TCP、不开网络监听。
+  （`/run/clard/core.sock`，0666 系统级），不经 TCP、不开网络监听。
 - **鉴权**：配置了 `secret` 时，
   - REST：请求头 `Authorization: Bearer <secret>`；
   - WebSocket：`?token=<secret>`（浏览器 WS 无法自定义头），或同样用 Bearer 头；
@@ -240,6 +240,6 @@ hitAt/missCount/missAt` 命中统计。
 | 实时流量 / 核心日志 | `GET /traffic`(WS) / `GET /logs`(WS) |
 | 版本展示 / 升级状态 | `GET /version`；升级走 helper `InstallCore`，不用 `/upgrade` |
 
-**安全边界**：clard 经 unix socket `core.sock`（0600 chown 授权 uid）直连，**不设 secret、不开 TCP
+**安全边界**：clard 经 unix socket `core.sock`（0666，系统级服务不分用户）直连，**不设 secret、不开 TCP
 controller**（doc/01 §6.3 托管字段强制 `external-controller-unix`）。`PUT /configs` 的 `path` 走
 `IsSafePath` 校验，clard 用 `payload` 内联即天然避开路径安全问题。
