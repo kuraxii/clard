@@ -1,8 +1,10 @@
 //! clard-proto：TUI ↔ helper 的 IPC 契约（两侧唯一耦合点）
 //!
-//! 方法清单与语义见 doc/01-方案设计.md §5.6；payload 类型随
-//! 里程碑 M1（helper 骨架）逐步补全。协议不兼容时 `Hello` 握手返回
-//! [`ProtoError::VersionMismatch`]。
+//! 方法清单与语义见 doc/01-方案设计.md §5.6；payload 类型随实现逐步补全。
+//! 协议不兼容时 `Hello` 握手返回 [`ProtoError::VersionMismatch`]。
+//!
+//! 访问控制（doc/01 §4.2）：系统级服务、不分用户——socket 0666 默认全开放，
+//! helper 用 `SO_PEERCRED` 记录 actor uid/pid 写审计，不做准入。
 
 #![forbid(unsafe_code)]
 #![warn(
@@ -18,7 +20,7 @@
 use serde::{Deserialize, Serialize};
 
 /// 当前协议版本。任何不兼容变更都必须递增并在 `Hello` 握手中核对。
-pub const PROTO_VERSION: u32 = 1;
+pub const PROTO_VERSION: u32 = 2;
 
 /// 协议层错误
 #[derive(Debug, thiserror::Error)]
@@ -27,36 +29,111 @@ pub enum ProtoError {
     VersionMismatch { helper: u32, client: u32 },
 }
 
-/// TUI → helper 的请求方法（对应 doc/01 §5.6）
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+/// 订阅配置条目（helper 索引中的一项，doc/01 §7）
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ProfileItem {
+    pub uid: String,
+    pub name: String,
+    pub url: String,
+    /// 最近更新时间（unix 秒）
+    pub updated_at: Option<i64>,
+    /// 定时更新间隔（秒，0=关闭；定时器一期不实现）
+    pub interval: u64,
+}
+
+/// TUI → helper 的请求（对应 doc/01 §5.6）
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[non_exhaustive]
 pub enum Request {
-    /// 握手：核对 proto_version，返回 helper 版本 / authorized_uid / 能力位 / 当前状态
+    /// 握手：核对 proto_version，返回 helper 版本 / 能力位 / 当前状态
     Hello,
     /// 全量状态：核心状态 + TUN 状态 + 核心版本
     Status,
-    /// 投递配置 bundle（yaml + 资产清单），见 §5.5
-    ApplyConfig,
+    /// 订阅配置：列表 / 导入（TUI 已下载并归一化）/ 取回内容 / 删除 / 切换
+    ProfileList,
+    ProfileImport(ProfileImport),
+    ProfileGet { uid: String },
+    ProfileRemove { uid: String },
+    ProfileSetCurrent { uid: String },
+    /// 投递运行时配置 bundle（TUI config_gen 生成，§5.5）
+    ApplyConfig { yaml: String },
     /// 启停与重启核心（幂等）
     StartCore,
     StopCore,
     RestartCore,
     /// 开/关 TUN（托管字段注入 + 热重载 + 回读校验）
-    SetTun,
+    SetTun { enable: bool },
     /// 手动兜底清理 TUN 残留（幂等）
     CleanupTun,
     /// 审计日志分页查询
-    AuditQuery,
+    AuditQuery { cursor: u64 },
     /// 核心日志分页读取
-    LogTail,
+    LogTail { source: String, cursor: u64 },
+    /// TUI 应用日志交给 helper 落盘（/var/log/clard/tui.log）
+    LogSubmit { line: String },
     /// 订阅事件流（断线重连后先 Status 全量同步再增量订阅）
     Subscribe,
     /// 升级核心（inbox 哈希校验 → 原子替换）
-    InstallCore,
+    InstallCore {
+        inbox_path: String,
+        sha256: String,
+        version: String,
+    },
 }
 
-/// helper → TUI 的事件推送
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+/// 订阅导入请求：yaml 为 TUI 下载订阅后经 config_gen 归一化的内容（doc/01 §7.1）
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ProfileImport {
+    pub name: Option<String>,
+    pub url: String,
+    pub interval: u64,
+    pub yaml: String,
+}
+
+/// helper → TUI 的响应
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[non_exhaustive]
+pub enum Response {
+    Hello {
+        helper_version: String,
+        proto_version: u32,
+    },
+    /// Status 的完整字段随核心生命周期里程碑补全
+    Status {
+        core_state: String,
+        tun_active: bool,
+    },
+    ProfileList {
+        current: Option<String>,
+        items: Vec<ProfileItem>,
+    },
+    ProfileImported {
+        uid: String,
+        /// true = 同 URL 覆盖更新
+        updated: bool,
+    },
+    ProfileContent {
+        item: ProfileItem,
+        yaml: String,
+    },
+    /// 无额外载荷的成功
+    Ok,
+    Error {
+        message: String,
+    },
+}
+
+impl Response {
+    /// 便捷构造错误响应
+    pub fn err(message: impl Into<String>) -> Self {
+        Self::Error {
+            message: message.into(),
+        }
+    }
+}
+
+/// helper → TUI 的事件推送（事件流里程碑补全 payload）
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[non_exhaustive]
 pub enum Event {
     CoreStatusChanged,
@@ -72,7 +149,28 @@ mod tests {
     use super::*;
 
     #[test]
-    fn proto_version_is_stable_for_this_release() {
-        assert_eq!(PROTO_VERSION, 1);
+    fn proto_version_is_current() {
+        assert_eq!(PROTO_VERSION, 2);
+    }
+
+    #[test]
+    fn request_response_roundtrip() {
+        let req = Request::ProfileImport(ProfileImport {
+            name: Some("订阅A".into()),
+            url: "https://example.com/sub".into(),
+            interval: 0,
+            yaml: "proxies: []".into(),
+        });
+        let json = serde_json::to_vec(&req).unwrap();
+        let back: Request = serde_json::from_slice(&json).unwrap();
+        assert_eq!(req, back);
+
+        let resp = Response::ProfileImported {
+            uid: "R1".into(),
+            updated: false,
+        };
+        let json = serde_json::to_vec(&resp).unwrap();
+        let back: Response = serde_json::from_slice(&json).unwrap();
+        assert_eq!(resp, back);
     }
 }
