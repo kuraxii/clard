@@ -1,4 +1,10 @@
 - 项目：完整代理管理工具（Rust，仅 Linux）。架构 = 常驻 root 服务 `clard-helper`（拥有 mihomo 核心与 TUN）+ TUI 客户端 `clard`（ratatui）。设计总纲在 `doc/01-方案设计.md`、`doc/02-交互设计.md`、`doc/03-ui设计.md`（当前 v0.2），改动架构前先读并遵循。
+- 参考代码（改代码前先读对应实现，路径优先本机、其次上游 URL）：
+  - clash-verge-rev：本机 `~/workspace/project/clash-verge-rev`（dev 分支，较新；备选 `~/workspace/repo/clash-verge-rev`），上游 https://github.com/clash-verge-rev/clash-verge-rev 。核心进程与退出清理看 `src-tauri/src/core/manager/*.rs`、`core/service.rs`、`feat/window.rs`；TUN 降级看 `feat/tun.rs`；配置生成看 `src-tauri/src/config/clash.rs`；`core/sysopt.rs` 是已弃用的系统代理逻辑，仅参考不再使用。
+  - clash-verge-service-ipc（特权服务契约 v2.6）：上游 https://github.com/clash-verge-rev/clash-verge-service-ipc （本地未克隆，可浅克隆到 `~/workspace/repo/`）。启动自检/孤儿清理看 `src/core/reconcile.rs`、`runtime.rs`、`process.rs`；崩溃自愈 watchdog 看 `src/core/manager.rs`；配置投递的 `RuntimeBundle` 看 `src/core/structure.rs`。
+  - mihomo（Meta 分支）：上游 https://github.com/MetaCubeX/mihomo/tree/Meta （本地未克隆，可浅克隆到 `~/workspace/repo/mihomo`）。TUN 落地看 `listener/sing_tun/server.go`（默认设备名 `Meta`、`tun.Options` 组装）、`config/config.go`（tun/listeners 解析、`PATCH /configs` 热重载入口在 `hub/route/configs.go`）。
+  - MetaCubeX/sing-tun：上游 https://github.com/MetaCubeX/sing-tun 。网卡/路由/ip rule 的创建与清理看 `tun_linux.go`（`New/configure/Close`、`unsetRules` 删除区间）；`DefaultIPRoute2TableIndex/RuleIndex` 等常量在 `tun.go`。
+  - （已弃用）sysproxy-rs：https://github.com/clash-verge-rev/sysproxy-rs ，仅 doc/01 附录 A 留档，不再使用。
 - 分层：workspace 四 crate —— `clard-core`（领域逻辑，禁止依赖 ratatui）/ `clard-proto`（IPC 契约，两侧唯一耦合点）/ `clard-helper`（root daemon，禁止依赖 `clard-core` 与 ratatui，保持 root 侧代码最小）/ `clard-tui`（`[[bin]] name = "clard"`，只依赖 `clard-core` + `clard-proto`）。旧 `src/ipc` 迁移为 `clard-core/mihomo`，允许破坏性重构。
 - 所有权：核心进程 / TUN / 审计日志归 helper；profiles、`clard.toml`、配置生成、下载缓存归 TUI（用户 XDG 目录）。**TUI 永远不是 mihomo 的父进程**，也不写任何系统网络配置；TUI 退出/崩溃/多开都不得影响后台代理。
 - 数据面只有 TUN：**不写** kioslaverc / gsettings / dconf（v0.2 决策 D1，调研结论见 `doc/01` 附录 A）。手动模式仅保留绑定 127.0.0.1 的 `mixed-port`。
