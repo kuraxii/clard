@@ -17,11 +17,8 @@
 pub mod app;
 mod canvas;
 pub mod commands;
-pub mod config;
-
 pub mod error;
 pub mod event;
-pub mod ipc;
 use std::{
     io::stdout,
     panic::{self, PanicHookInfo},
@@ -119,7 +116,7 @@ fn reset_terminal(terminal: &mut Terminal<CrosstermBackend<std::io::Stdout>>) ->
 
 use std::sync::Arc;
 
-use crate::ipc::backend::Backend;
+use clard_core::mihomo::backend::Backend;
 
 const DEFAULT_UNIX_SOCKET: &str = "/tmp/verge/verge-mihomo.sock";
 const DEFAULT_TCP_ADDR: &str = "127.0.0.1:9090";

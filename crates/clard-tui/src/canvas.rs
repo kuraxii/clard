@@ -7,6 +7,8 @@ use ratatui::{
     widgets::{Block, BorderType, Borders, Cell, Clear, List, ListItem, Paragraph, Row, Table, Tabs, Wrap},
 };
 
+use clard_core::mihomo::models::{Connection, DelayHistory, Proxy as ProxyModel, ProxyType};
+
 use crate::{
     app::{
         APP, WindowState,
@@ -16,7 +18,6 @@ use crate::{
         proxy::{ProxyFocus, ProxyState},
         state::MenuItem,
     },
-    ipc::models::{Connection, DelayHistory, Proxy as ProxyModel},
 };
 
 #[derive(Debug, Default)]
@@ -1211,32 +1212,32 @@ fn latest_delay(history: &[DelayHistory]) -> Option<u16> {
 
 fn proxy_type_name(group: &ProxyModel) -> &'static str {
     match group.proxy_type {
-        crate::ipc::models::ProxyType::Direct => "Direct",
-        crate::ipc::models::ProxyType::Reject => "Reject",
-        crate::ipc::models::ProxyType::RejectDrop => "RejectDrop",
-        crate::ipc::models::ProxyType::Compatible => "Compatible",
-        crate::ipc::models::ProxyType::Pass => "Pass",
-        crate::ipc::models::ProxyType::Dns => "DNS",
-        crate::ipc::models::ProxyType::Shadowsocks => "SS",
-        crate::ipc::models::ProxyType::ShadowsocksR => "SSR",
-        crate::ipc::models::ProxyType::Snell => "Snell",
-        crate::ipc::models::ProxyType::Socks5 => "Socks5",
-        crate::ipc::models::ProxyType::Http => "HTTP",
-        crate::ipc::models::ProxyType::Vmess => "Vmess",
-        crate::ipc::models::ProxyType::Vless => "Vless",
-        crate::ipc::models::ProxyType::Trojan => "Trojan",
-        crate::ipc::models::ProxyType::Hysteria => "Hysteria",
-        crate::ipc::models::ProxyType::Hysteria2 => "Hysteria2",
-        crate::ipc::models::ProxyType::WireGuard => "WireGuard",
-        crate::ipc::models::ProxyType::Tuic => "Tuic",
-        crate::ipc::models::ProxyType::Ssh => "SSH",
-        crate::ipc::models::ProxyType::Mieru => "Mieru",
-        crate::ipc::models::ProxyType::AnyTLS => "AnyTLS",
-        crate::ipc::models::ProxyType::Relay => "Relay",
-        crate::ipc::models::ProxyType::Selector => "Selector",
-        crate::ipc::models::ProxyType::Fallback => "Fallback",
-        crate::ipc::models::ProxyType::URLTest => "URLTest",
-        crate::ipc::models::ProxyType::LoadBalance => "LoadBalance",
+        ProxyType::Direct => "Direct",
+        ProxyType::Reject => "Reject",
+        ProxyType::RejectDrop => "RejectDrop",
+        ProxyType::Compatible => "Compatible",
+        ProxyType::Pass => "Pass",
+        ProxyType::Dns => "DNS",
+        ProxyType::Shadowsocks => "SS",
+        ProxyType::ShadowsocksR => "SSR",
+        ProxyType::Snell => "Snell",
+        ProxyType::Socks5 => "Socks5",
+        ProxyType::Http => "HTTP",
+        ProxyType::Vmess => "Vmess",
+        ProxyType::Vless => "Vless",
+        ProxyType::Trojan => "Trojan",
+        ProxyType::Hysteria => "Hysteria",
+        ProxyType::Hysteria2 => "Hysteria2",
+        ProxyType::WireGuard => "WireGuard",
+        ProxyType::Tuic => "Tuic",
+        ProxyType::Ssh => "SSH",
+        ProxyType::Mieru => "Mieru",
+        ProxyType::AnyTLS => "AnyTLS",
+        ProxyType::Relay => "Relay",
+        ProxyType::Selector => "Selector",
+        ProxyType::Fallback => "Fallback",
+        ProxyType::URLTest => "URLTest",
+        ProxyType::LoadBalance => "LoadBalance",
     }
 }
 

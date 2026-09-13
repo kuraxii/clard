@@ -617,8 +617,8 @@ mod tests {
         let backend = Backend::builder()
             .set_unix_socket("/tmp/verge/verge-mihomo.sock")
             .build()?;
-        let url = Url::parse(&crate::ipc::websocket::get_websocket_url("traffic")).unwrap();
-        let (mut traffic_rx, _) = backend.subscribe::<crate::ipc::models::Traffic>(url).await?;
+        let url = Url::parse(&crate::mihomo::websocket::get_websocket_url("traffic")).unwrap();
+        let (mut traffic_rx, _) = backend.subscribe::<crate::mihomo::models::Traffic>(url).await?;
 
         while let Some(traffic) = traffic_rx.recv().await {
             println!("traffic: {:?}", traffic);

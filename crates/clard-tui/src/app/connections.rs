@@ -1,6 +1,6 @@
 use ratatui::widgets::TableState;
 
-use crate::ipc::models::{Connection, Connections, Traffic};
+use clard_core::mihomo::models::{Connection, Connections, Traffic};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ConnectionsSort {
@@ -131,7 +131,7 @@ impl Default for ConnectionsState {
 #[cfg(test)]
 mod tests {
     use super::ConnectionsState;
-    use crate::ipc::models::Connections;
+    use clard_core::mihomo::models::Connections;
 
     #[test]
     fn sorts_connections_by_download_by_default_and_switches_with_keys() {

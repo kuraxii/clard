@@ -2,7 +2,7 @@
 
 use thiserror::Error;
 
-use crate::ipc::error::IpcError;
+use clard_core::mihomo::error::IpcError;
 
 pub type Result<T, E = ClardError> = std::result::Result<T, E>;
 #[derive(Debug, Error)]

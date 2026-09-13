@@ -3,7 +3,7 @@
 #![deny(warnings, missing_docs, trivial_casts, unused_qualifications)]
 
 use clap::Parser;
-use clard::{
+use clard_tui::{
     commands::{ClardRsCmd, Cli},
     error::Result,
     start_clard,

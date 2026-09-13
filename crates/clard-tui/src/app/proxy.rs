@@ -1,6 +1,6 @@
 use ratatui::widgets::ListState;
 
-use crate::ipc::models::{Groups, Proxy as ProxyModel};
+use clard_core::mihomo::models::{Groups, Proxy as ProxyModel};
 
 #[derive(PartialEq, Eq, Debug)]
 pub enum ProxyFocus {
@@ -220,7 +220,7 @@ fn group_now_idx(now: Option<&str>, all: &[String]) -> Option<usize> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::ipc::models::{DelayHistory, Extra, ProxyType};
+    use clard_core::mihomo::models::{DelayHistory, Extra, ProxyType};
     use std::collections::HashMap;
 
     fn proxy_group(name: &str, now: Option<&str>, all: Vec<&str>) -> ProxyModel {

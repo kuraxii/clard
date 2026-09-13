@@ -12,10 +12,9 @@ use proxy::ProxyState;
 use state::{MenuItem, MenuState};
 use tokio::sync::mpsc::UnboundedSender;
 
-use crate::{
-    event::ClardEvent,
-    ipc::{backend::Backend, models::Traffic, websocket::get_websocket_url},
-};
+use clard_core::mihomo::{backend::Backend, models::Traffic, websocket::get_websocket_url};
+
+use crate::event::ClardEvent;
 
 /// WindowState
 /// 用于记录窗口的状态，MENU、PROXY、CONNECTIONS、TEST

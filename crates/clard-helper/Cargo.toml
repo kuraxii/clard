@@ -1,0 +1,15 @@
+[package]
+name = "clard-helper"
+description = "Clard 特权助手：root daemon + install/uninstall/cleanup-tun/authorize"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+
+[dependencies]
+clard-proto = { path = "../clard-proto" }
+
+clap = { version = "4", features = ["derive"] }
+serde.workspace = true
+thiserror.workspace = true
+tokio.workspace = true
+tracing.workspace = true
