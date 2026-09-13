@@ -22,6 +22,9 @@ pub enum ClardError {
     #[error("配置管理错误: {0}")]
     Profiles(#[from] clard_core::profiles::ProfilesError),
 
+    #[error("配置生成失败: {0}")]
+    ConfigGen(#[from] clard_core::config_gen::ConfigGenError),
+
     #[error("other error")]
     Other,
 }

@@ -49,6 +49,11 @@ pub enum ProfilesSub {
         /// 配置 uid
         uid: String,
     },
+    /// 生成运行时配置（归一化+合并+托管字段，打印到 stdout；供调试/验证）
+    Gen {
+        /// 配置 uid
+        uid: String,
+    },
 }
 
 #[derive(clap::Args, Debug)]

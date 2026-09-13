@@ -3,6 +3,7 @@
 #![deny(warnings, missing_docs, trivial_casts, unused_qualifications)]
 
 use clap::Parser;
+use clard_core::config_gen::ConfigGenOptions;
 use clard_core::profiles::{HttpFetcher, ImportOutcome, ProfilesStore, default_config_dir};
 use clard_tui::{
     commands::{ClardRsCmd, Cli, ProfilesSub},
@@ -73,6 +74,15 @@ async fn run_profiles_cmd(cmd: ProfilesSub) -> Result<()> {
         ProfilesSub::SetCurrent { uid } => {
             store.set_current(&uid)?;
             println!("已切换当前配置: {uid}");
+        }
+        ProfilesSub::Gen { uid } => {
+            let path = store
+                .content_path(&uid)
+                .ok_or_else(|| clard_core::profiles::ProfilesError::NotFound { uid: uid.clone() })?;
+            let content = std::fs::read_to_string(&path)?;
+            let runtime =
+                clard_core::config_gen::generate(&content, None, &ConfigGenOptions::default())?;
+            println!("{runtime}");
         }
     }
     Ok(())
