@@ -1,4 +1,4 @@
-- 项目：完整代理管理工具（Rust，仅 Linux）。架构 = 常驻 root 服务 `clard-helper`（拥有 mihomo 核心与 TUN）+ TUI 客户端 `clard`（ratatui）。设计总纲在 `doc/01-方案设计.md`、`doc/02-交互设计.md`、`doc/03-ui设计.md`（当前 v0.2），改动架构前先读并遵循。
+- 项目：完整代理管理工具（Rust，仅 Linux）。架构 = 常驻 root 服务 `clard-helper`（拥有 mihomo 核心与 TUN）+ TUI 客户端 `clard`（ratatui）。设计总纲在 `doc/01-方案设计.md`、`doc/03-ui设计.md`（当前 v0.2），改动架构前先读并遵循。
 - 参考代码（改代码前先读对应实现，路径优先本机、其次上游 URL）：
   - clash-verge-rev：本机 `~/workspace/project/clash-verge-rev`（dev 分支，较新；备选 `~/workspace/repo/clash-verge-rev`），上游 https://github.com/clash-verge-rev/clash-verge-rev 。核心进程与退出清理看 `src-tauri/src/core/manager/*.rs`、`core/service.rs`、`feat/window.rs`；TUN 降级看 `feat/tun.rs`；配置生成看 `src-tauri/src/config/clash.rs`；`core/sysopt.rs` 是已弃用的系统代理逻辑，仅参考不再使用。
   - clash-verge-service-ipc（特权服务契约 v2.6）：上游 https://github.com/clash-verge-rev/clash-verge-service-ipc （本地未克隆，可浅克隆到 `~/workspace/repo/`）。启动自检/孤儿清理看 `src/core/reconcile.rs`、`runtime.rs`、`process.rs`；崩溃自愈 watchdog 看 `src/core/manager.rs`；配置投递的 `RuntimeBundle` 看 `src/core/structure.rs`。
