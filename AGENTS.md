@@ -12,5 +12,6 @@
   - MetaCubeX/sing-tun：上游 https://github.com/MetaCubeX/sing-tun 。网卡/路由/ip rule 的创建与清理看 `tun_linux.go`（`New/configure/Close`、`unsetRules` 删除区间）；`DefaultIPRoute2TableIndex/RuleIndex` 等常量在 `tun.go`。
   - （已弃用）sysproxy-rs：https://github.com/clash-verge-rev/sysproxy-rs ，仅 doc/01 附录 A 留档，不再使用。
 - TUI 改动遵循 `.pi/skills/tui-design/SKILL.md` 与 `doc/03-ui设计.md` 的布局 / 配色 / 键位约定。
+- 测试驱动：**先写功能边界的单元测试，再实现**；单元测试通过后再组装/集成（跨组件）；每个逻辑单元与测试一并提交，回归必须全绿。
 - 提交：分阶段，每个可独立运行/回滚的逻辑单元立即 `git commit`。
 - 提交信息：Conventional Commits，`<type>: <中文简述>`；type 取值 feat/fix/refactor/docs/style/chore/build。
