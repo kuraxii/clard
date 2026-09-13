@@ -5,6 +5,7 @@
   - `doc/05-需求文档.md`：用户操作层需求清单（含每项实现方法）。
   - `doc/04-mihomo调研.md`：mihomo 运行时接口（REST/WS）。
   - 文档变更与代码实现应同步；发现文档过时/缺失时先改文档再实现。
+- 实现兜底：功能实现方式不确定时参考 `clash-verge-rev`（同领域实现）；mihomo 接口/行为不确定时参考 mihomo（Meta 分支）源码与 `doc/04-mihomo调研.md`。
 - 参考代码（改代码前先读对应实现，路径优先本机、其次上游 URL）：
   - clash-verge-rev：本机 `~/workspace/project/clash-verge-rev`（dev 分支，较新；备选 `~/workspace/repo/clash-verge-rev`），上游 https://github.com/clash-verge-rev/clash-verge-rev 。核心进程与退出清理看 `src-tauri/src/core/manager/*.rs`、`core/service.rs`、`feat/window.rs`；TUN 降级看 `feat/tun.rs`；配置生成看 `src-tauri/src/config/clash.rs`；`core/sysopt.rs` 是已弃用的系统代理逻辑，仅参考不再使用。
   - clash-verge-service-ipc（特权服务契约 v2.6）：上游 https://github.com/clash-verge-rev/clash-verge-service-ipc （本地未克隆，可浅克隆到 `~/workspace/repo/`）。启动自检/孤儿清理看 `src/core/reconcile.rs`、`runtime.rs`、`process.rs`；崩溃自愈 watchdog 看 `src/core/manager.rs`；配置投递的 `RuntimeBundle` 看 `src/core/structure.rs`。
