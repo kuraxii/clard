@@ -87,6 +87,6 @@ Clard 是 Linux 上的完整代理管理工具：系统级常驻服务 `clard-he
 
 ### P3 可选加固 / 体验
 
-- [ ] 偏执模式（R7.4，可选加固默认关）：开关 TUN 前 `pkexec`/polkit `auth_admin_keep` 授权
+- [x] ~~偏执模式~~ 不实现（可选加固，个人机器默认开放 + 审计兜底即可；需收紧时用 socket 0660 / 防火墙）
 - [x] 记忆节点恢复：切换配置后记住当前选中节点（ProfileMemorize 存 selected，切换后 PUT /proxies/:name 恢复，doc/05 R2.2）
 - [x] 日志与审计配置（R7.5）：设置页 Logs 页签（/etc/clard/helper.toml，展示 + Enter 显示 sudo 编辑命令；核心日志级别注入 config_gen；双写可关）
