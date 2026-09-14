@@ -60,7 +60,7 @@ Clard 是 Linux 上的完整代理管理工具：系统级常驻服务 `clard-he
 
 - [x] 通用（混合端口 7890 仅回环、自动更新间隔、语言、主题）
 - [x] TUN 与旁路（热重载 + 读回校验）：开关（helper 托管注入 + `PATCH /configs` 热更 + 回读校验 + 失败回退）、stack、dns-hijack、route-exclude、exclude-uid/interface/dst-port、strict-route/auto-redirect（二次确认 + 风险提示）、紧急恢复直连（cleanup-tun，幂等）；能力探测/冲突检测；启动自检残留清理；配置生成注入设置
-- [x] 核心（版本/checksum 展示、启停/重启、`c` 检查、`i` 升级——URL 输入，自动拉 `.sha256sum` 校验，helper 复核 + 原子替换 + 重启）
+- [x] 核心（版本/checksum 展示、启停/重启、`c` 检查、`i` 升级——URL 输入，自动拉 `.sha256sum` 校验，helper 复核 + 原子替换 + 重启）；RPM 随包携带最新 mihomo 安装即用，升级为可选
 - [x] 后台服务（RPM 安装/卸载命令展示；安装即 systemd enable --now，packaging/clard.spec）
 - [x] 关于（版本 / 路径一览）
 
