@@ -471,6 +471,13 @@ impl APP {
                     self.message = Some("invalid hours".to_string());
                 }
             }
+            InputPurpose::EditTestUrl => {
+                let patch = clard_proto::SettingsPatch {
+                    test_url: Some(text.trim().to_string()),
+                    ..Default::default()
+                };
+                self.set_setting(patch);
+            }
         }
     }
 
@@ -763,6 +770,15 @@ impl APP {
         });
     }
 
+    /// 测速 URL：设置里配置的自定义 URL，否则用默认。
+    fn test_url(&self) -> String {
+        self.settings
+            .settings
+            .as_ref()
+            .and_then(|s| (!s.test_url.is_empty()).then_some(s.test_url.clone()))
+            .unwrap_or_else(|| "http://www.gstatic.com/generate_204".to_string())
+    }
+
     fn on_settings_char(&mut self, c: char) {
         match self.settings.tab {
             SettingsTab::General => self.on_settings_general_char(c),
@@ -834,6 +850,14 @@ impl APP {
                     ..Default::default()
                 };
                 self.set_setting(patch);
+            }
+            GeneralRow::TestUrl => {
+                let mut input = InputState::new("Test URL (empty = default)", InputPurpose::EditTestUrl);
+                if let Some(s) = self.settings.settings.as_ref() {
+                    input.buffer = s.test_url.clone();
+                    input.cursor = input.buffer.len();
+                }
+                self.input = Some(input);
             }
         }
     }
@@ -943,7 +967,7 @@ impl APP {
         let node = node_name.to_string();
         let sender = self.event_sender.clone();
         let timeout = 5000;
-        let url = "http://www.gstatic.com/generate_204".to_string();
+        let url = self.test_url();
         tokio::spawn(async move {
             match backend.delay_proxy_for_name(&node, &url, timeout).await {
                 Ok(delay) => {
@@ -990,8 +1014,8 @@ impl APP {
         }
         let backend = self.backend.clone();
         let sender = self.event_sender.clone();
+        let url = self.test_url();
         tokio::spawn(async move {
-            let url = "http://www.gstatic.com/generate_204".to_string();
             let timeout = 5000;
             for group in groups {
                 match backend.delay_group_for_name(&group, &url, timeout).await {

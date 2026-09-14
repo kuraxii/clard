@@ -654,6 +654,15 @@ fn draw_settings_general(f: &mut Frame<'_>, area: Rect, state: &SettingsState, t
                 GeneralRow::Theme => settings
                     .map(|s| s.theme.clone())
                     .unwrap_or_else(|| "dark".to_string()),
+                GeneralRow::TestUrl => settings
+                    .map(|s| {
+                        if s.test_url.is_empty() {
+                            "default".to_string()
+                        } else {
+                            s.test_url.clone()
+                        }
+                    })
+                    .unwrap_or_else(|| "default".to_string()),
             };
             ListItem::new(Line::from(vec![
                 Span::styled(format!("{:<20}", row.label()), Style::default().fg(theme.fg)),

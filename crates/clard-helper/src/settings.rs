@@ -77,6 +77,9 @@ impl SettingsStore {
             }
             self.settings.mixed_port = v;
         }
+        if let Some(v) = &patch.test_url {
+            self.settings.test_url = v.clone();
+        }
         self.save()
     }
 
@@ -120,6 +123,7 @@ mod tests {
                     language: Some("zh".into()),
                     theme: None,
                     mixed_port: Some(7891),
+                    test_url: Some("http://x".into()),
                 })
                 .unwrap();
         }

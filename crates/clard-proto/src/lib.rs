@@ -114,6 +114,8 @@ pub struct Settings {
     pub theme: String,
     /// 混合端口（默认 7890，仅绑 127.0.0.1）
     pub mixed_port: u16,
+    /// 自定义测速 URL（空 = 用 mihomo 内置，doc/05 §3 R3.4）
+    pub test_url: String,
 }
 
 impl Default for Settings {
@@ -123,6 +125,7 @@ impl Default for Settings {
             language: "en".into(),
             theme: "dark".into(),
             mixed_port: 7890,
+            test_url: String::new(),
         }
     }
 }
@@ -135,6 +138,7 @@ pub struct SettingsPatch {
     pub language: Option<String>,
     pub theme: Option<String>,
     pub mixed_port: Option<u16>,
+    pub test_url: Option<String>,
 }
 
 /// 审计操作者（`SO_PEERCRED` 记录，doc/01 §4.2）。

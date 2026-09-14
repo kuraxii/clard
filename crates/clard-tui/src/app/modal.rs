@@ -95,6 +95,8 @@ pub enum InputPurpose {
     EditMixedPort,
     /// 设置：自动更新间隔小时（doc/05 §7 R7.1）
     EditAutoUpdateHours,
+    /// 设置：自定义测速 URL（doc/05 §3 R3.4）
+    EditTestUrl,
 }
 
 /// 确认弹窗状态。

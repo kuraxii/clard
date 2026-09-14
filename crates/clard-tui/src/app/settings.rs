@@ -24,10 +24,17 @@ pub enum GeneralRow {
     AutoUpdateHours,
     Language,
     Theme,
+    TestUrl,
 }
 
 impl GeneralRow {
-    pub const ALL: [Self; 4] = [Self::MixedPort, Self::AutoUpdateHours, Self::Language, Self::Theme];
+    pub const ALL: [Self; 5] = [
+        Self::MixedPort,
+        Self::AutoUpdateHours,
+        Self::Language,
+        Self::Theme,
+        Self::TestUrl,
+    ];
 
     pub fn label(self) -> &'static str {
         match self {
@@ -35,6 +42,7 @@ impl GeneralRow {
             Self::AutoUpdateHours => "Auto update (h)",
             Self::Language => "Language",
             Self::Theme => "Theme",
+            Self::TestUrl => "Test URL",
         }
     }
 }
@@ -195,10 +203,10 @@ mod tests {
         s.on_down_key();
         s.on_down_key();
         assert_eq!(s.selected_general_row(), Some(GeneralRow::Language));
-        for _ in 0..2 {
+        for _ in 0..3 {
             s.on_down_key();
         }
-        assert_eq!(s.selected_general_row(), Some(GeneralRow::MixedPort), "4 行循环回到 MixedPort");
+        assert_eq!(s.selected_general_row(), Some(GeneralRow::MixedPort), "5 行循环回到 MixedPort");
     }
 
     #[test]

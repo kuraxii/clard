@@ -35,7 +35,7 @@ Clard 是 Linux 上的完整代理管理工具：系统级常驻服务 `clard-he
 
 - [x] 分组树与节点选择 / 清除固定选择（`PUT/DELETE /proxies/:name`）
 - [x] 测延迟（单个 / 全组，`/proxies/:name/delay`、`/group/:name/delay`）
-- [ ] 测速 URL 配置
+- [x] 测速 URL 配置（设置页 General「Test URL」，空=默认）
 - [x] 节点过滤排序（`f` 过滤、`s` 按名称/延迟排序）
 
 ### 连接
