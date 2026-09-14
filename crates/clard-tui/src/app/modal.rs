@@ -70,6 +70,16 @@ impl InputState {
         self.cursor = 0;
     }
 
+    /// 批量插入（粘贴）：过滤换行/制表符（URL 粘贴常带 `\n`），在光标处逐字符插入。
+    pub fn insert_str(&mut self, s: &str) {
+        for c in s.chars() {
+            if matches!(c, '\r' | '\n' | '\t') {
+                continue;
+            }
+            self.push_char(c);
+        }
+    }
+
     /// 提交的文本（与光标解耦）。
     pub fn text(&self) -> &str {
         &self.buffer
@@ -189,6 +199,18 @@ mod tests {
         input.clear();
         assert_eq!(input.text(), "");
         assert_eq!(input.cursor, 0);
+    }
+
+    #[test]
+    fn insert_str_filters_newlines_and_tabs() {
+        let mut input = InputState::new("t", InputPurpose::ImportProfileUrl);
+        input.insert_str("https://example.com/sub\n\t\r");
+        assert_eq!(input.text(), "https://example.com/sub");
+        assert_eq!(input.cursor, "https://example.com/sub".len());
+        // 光标不在末尾时插入到光标处
+        input.cursor = 8;
+        input.insert_str("X");
+        assert_eq!(input.text(), "https://Xexample.com/sub");
     }
 
     #[test]

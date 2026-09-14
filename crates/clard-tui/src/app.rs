@@ -390,6 +390,13 @@ impl APP {
         ));
     }
 
+    /// 粘贴（bracketed paste）：插入当前输入弹窗（过滤换行/制表符）。
+    pub fn on_paste(&mut self, text: &str) {
+        if let Some(input) = &mut self.input {
+            input.insert_str(text);
+        }
+    }
+
     /// 输入弹窗按键处理（doc/03 §4.3：`Ctrl+u` 清行、`Backspace` 删字符、`Enter` 提交、`Esc` 取消）。
     pub fn on_input_key(&mut self, event: KeyEvent) {
         if event.modifiers == KeyModifiers::CONTROL && event.code == KeyCode::Char('u') {

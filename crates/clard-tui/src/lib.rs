@@ -209,7 +209,9 @@ pub async fn start_clard() -> Result<()> {
                     ClardEvent::KeyInput(event) => {
                         handle_key_event(event, &mut app, sender.clone());
                     }
-                    ClardEvent::PasteEvent(_paste) => {}
+                    ClardEvent::PasteEvent(paste) => {
+                        app.on_paste(&paste);
+                    }
                     ClardEvent::MouseInput(event) => {
                         handle_mouse_event(event, &mut app);
                     }
