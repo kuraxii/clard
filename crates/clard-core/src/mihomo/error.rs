@@ -36,7 +36,9 @@ pub enum IpcError {
     #[error("backend 初始化失败: {0}")]
     FailedBackend(String),
 
-    #[error("backend 初始化失败: {0}")]
+    /// 核心 API 返回错误（如 delay test 503）：与 backend 初始化无关，
+    /// 文案必须准确（曾误写为「backend 初始化失败」导致排查误导）。
+    #[error("核心 API 返回错误: {0}")]
     ResponseError(String),
 
     #[error("其他错误 todo: 待实现")]
