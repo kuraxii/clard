@@ -108,18 +108,34 @@ impl CoreManager {
         fs::create_dir_all(&self.runtime_dir).map_err(|e| e.to_string())?;
         let _ = fs::remove_file(&self.core_sock);
 
-        let child = Command::new(&self.core_bin)
+        let mut child = Command::new(&self.core_bin)
             .arg("-d")
             .arg(&self.runtime_dir)
             .arg("-f")
             .arg(&self.config_path)
             .arg("-ext-ctl-unix")
             .arg(&self.core_sock)
-            .stdout(Stdio::null())
+            .stdout(Stdio::piped())
             .stderr(Stdio::null())
             .kill_on_drop(true)
             .spawn()
             .map_err(|e| format!("启动核心失败: {e}"))?;
+        // 核心 stdout → core.log（管道逐行转储 + 10MB×5 轮转，doc/01 §10/R6.1）
+        if let Some(mut out) = child.stdout.take() {
+            tokio::spawn(async move {
+                use tokio::io::AsyncBufReadExt;
+                let mut reader = tokio::io::BufReader::new(&mut out);
+                loop {
+                    let mut line = String::new();
+                    match reader.read_line(&mut line).await {
+                        Ok(0) | Err(_) => break,
+                        Ok(_) => {
+                            let _ = crate::logs::append_core_log(line.trim_end());
+                        }
+                    }
+                }
+            });
+        }
         self.pid = child.id();
         self.child = Some(child);
 

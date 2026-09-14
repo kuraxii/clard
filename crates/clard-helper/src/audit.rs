@@ -7,8 +7,6 @@
 //! 完整规格（intent+result 双记录、net 前后快照、cfg_sha256 等）随 M1/M2 里程碑补全。
 
 use std::{
-    fs::OpenOptions,
-    io::Write,
     path::PathBuf,
     time::{SystemTime, UNIX_EPOCH},
 };
@@ -60,14 +58,16 @@ impl Audit {
             .unwrap_or(0);
         // journald：stdout KEY=VALUE（systemd 解析为字段，journalctl -u clard-helper CLARD_OP=... 可查）
         println!("CLARD_TS={ts} CLARD_OP={op} CLARD_ACTOR_UID={} CLARD_ACTOR_PID={} CLARD_RESULT={result}", actor.uid, actor.pid);
-        // 自有文件：JSON lines
+        // 自有文件：JSON lines（10MB×5 轮转，doc/01 §10）
         let line = format!(
             r#"{{"ts":{ts},"op":"{op}","actor":{{"uid":{},"pid":{}}},"result":"{result}"}}"#,
             actor.uid, actor.pid
         );
-        let _ = std::fs::create_dir_all(self.log_path.parent().unwrap_or(std::path::Path::new("/")));
-        if let Ok(mut f) = OpenOptions::new().create(true).append(true).open(&self.log_path) {
-            let _ = writeln!(f, "{line}");
-        }
+        let _ = crate::logs::append_rotated(
+            &self.log_path,
+            &line,
+            crate::logs::AUDIT_CORE_MAX_BYTES,
+            crate::logs::KEEP_FILES,
+        );
     }
 }

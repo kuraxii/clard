@@ -339,6 +339,36 @@ async fn install_core_restarts_running_core() {
     assert_eq!(core_state, "running", "升级后核心自动重启");
 }
 
+/// 核心 stdout 管道 → core.log（R6.1）：核心脚本向 stdout 打一行，
+/// LogTail 能经 IPC 读到（helper 逐行转储）。
+#[tokio::test]
+async fn core_stdout_piped_to_core_log() {
+    // 需 mock core.sock（StartCore 就绪探测）；核心脚本 stdout 打一行后 sleep
+    let h = Harness::start(true).await;
+    // 核心占位脚本：stdout 打一行后 sleep（保持 running）
+    std::fs::write(
+        &h.bin,
+        b"#!/bin/sh\necho 'time=\"2026-09-14T00:00:00Z\" level=info msg=\"hello from core\"'\nexec /bin/sleep 30\n",
+    )
+    .unwrap();
+
+    let resp = rpc_call(&h.sock, &Request::ApplyConfig { yaml: "mode: rule\n".into() }).await;
+    assert_eq!(resp, Response::Ok, "{resp:?}");
+    let resp = rpc_call(&h.sock, &Request::StartCore).await;
+    assert_eq!(resp, Response::Ok, "{resp:?}");
+
+    // 等待管道转储
+    tokio::time::sleep(Duration::from_millis(500)).await;
+    let Response::LogTail { lines, .. } = rpc_call(&h.sock, &Request::LogTail { source: "core".into(), cursor: 0 }).await
+    else {
+        panic!("unexpected");
+    };
+    assert!(
+        lines.iter().any(|l| l.contains("hello from core")),
+        "core.log 应含核心 stdout 输出: {lines:?}"
+    );
+}
+
 /// 额外：帧协议健壮性（超长帧被拒——helper 侧 16MiB 上限）。
 #[tokio::test]
 async fn oversized_frame_rejected_by_helper() {
