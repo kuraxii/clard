@@ -670,6 +670,7 @@ mod tests {
     }
 
     #[tokio::test]
+    #[ignore = "需要真实运行中的 mihomo（/tmp/verge/verge-mihomo.sock）"]
     async fn test_get_traffic() -> Result<()> {
         let backend = Backend::builder()
             .set_unix_socket("/tmp/verge/verge-mihomo.sock")
