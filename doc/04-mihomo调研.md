@@ -197,7 +197,7 @@ hitAt/missCount/missAt` 命中统计。
 
 通用 KV：`GET /storage/:key`（返回 JSON，无则 `null`）、`PUT /storage/:key`（body 必须是合法 JSON，
 **≤1MB**，超限 413、非法 400）、`DELETE /storage/:key`（204）。落盘在 mihomo 的 cachefile
-（root 侧 `/var/lib/clard/runtime/` 内，随 `-d` 目录持久化）。
+（root 侧 `/var/clard/lib/runtime/` 内，随 `-d` 目录持久化）。
 → clard **不使用**（节点选择记忆由 mihomo `PUT /proxies` 内部持久化；其余状态归 TUI/helper），记录备查。
 
 ## 10. 流量 / 内存 / 日志（server.go，支持 WS 或逐行 JSON 流）
