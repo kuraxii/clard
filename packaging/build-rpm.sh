@@ -10,8 +10,15 @@ set -euo pipefail
 cd "$(dirname "$0")/.."
 
 WITH_MIHOMO=1
+MODE_LOCAL=0
+case "${1:-}" in
+    ""|--no-mihomo|--local-core) ;;
+    *) echo "!! 未知参数 $1" >&2; exit 2 ;;
+esac
 if [ "${1:-}" = "--no-mihomo" ]; then
     WITH_MIHOMO=0
+elif [ "${1:-}" = "--local-core" ]; then
+    MODE_LOCAL=1  # 用 /var/clard/bin/mihomo（本机已有），免 GitHub 下载
 fi
 
 VERSION=$(grep -m1 '^version' Cargo.toml | sed -E 's/.*= *"([^"]+)"/\1/')
@@ -23,6 +30,17 @@ rm -rf ~/rpmbuild/{SOURCES,BUILD,BUILDROOT,SPECS}
 mkdir -p ~/rpmbuild/{SOURCES,BUILD,BUILDROOT,RPMS,SRPMS,SPECS}
 
 if [ "$WITH_MIHOMO" = "1" ]; then
+    if [ "$MODE_LOCAL" = "1" ]; then
+        if [ -x /var/clard/bin/mihomo ]; then
+            echo "==> --local-core：使用 /var/clard/bin/mihomo"
+            cp /var/clard/bin/mihomo ~/rpmbuild/SOURCES/mihomo
+            echo "    已复制 $(du -h ~/rpmbuild/SOURCES/mihomo | cut -f1)"
+        else
+            echo "!! /var/clard/bin/mihomo 不存在，回退在线下载" >&2
+            MODE_LOCAL=0
+        fi
+    fi
+    if [ "$MODE_LOCAL" = "0" ]; then
     echo "==> 下载最新 mihomo（MetaCubeX GitHub release）"
     case "$(uname -m)" in
         x86_64)  MH_ARCH="amd64" ;;
@@ -43,6 +61,7 @@ if [ "$WITH_MIHOMO" = "1" ]; then
             chmod 755 ~/rpmbuild/SOURCES/mihomo
             echo "    已下载 $(du -h ~/rpmbuild/SOURCES/mihomo | cut -f1)"
         fi
+    fi
     fi
 else
     echo "==> --no-mihomo：包内不含 mihomo"
