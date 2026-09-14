@@ -87,52 +87,24 @@ impl RulesState {
             .map(|(name, _)| name.clone())
     }
 
-    pub fn on_down_key(&mut self) {
+    pub fn on_down_key(&mut self, viewport: usize) {
         match self.tab {
             RulesTab::Rules => {
-                if self.rules.is_empty() {
-                    return;
-                }
-                let i = match self.rules_state.selected() {
-                    Some(i) if i + 1 < self.rules.len() => i + 1,
-                    _ => 0,
-                };
-                self.rules_state.select(Some(i));
+                crate::nav::move_list_cursor(&mut self.rules_state, self.rules.len(), viewport, 1);
             }
             RulesTab::Providers => {
-                if self.providers.is_empty() {
-                    return;
-                }
-                let i = match self.providers_state.selected() {
-                    Some(i) if i + 1 < self.providers.len() => i + 1,
-                    _ => 0,
-                };
-                self.providers_state.select(Some(i));
+                crate::nav::move_list_cursor(&mut self.providers_state, self.providers.len(), viewport, 1);
             }
         }
     }
 
-    pub fn on_up_key(&mut self) {
+    pub fn on_up_key(&mut self, viewport: usize) {
         match self.tab {
             RulesTab::Rules => {
-                if self.rules.is_empty() {
-                    return;
-                }
-                let i = match self.rules_state.selected() {
-                    Some(0) | None => self.rules.len() - 1,
-                    Some(i) => i - 1,
-                };
-                self.rules_state.select(Some(i));
+                crate::nav::move_list_cursor(&mut self.rules_state, self.rules.len(), viewport, -1);
             }
             RulesTab::Providers => {
-                if self.providers.is_empty() {
-                    return;
-                }
-                let i = match self.providers_state.selected() {
-                    Some(0) | None => self.providers.len() - 1,
-                    Some(i) => i - 1,
-                };
-                self.providers_state.select(Some(i));
+                crate::nav::move_list_cursor(&mut self.providers_state, self.providers.len(), viewport, -1);
             }
         }
     }

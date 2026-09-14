@@ -59,26 +59,12 @@ impl ProfilesState {
         self.list_state.select(Some(idx));
     }
 
-    pub fn on_down_key(&mut self) {
-        if self.items.is_empty() {
-            return;
-        }
-        let i = match self.list_state.selected() {
-            Some(i) if i + 1 < self.items.len() => i + 1,
-            _ => 0,
-        };
-        self.list_state.select(Some(i));
+    pub fn on_down_key(&mut self, viewport: usize) {
+        crate::nav::move_list_cursor(&mut self.list_state, self.items.len(), viewport, 1);
     }
 
-    pub fn on_up_key(&mut self) {
-        if self.items.is_empty() {
-            return;
-        }
-        let i = match self.list_state.selected() {
-            Some(0) | None => self.items.len() - 1,
-            Some(i) => i - 1,
-        };
-        self.list_state.select(Some(i));
+    pub fn on_up_key(&mut self, viewport: usize) {
+        crate::nav::move_list_cursor(&mut self.list_state, self.items.len(), viewport, -1);
     }
 }
 
@@ -113,26 +99,12 @@ impl HistoryView {
         self.list_state.selected().and_then(|i| self.versions.get(i))
     }
 
-    pub fn on_down_key(&mut self) {
-        if self.versions.is_empty() {
-            return;
-        }
-        let i = match self.list_state.selected() {
-            Some(i) if i + 1 < self.versions.len() => i + 1,
-            _ => 0,
-        };
-        self.list_state.select(Some(i));
+    pub fn on_down_key(&mut self, viewport: usize) {
+        crate::nav::move_list_cursor(&mut self.list_state, self.versions.len(), viewport, 1);
     }
 
-    pub fn on_up_key(&mut self) {
-        if self.versions.is_empty() {
-            return;
-        }
-        let i = match self.list_state.selected() {
-            Some(0) | None => self.versions.len() - 1,
-            Some(i) => i - 1,
-        };
-        self.list_state.select(Some(i));
+    pub fn on_up_key(&mut self, viewport: usize) {
+        crate::nav::move_list_cursor(&mut self.list_state, self.versions.len(), viewport, -1);
     }
 }
 
@@ -159,7 +131,7 @@ mod tests {
     fn update_list_keeps_selection_by_uid() {
         let mut state = ProfilesState::new();
         state.update_list(None, vec![item("a", "A"), item("b", "B")]);
-        state.on_down_key(); // 选中 b
+        state.on_down_key(10); // 选中 b
         assert_eq!(state.selected().unwrap().uid, "b");
 
         // 刷新后仍选中 b（即使顺序变化）
@@ -171,7 +143,7 @@ mod tests {
     fn update_list_selects_first_when_previous_uid_gone() {
         let mut state = ProfilesState::new();
         state.update_list(None, vec![item("a", "A"), item("b", "B")]);
-        state.on_down_key();
+        state.on_down_key(10);
         assert_eq!(state.selected().unwrap().uid, "b");
 
         state.update_list(None, vec![item("a", "A")]);
@@ -191,9 +163,9 @@ mod tests {
     fn up_down_wrap_around() {
         let mut state = ProfilesState::new();
         state.update_list(None, vec![item("a", "A"), item("b", "B"), item("c", "C")]);
-        state.on_up_key(); // 从 0 绕到末尾
+        state.on_up_key(10); // 从 0 绕到末尾
         assert_eq!(state.selected().unwrap().uid, "c");
-        state.on_down_key(); // 从末尾绕到 0
+        state.on_down_key(10); // 从末尾绕到 0
         assert_eq!(state.selected().unwrap().uid, "a");
     }
 }

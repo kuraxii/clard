@@ -273,7 +273,7 @@ impl SettingsState {
         self.backups_state.selected().and_then(|i| self.backups.get(i))
     }
 
-    pub fn on_down_key(&mut self) {
+    pub fn on_down_key(&mut self, viewport: usize) {
         let row_count = match self.tab {
             SettingsTab::General => GeneralRow::ALL.len(),
             SettingsTab::Tun => TunRow::ALL.len(),
@@ -281,21 +281,13 @@ impl SettingsState {
             _ => 0,
         };
         if row_count > 0 {
-            let i = match self.list_state.selected() {
-                Some(i) if i + 1 < row_count => i + 1,
-                _ => 0,
-            };
-            self.list_state.select(Some(i));
+            crate::nav::move_list_cursor(&mut self.list_state, row_count, viewport, 1);
         } else if self.tab == SettingsTab::Backup && !self.backups.is_empty() {
-            let i = match self.backups_state.selected() {
-                Some(i) if i + 1 < self.backups.len() => i + 1,
-                _ => 0,
-            };
-            self.backups_state.select(Some(i));
+            crate::nav::move_list_cursor(&mut self.backups_state, self.backups.len(), viewport, 1);
         }
     }
 
-    pub fn on_up_key(&mut self) {
+    pub fn on_up_key(&mut self, viewport: usize) {
         let row_count = match self.tab {
             SettingsTab::General => GeneralRow::ALL.len(),
             SettingsTab::Tun => TunRow::ALL.len(),
@@ -303,17 +295,9 @@ impl SettingsState {
             _ => 0,
         };
         if row_count > 0 {
-            let i = match self.list_state.selected() {
-                Some(0) | None => row_count - 1,
-                Some(i) => i - 1,
-            };
-            self.list_state.select(Some(i));
+            crate::nav::move_list_cursor(&mut self.list_state, row_count, viewport, -1);
         } else if self.tab == SettingsTab::Backup && !self.backups.is_empty() {
-            let i = match self.backups_state.selected() {
-                Some(0) | None => self.backups.len() - 1,
-                Some(i) => i - 1,
-            };
-            self.backups_state.select(Some(i));
+            crate::nav::move_list_cursor(&mut self.backups_state, self.backups.len(), viewport, -1);
         }
     }
 }
@@ -347,12 +331,12 @@ mod tests {
         let mut s = SettingsState::new();
         s.set_tab(SettingsTab::Tun);
         assert_eq!(s.selected_tun_row(), Some(TunRow::TunEnabled));
-        s.on_down_key();
-        s.on_down_key();
+        s.on_down_key(10);
+        s.on_down_key(10);
         assert_eq!(s.selected_tun_row(), Some(TunRow::TunDnsMode), "TunEnabled→TunStack→TunDnsMode");
         // 11 行循环：TunDnsMode(2) + 9 = 11 ≡ 0（回到 TunEnabled）
         for _ in 0..9 {
-            s.on_down_key();
+            s.on_down_key(10);
         }
         assert_eq!(s.selected_tun_row(), Some(TunRow::TunEnabled), "11 行循环回到 TUN");
     }
@@ -362,11 +346,11 @@ mod tests {
         let mut s = SettingsState::new();
         s.set_tab(SettingsTab::General);
         assert_eq!(s.selected_general_row(), Some(GeneralRow::MixedPort));
-        s.on_down_key();
-        s.on_down_key();
+        s.on_down_key(10);
+        s.on_down_key(10);
         assert_eq!(s.selected_general_row(), Some(GeneralRow::Language));
         for _ in 0..3 {
-            s.on_down_key();
+            s.on_down_key(10);
         }
         assert_eq!(s.selected_general_row(), Some(GeneralRow::MixedPort), "5 行循环回到 MixedPort");
     }
@@ -382,7 +366,7 @@ mod tests {
         };
         s.apply_backups(vec![item("a"), item("b")]);
         assert_eq!(s.selected_backup().map(|b| b.name.as_str()), Some("a"));
-        s.on_down_key();
+        s.on_down_key(10);
         assert_eq!(s.selected_backup().map(|b| b.name.as_str()), Some("b"));
         s.apply_backups(vec![item("a")]);
         assert_eq!(s.selected_backup().map(|b| b.name.as_str()), Some("a"), "下标收拢");

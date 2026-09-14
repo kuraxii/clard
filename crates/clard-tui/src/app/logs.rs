@@ -249,49 +249,29 @@ impl LogsState {
         }
     }
 
-    pub fn on_down_key(&mut self) {
-        let len = match self.tab {
-            LogsTab::Audit => self.visible_audit().len(),
-            _ => self.visible_lines().len(),
-        };
-        if len == 0 {
-            return;
-        }
-        if self.tab == LogsTab::Audit {
-            let i = match self.table_state.selected() {
-                Some(i) if i + 1 < len => i + 1,
-                _ => 0,
-            };
-            self.table_state.select(Some(i));
-        } else {
-            let i = match self.lines_state.selected() {
-                Some(i) if i + 1 < len => i + 1,
-                _ => 0,
-            };
-            self.lines_state.select(Some(i));
+    pub fn on_down_key(&mut self, viewport: usize) {
+        match self.tab {
+            LogsTab::Audit => {
+                let len = self.visible_audit().len();
+                crate::nav::move_list_cursor(&mut self.table_state, len, viewport, 1);
+            }
+            _ => {
+                let len = self.visible_lines().len();
+                crate::nav::move_list_cursor(&mut self.lines_state, len, viewport, 1);
+            }
         }
     }
 
-    pub fn on_up_key(&mut self) {
-        let len = match self.tab {
-            LogsTab::Audit => self.visible_audit().len(),
-            _ => self.visible_lines().len(),
-        };
-        if len == 0 {
-            return;
-        }
-        if self.tab == LogsTab::Audit {
-            let i = match self.table_state.selected() {
-                Some(0) | None => len - 1,
-                Some(i) => i - 1,
-            };
-            self.table_state.select(Some(i));
-        } else {
-            let i = match self.lines_state.selected() {
-                Some(0) | None => len - 1,
-                Some(i) => i - 1,
-            };
-            self.lines_state.select(Some(i));
+    pub fn on_up_key(&mut self, viewport: usize) {
+        match self.tab {
+            LogsTab::Audit => {
+                let len = self.visible_audit().len();
+                crate::nav::move_list_cursor(&mut self.table_state, len, viewport, -1);
+            }
+            _ => {
+                let len = self.visible_lines().len();
+                crate::nav::move_list_cursor(&mut self.lines_state, len, viewport, -1);
+            }
         }
     }
 }

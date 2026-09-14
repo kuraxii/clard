@@ -8,7 +8,7 @@ use tokio_util::sync::CancellationToken;
 use crate::app::APP;
 #[derive(Debug)]
 pub enum ClardEvent {
-    Resize,
+    Resize(u16, u16),
     KeyInput(KeyEvent),
     MouseInput(MouseEvent),
     PasteEvent(String),
@@ -149,8 +149,8 @@ pub async fn listen_input_event(
                                 }
                         }
                     },
-                    Some(Ok(Event::Resize(_, _))) => {
-                        if clard_event_sender.send(ClardEvent::Resize).is_err() {
+                    Some(Ok(Event::Resize(width, height))) => {
+                        if clard_event_sender.send(ClardEvent::Resize(width, height)).is_err() {
                             break;
                         }
                     }

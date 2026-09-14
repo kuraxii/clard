@@ -50,6 +50,8 @@ pub struct APP {
     /// 配置历史版本视图（`h` 打开）
     pub history: Option<HistoryView>,
     pub event_sender: UnboundedSender<ClardEvent>,
+    /// 列表可视行数估算（终端高度 - 页面 chrome；状态层维护滚动 offset 用，nav.rs）
+    pub viewport_h: usize,
     pub backend: Arc<Backend>,
     pub message: Option<String>,
     pub show_help: bool,
@@ -61,6 +63,7 @@ impl APP {
     pub fn init(sender: UnboundedSender<ClardEvent>, backend: Arc<Backend>) -> Self {
         APP {
             current_page: Page::Home,
+            viewport_h: 20,
             home: HomeState::default(),
             profiles: ProfilesState::new(),
             proxies: ProxyState::new(),
@@ -327,12 +330,12 @@ impl APP {
             KeyCode::Esc => self.history = None,
             KeyCode::Up | KeyCode::Char('k') => {
                 if let Some(h) = &mut self.history {
-                    h.on_up_key();
+                    h.on_up_key(self.viewport_h);
                 }
             }
             KeyCode::Down | KeyCode::Char('j') => {
                 if let Some(h) = &mut self.history {
-                    h.on_down_key();
+                    h.on_down_key(self.viewport_h);
                 }
             }
             KeyCode::Enter => {
@@ -1568,27 +1571,34 @@ impl APP {
     // ---- 键位分派 ----
 
     pub fn on_up_key(&mut self) {
+        let vh = self.viewport_h;
         match self.current_page {
-            Page::Profiles => self.profiles.on_up_key(),
-            Page::Proxies => self.proxies.on_up_key(),
-            Page::Connections => self.connections.on_up_key(),
-            Page::Rules => self.rules.on_up_key(),
-            Page::Logs => self.logs.on_up_key(),
-            Page::Settings => self.settings.on_up_key(),
+            Page::Profiles => self.profiles.on_up_key(vh),
+            Page::Proxies => self.proxies.on_up_key(vh),
+            Page::Connections => self.connections.on_up_key(vh),
+            Page::Rules => self.rules.on_up_key(vh),
+            Page::Logs => self.logs.on_up_key(vh),
+            Page::Settings => self.settings.on_up_key(vh),
             _ => {}
         }
     }
 
     pub fn on_down_key(&mut self) {
+        let vh = self.viewport_h;
         match self.current_page {
-            Page::Profiles => self.profiles.on_down_key(),
-            Page::Proxies => self.proxies.on_down_key(),
-            Page::Connections => self.connections.on_down_key(),
-            Page::Rules => self.rules.on_down_key(),
-            Page::Logs => self.logs.on_down_key(),
-            Page::Settings => self.settings.on_down_key(),
+            Page::Profiles => self.profiles.on_down_key(vh),
+            Page::Proxies => self.proxies.on_down_key(vh),
+            Page::Connections => self.connections.on_down_key(vh),
+            Page::Rules => self.rules.on_down_key(vh),
+            Page::Logs => self.logs.on_down_key(vh),
+            Page::Settings => self.settings.on_down_key(vh),
             _ => {}
         }
+    }
+
+    /// 更新列表可视行数估算（终端高度 - 页面 chrome；宁小勿大，nav.rs）。
+    pub fn set_viewport(&mut self, height: u16) {
+        self.viewport_h = (height as usize).saturating_sub(11).max(5);
     }
 
     pub fn on_left_key(&mut self) {

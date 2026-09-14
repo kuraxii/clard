@@ -79,32 +79,12 @@ impl ConnectionsState {
         };
     }
 
-    pub fn on_down_key(&mut self) {
-        if self.connections.is_empty() {
-            return;
-        }
-        let i = match self.list_state.selected() {
-            Some(i) => {
-                if i >= self.connections.len() - 1 {
-                    0
-                } else {
-                    i + 1
-                }
-            }
-            None => 0,
-        };
-        self.list_state.select(Some(i));
+    pub fn on_down_key(&mut self, viewport: usize) {
+        crate::nav::move_list_cursor(&mut self.list_state, self.connections.len(), viewport, 1);
     }
 
-    pub fn on_up_key(&mut self) {
-        if self.connections.is_empty() {
-            return;
-        }
-        let i = match self.list_state.selected() {
-            Some(0) | None => self.connections.len() - 1,
-            Some(i) => i - 1,
-        };
-        self.list_state.select(Some(i));
+    pub fn on_up_key(&mut self, viewport: usize) {
+        crate::nav::move_list_cursor(&mut self.list_state, self.connections.len(), viewport, -1);
     }
 
     pub fn sort_by_upload(&mut self) {

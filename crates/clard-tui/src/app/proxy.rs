@@ -194,21 +194,13 @@ impl ProxyState {
         self.proxy_list_state.select(selected_idx);
     }
 
-    pub fn on_down_key(&mut self) {
+    pub fn on_down_key(&mut self, viewport: usize) {
         match self.focus {
             ProxyFocus::Groups => {
                 if !self.groups.is_empty() {
-                    let i = match self.group_list_state.selected() {
-                        Some(i) => {
-                            if i >= self.groups.len() - 1 {
-                                0
-                            } else {
-                                i + 1
-                            }
-                        }
-                        None => 0,
-                    };
-                    self.group_list_state.select(Some(i));
+                    let next = self.group_list_state.selected().unwrap_or(0);
+                    crate::nav::move_list_cursor(&mut self.group_list_state, self.groups.len(), viewport, 1);
+                    let i = self.group_list_state.selected().unwrap_or(next);
                     self.select_default_proxy_for_group(i);
                 }
             }
@@ -216,39 +208,19 @@ impl ProxyState {
                 if let Some(group_idx) = self.group_list_state.selected()
                     && let Some(group) = self.groups.get(group_idx)
                     && let Some(all) = &group.all
-                    && !all.is_empty()
                 {
-                    let i = match self.proxy_list_state.selected() {
-                        Some(i) => {
-                            if i >= all.len() - 1 {
-                                0
-                            } else {
-                                i + 1
-                            }
-                        }
-                        None => 0,
-                    };
-                    self.proxy_list_state.select(Some(i));
+                    crate::nav::move_list_cursor(&mut self.proxy_list_state, all.len(), viewport, 1);
                 }
             }
         }
     }
 
-    pub fn on_up_key(&mut self) {
+    pub fn on_up_key(&mut self, viewport: usize) {
         match self.focus {
             ProxyFocus::Groups => {
                 if !self.groups.is_empty() {
-                    let i = match self.group_list_state.selected() {
-                        Some(i) => {
-                            if i == 0 {
-                                self.groups.len() - 1
-                            } else {
-                                i - 1
-                            }
-                        }
-                        None => 0,
-                    };
-                    self.group_list_state.select(Some(i));
+                    crate::nav::move_list_cursor(&mut self.group_list_state, self.groups.len(), viewport, -1);
+                    let i = self.group_list_state.selected().unwrap_or(0);
                     self.select_default_proxy_for_group(i);
                 }
             }
@@ -256,19 +228,8 @@ impl ProxyState {
                 if let Some(group_idx) = self.group_list_state.selected()
                     && let Some(group) = self.groups.get(group_idx)
                     && let Some(all) = &group.all
-                    && !all.is_empty()
                 {
-                    let i = match self.proxy_list_state.selected() {
-                        Some(i) => {
-                            if i == 0 {
-                                all.len() - 1
-                            } else {
-                                i - 1
-                            }
-                        }
-                        None => 0,
-                    };
-                    self.proxy_list_state.select(Some(i));
+                    crate::nav::move_list_cursor(&mut self.proxy_list_state, all.len(), viewport, -1);
                 }
             }
         }
@@ -352,7 +313,7 @@ mod tests {
         });
 
         state.on_right_key();
-        state.on_down_key();
+        state.on_down_key(10);
 
         assert_eq!(state.selected_node(), Some(("group", "node-b")));
     }

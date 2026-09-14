@@ -16,6 +16,7 @@
 
 pub mod app;
 mod canvas;
+mod nav;
 pub mod commands;
 pub mod error;
 pub mod event;
@@ -181,6 +182,9 @@ pub async fn start_clard() -> Result<()> {
     let mut painter = Painter;
 
     let mut terminal = init_terminal()?;
+    if let Ok(size) = terminal.size() {
+        app.set_viewport(size.height);
+    }
 
     panic::set_hook(Box::new(panic_hook));
 
@@ -201,7 +205,9 @@ pub async fn start_clard() -> Result<()> {
                 };
 
                 match recv {
-                    ClardEvent::Resize => {}
+                    ClardEvent::Resize(_, height) => {
+                        app.set_viewport(height);
+                    }
                     ClardEvent::KeyInput(event) => {
                         handle_key_event(event, &mut app, sender.clone());
                     }
