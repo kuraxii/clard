@@ -55,6 +55,8 @@ Clard 是 Linux 上的完整代理管理工具：系统级常驻服务 `clard-he
 
 - [x] TUI 日志页三栏（应用/核心/审计）与过滤
 - [ ] 审计完整规格（intent+result、net 快照、cfg_sha256、按 op 过滤）；导出
+- [ ] 核心日志接入（stdout 管道写 core.log；`e` 级别过滤）
+- [ ] 日志轮转（audit 10MB×5、tui 1MB×5）
 
 ### 设置
 
@@ -63,7 +65,28 @@ Clard 是 Linux 上的完整代理管理工具：系统级常驻服务 `clard-he
 - [x] 核心（版本/checksum 展示、启停/重启、`c` 检查更新、`i` 升级——自动获取 GitHub 最新 release，helper 复核 + 原子替换 + 重启）；RPM 随包携带最新 mihomo 安装即用，升级为可选
 - [x] 后台服务（RPM 安装/卸载命令展示；安装即 systemd enable --now，packaging/clard.spec）
 - [x] 关于（版本 / 路径一览）
+- [ ] 日志与审计配置（R7.5：核心日志级别、应用/审计日志大小份数、双写；设置页 Logs 页签）
 
 ### 备份与恢复
 
 - [x] 本地备份 / 恢复 / 备份管理（设置页 Backup 页签：b 创建 / Enter 恢复 / d 删除）
+
+## 未实现 TODO（按优先级）
+
+### P1 短期独立（让现有功能真正可用）
+
+- [ ] 核心日志接入（R6.1）：核心 stdout/stderr 管道 → core.log；日志页核心栏 `e` 级别过滤
+- [ ] 日志轮转（doc/01 §10）：audit.log 10MB×5、tui.log 1MB×5
+- [ ] 审计完整规格（R6.3）：intent+result 双记录、net 前后快照、cfg_sha256；日志页审计栏 `o` 按 op 过滤、`Enter` 展开详情、`x` 导出、`I` 配对切换
+
+### P2 崩溃安全（doc/01 §5.4/§6.5，核心承诺）
+
+- [ ] watchdog 退避重启：核心崩溃 `max_restarts=10`/`window=600s`/`backoff≤30s`，超限 cleanup-tun + fail-open + 审计 + 通知
+- [ ] TUN 健康 watchdog：每 3s 检查（`GET /version` + `ip link clard0 UP` + table 2023 默认路由 + rule 9100），连续 3 次不满足 → cleanup-tun + 审计 `watchdog.failopen` + `Degraded` 事件
+- [ ] Subscribe 事件流（§5.6）：helper 推送 `CoreStatusChanged`/`TunChanged`/`LogLine`/`AuditLine`/`Degraded`；TUI 断线重连先 `Status` 全量再增量订阅；`Degraded` → 主页红色提示
+
+### P3 可选加固 / 体验
+
+- [ ] 偏执模式（R7.4，可选加固默认关）：开关 TUN 前 `pkexec`/polkit `auth_admin_keep` 授权
+- [ ] 记忆节点恢复：切换配置后记住当前选中节点（随核心生命周期）
+- [ ] 日志与审计配置（R7.5）：设置页 Logs 页签（核心日志级别、应用/审计日志大小份数、双写）
