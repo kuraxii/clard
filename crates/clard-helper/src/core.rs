@@ -6,6 +6,12 @@
 //!
 //! 核心二进制只从固定路径执行（root 拥有，doc/01 §5.1）；路径可用 `CLARD_CORE_BIN`、
 //! `CLARD_CORE_SOCK` 覆盖（开发/测试）。
+//!
+//! unsafe 豁免（唯一一处，最小受限范围，见 `start` 的 pre_exec）：spawn 核心时设置
+//! `PR_SET_PDEATHSIG=SIGTERM`——helper 以任何方式死亡（含 SIGKILL/崩溃）时内核立即向
+//! 核心发 SIGTERM，杜绝孤儿进程（exec 后设置保留、父进程不变；doc/01 §5.2 生命周期）。
+//! 调用均为 async-signal-safe（prctl/getppid/_exit），不触碰锁或堆。
+#![allow(unsafe_code)]
 
 use std::{
     fs,
@@ -142,8 +148,8 @@ impl CoreManager {
         fs::create_dir_all(&self.runtime_dir).map_err(|e| e.to_string())?;
         let _ = fs::remove_file(&self.core_sock);
 
-        let mut child = Command::new(&self.core_bin)
-            .arg("-d")
+        let mut cmd = Command::new(&self.core_bin);
+        cmd.arg("-d")
             .arg(&self.runtime_dir)
             .arg("-f")
             .arg(&self.config_path)
@@ -151,9 +157,27 @@ impl CoreManager {
             .arg(&self.core_sock)
             .stdout(Stdio::piped())
             .stderr(Stdio::null())
-            .kill_on_drop(true)
-            .spawn()
-            .map_err(|e| format!("启动核心失败: {e}"))?;
+            .kill_on_drop(true);
+        // §5.2 孤儿杜绝主机制：fork 后、exec 前设置 PR_SET_PDEATHSIG=SIGTERM。
+        // helper 死亡（SIGKILL/崩溃/任何方式）→ 内核立即向核心发 SIGTERM（exec 保留设置）。
+        // pre_exec 闭包运行于 fork 后多线程环境，只允许 async-signal-safe 调用。
+        // pre_exec 本身是 unsafe fn（fork 后环境）；闭包内只调用 async-signal-safe API：
+        // nix 的 set_pdeathsig/getppid（syscall 封装）与 abort（raise SIGABRT），不触碰锁/堆。
+        unsafe {
+            // tokio::process::Command 自带 pre_exec（文档要求闭包仅 async-signal-safe 调用）
+            cmd.pre_exec(|| {
+                let r = nix::sys::prctl::set_pdeathsig(nix::sys::signal::Signal::SIGTERM);
+                if r.is_err() {
+                    return Err(io::Error::last_os_error());
+                }
+                // 竞态兜底：helper 在 fork 后、prctl 前已死 → 核心被 init（pid 1）收养 → 自杀
+                if nix::unistd::getppid() == nix::unistd::Pid::from_raw(1) {
+                    std::process::abort();
+                }
+                Ok(())
+            });
+        }
+        let mut child = cmd.spawn().map_err(|e| format!("启动核心失败: {e}"))?;
         // 核心 stdout → core.log（管道逐行转储 + 10MB×5 轮转，doc/01 §10/R6.1）
         if let Some(mut out) = child.stdout.take() {
             tokio::spawn(async move {

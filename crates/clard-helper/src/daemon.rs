@@ -116,19 +116,41 @@ pub async fn run() -> io::Result<()> {
     // §5.4/§6.5 watchdog：核心崩溃退避重启 + TUN 健康 fail-open
     crate::watchdog::spawn(settings.clone(), core.clone(), audit.clone(), events_tx.clone());
 
+    // §5.2 优雅退出：SIGTERM → 停核心 + cleanup-tun（fail-open）→ 退出。
+    // 否则 helper 被 systemctl restart / kill -TERM 时 mihomo 子进程会成孤儿。
+    let mut sigterm =
+        tokio::signal::unix::signal(tokio::signal::unix::SignalKind::terminate())
+            .map_err(io::Error::other)?;
+
     loop {
-        let (stream, _) = listener.accept().await?;
-        let actor = peer_cred(&stream);
-        let audit = audit.clone();
-        let store = store.clone();
-        let settings = settings.clone();
-        let core = core.clone();
-        let events = events_tx.clone();
-        tokio::spawn(async move {
-            if let Err(e) = serve_connection(stream, &store, &settings, &core, &audit, &events, actor).await {
-                tracing::warn!("连接处理失败: {e}");
+        tokio::select! {
+            _ = sigterm.recv() => {
+                tracing::info!("收到 SIGTERM，优雅退出：停核心 + cleanup-tun");
+                let mut core = core.lock().await;
+                if let Err(e) = core.stop().await {
+                    tracing::warn!("退出时停核心失败: {e}");
+                }
+                let (clean, residuals) = crate::tun::cleanup_tun(&crate::tun::Tools::system()).await;
+                if !clean {
+                    tracing::warn!("退出时 TUN 残留: {}", residuals.join(", "));
+                }
+                return Ok(());
             }
-        });
+            accepted = listener.accept() => {
+                let (stream, _) = accepted?;
+                let actor = peer_cred(&stream);
+                let audit = audit.clone();
+                let store = store.clone();
+                let settings = settings.clone();
+                let core = core.clone();
+                let events = events_tx.clone();
+                tokio::spawn(async move {
+                    if let Err(e) = serve_connection(stream, &store, &settings, &core, &audit, &events, actor).await {
+                        tracing::warn!("连接处理失败: {e}");
+                    }
+                });
+            }
+        }
     }
 }
 

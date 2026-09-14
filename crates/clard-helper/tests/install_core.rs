@@ -50,11 +50,13 @@ fn sha256_hex(data: &[u8]) -> String {
 /// 测试环境：临时目录 + helper daemon 子进程 + 路径集。
 struct Harness {
     _dir: TempDir,
-    _child: tokio::process::Child,
+    child: tokio::process::Child,
     sock: std::path::PathBuf,
     state: std::path::PathBuf,
     inbox: std::path::PathBuf,
     bin: std::path::PathBuf,
+    /// 核心 mock 占位进程写入的 pid 文件（PDEATHSIG 测试用）
+    mock_pidfile: std::path::PathBuf,
 }
 
 impl Harness {
@@ -66,9 +68,12 @@ impl Harness {
             std::fs::create_dir_all(root.join(sub)).unwrap();
         }
         // 旧核心占位：shell 脚本忽略 helper 传的 `-d/-f/-ext-ctl-unix` 参数并保持存活
-        // （直接 copy /bin/sleep 会因非法参数立即退出，导致 StartCore 后状态变 stopped）
+        // （直接 copy /bin/sleep 会因非法参数立即退出，导致 StartCore 后状态变 stopped）。
+        // 把自身 pid 写入 mock.pid（exec /bin/sleep 后 pid 不变，PDEATHSIG 验证用）。
         let bin = root.join("bin/mihomo");
-        std::fs::write(&bin, b"#!/bin/sh\nexec /bin/sleep 30\n").unwrap();
+        let mock_pidfile = root.join("mock.pid");
+        let pid_script = format!("#!/bin/sh\necho $$ > {}\nexec /bin/sleep 30\n", mock_pidfile.display());
+        std::fs::write(&bin, pid_script).unwrap();
         use std::os::unix::fs::PermissionsExt;
         std::fs::set_permissions(&bin, std::fs::Permissions::from_mode(0o755)).unwrap();
         let core_sock = root.join("run/core.sock");
@@ -87,13 +92,15 @@ impl Harness {
             .stdout(Stdio::null())
             .stderr(Stdio::null())
             .kill_on_drop(true);
+        let child = cmd.spawn().unwrap();
         let h = Harness {
             sock: sock.clone(),
             state,
             inbox,
             bin,
+            mock_pidfile,
             _dir: dir,
-            _child: cmd.spawn().unwrap(),
+            child,
         };
         if core_sock_mock {
             spawn_mock_core(&core_sock).await;
@@ -426,4 +433,60 @@ fn _read_ok(p: &Path) -> Vec<u8> {
     let mut v = Vec::new();
     f.read_to_end(&mut v).unwrap();
     v
+}
+
+/// 孤儿杜绝（§5.2 主机制 PR_SET_PDEATHSIG）：helper 被 SIGKILL（模拟崩溃，任何清理都不执行）
+/// → 内核立即向核心发 SIGTERM → 核心进程随 helper 退出，不残留孤儿。
+#[tokio::test]
+async fn core_dies_with_helper_via_pdeathsig() {
+    let h = Harness::start(true).await;
+    // 先投递运行态配置，再 StartCore（mock core.sock 响应 /version 守护，probe 通过）
+    let resp = rpc_call(&h.sock, &Request::ApplyConfig { yaml: "mode: rule\n".into() }).await;
+    assert!(matches!(resp, Response::Ok { .. }), "ApplyConfig 应成功: {resp:?}");
+    let resp = rpc_call(&h.sock, &Request::StartCore).await;
+    assert!(matches!(resp, Response::Ok { .. }), "StartCore 应成功: {resp:?}");
+
+    // 核心 mock 进程应出现（pid 文件就绪）
+    let core_pid = wait_pidfile(&h.mock_pidfile).await;
+    assert!(process_alive(core_pid), "核心进程应在运行");
+
+    // SIGKILL helper：绕过 SIGTERM 优雅退出与 kill_on_drop，模拟崩溃
+    let helper_pid = h.child.id().expect("helper pid");
+    let st = std::process::Command::new("kill")
+        .args(["-9", &helper_pid.to_string()])
+        .status()
+        .unwrap();
+    assert!(st.success());
+
+    // PDEATHSIG：核心进程应随 helper 死亡而退出（SIGTERM → sleep 默认终止）
+    wait_gone(core_pid).await;
+}
+
+/// 轮询 pid 文件出现（核心 mock 进程就绪），返回核心 pid。
+async fn wait_pidfile(path: &std::path::Path) -> u32 {
+    for _ in 0..50 {
+        if let Ok(s) = std::fs::read_to_string(path) {
+            if let Ok(pid) = s.trim().parse::<u32>() {
+                return pid;
+            }
+        }
+        tokio::time::sleep(Duration::from_millis(100)).await;
+    }
+    panic!("核心 pid 文件未出现: {}", path.display());
+}
+
+/// kill(pid, 0) 探测进程存活。
+fn process_alive(pid: u32) -> bool {
+    nix::sys::signal::kill(nix::unistd::Pid::from_raw(pid as i32), None).is_ok()
+}
+
+/// 轮询直到进程消失（最多 5s）。
+async fn wait_gone(pid: u32) {
+    for _ in 0..50 {
+        if !process_alive(pid) {
+            return;
+        }
+        tokio::time::sleep(Duration::from_millis(100)).await;
+    }
+    panic!("核心进程 {pid} 未随 helper 退出（PDEATHSIG 未生效）");
 }
