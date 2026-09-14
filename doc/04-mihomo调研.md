@@ -67,11 +67,10 @@ clard「核心版本 · 待更新」展示与 helper 就绪探测的取数点。
 `log-level`、`ipv6`、`allow-lan`、`tun`、`find-process-mode` 等）。
 → clard 用它做「回读校验」（doc/01 §5.5 第 5 步：投递后回读比对 `cfg_sha256`）。
 
-### PATCH `/configs`（**勘误：实为整体重载，非字段级合并**）
-`updateConfigs` 把请求体解析为 `{path, payload}`：payload 非空 → `ParseWithBytes(payload)` 整体重载；
-payload 为空 → 用 `path`（缺省 = 磁盘默认配置路径）整体重载。**缺失字段取默认值**，不存在「字段级部分更新」——
-字段级 PATCH 会被忽略/把其他字段重置为默认。**clard 的 TUN 开关一律走 PUT `/configs` 内联完整 yaml**（见下）。
-（以下为 mihomo 文档化能力，仅作参考，不再作为 clard 实现依据）
+### PATCH `/configs`（字段级部分热更新，响应 204）
+`patchConfigs`（configs.go:320）把请求体解码进 `configSchema`（全指针字段），**只处理出现的字段**；
+`tun` 经 `pointerOrDefaultTun` 合并：`Enable` 强制覆盖、其余字段保留 `LastTunConf`——**支持 tun 字段级热更**
+（实测 `{"tun":{"enable":false}}` → 204，规则即刻清理、设备约 2s 消失）。
 请求体为 `configSchema` 子集，**缺省字段不动，出现即生效**：
 
 | 字段 | 说明 |
@@ -83,9 +82,12 @@ payload 为空 → 用 `path`（缺省 = 磁盘默认配置路径）整体重载
 | `log-level` / `ipv6` / `sniffing` / `tcp-concurrent` / `find-process-mode` / `interface-name` | 杂项开关 |
 | `ss-config` / `vmess-config` / `tuic-server` | 入站重建（Meta 扩展） |
 
-→ **勘误结论**：实测 mihomo 的 `PATCH /configs` 语义是整体重载（payload/path），并非字段级合并，
-字段级 PATCH 会被忽略/重置其他字段。**SetTun 热更改为 `PUT /configs` 内联完整 yaml**
-（`reload_config`，`?force=true`），TUN 开关无需重启核心（`ReCreateTun` 重建 listener）。
+→ **对 clard 的意义**：doc/01 §6.3「托管字段」几乎全部落在 `tun` 子对象里，且 mihomo 原生支持
+`PATCH /configs` 热更 TUN（`patchConfigs` → `ReCreateTun`）。但 clard 的 `SetTun` 除 `tun` 外还需
+一并热更 `dns` 块（TUN 开启注入 nameserver），而 `configSchema` **无 dns 字段**（PATCH 无法热更 dns，
+encoding/json 忽略未知字段）——故 SetTun 走 **PUT `/configs` 内联完整 yaml**（tun+dns 同时生效）。
+注意：PATCH 关闭 TUN 正常（204 + 设备消失），曾出现的「回读校验未通过」是核心 New TUN 失败
+（device busy）遗留的孤儿设备导致，非 PATCH 不支持（见 doc/01 §5.3 启动自检清理）。
 
 ### PUT `/configs`（全量重载，响应 204）
 请求体 `{"path": "绝对路径"}` 或 `{"payload": "<完整 yaml 文本>"}`（payload 优先）；查询参数
