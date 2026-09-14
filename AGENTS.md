@@ -1,19 +1,34 @@
-- 项目：完整代理管理工具（Rust，仅 Linux）。架构 = 常驻 root 服务 `clard-helper`（拥有 mihomo 核心、TUN 与全部数据）+ TUI 客户端 `clard`（ratatui）。
-- **文档是唯一实现依据**：实现/改动前先读对应文档并遵循；架构、边界、安全、数据归属、存储、并发、审计、退出等约束一律以文档为准，不在本文重复。
-  - `doc/01-方案设计.md`：总体架构、组件关系（§3.4）、系统级服务与访问模型（§4）、核心生命周期、TUN、配置管理、审计——改架构前必读。
-  - `doc/03-ui设计.md`：UI/UX（布局/配色/键位/页面）——改 TUI 前必读。
-  - `doc/05-需求文档.md`：用户操作层需求清单（含每项实现方法）。
-  - `doc/04-mihomo调研.md`：mihomo 运行时接口（REST/WS）。
-  - 文档变更与代码实现应同步；发现文档过时/缺失时先改文档再实现。
-- 实现兜底：功能实现方式不确定时参考 `clash-verge-rev`（同领域实现）；mihomo 接口/行为不确定时参考 mihomo（Meta 分支）源码与 `doc/04-mihomo调研.md`。
-- 参考代码（改代码前先读对应实现，路径优先本机、其次上游 URL）：
-  - clash-verge-rev：本机 `~/workspace/project/clash-verge-rev`（dev 分支，较新；备选 `~/workspace/repo/clash-verge-rev`），上游 https://github.com/clash-verge-rev/clash-verge-rev 。核心进程与退出清理看 `src-tauri/src/core/manager/*.rs`、`core/service.rs`、`feat/window.rs`；TUN 降级看 `feat/tun.rs`；配置生成看 `src-tauri/src/config/clash.rs`；`core/sysopt.rs` 是已弃用的系统代理逻辑，仅参考不再使用。
-  - clash-verge-service-ipc（特权服务契约 v2.6）：上游 https://github.com/clash-verge-rev/clash-verge-service-ipc （本地未克隆，可浅克隆到 `~/workspace/repo/`）。启动自检/孤儿清理看 `src/core/reconcile.rs`、`runtime.rs`、`process.rs`；崩溃自愈 watchdog 看 `src/core/manager.rs`；配置投递的 `RuntimeBundle` 看 `src/core/structure.rs`。
-  - mihomo（Meta 分支）：上游 https://github.com/MetaCubeX/mihomo/tree/Meta （本地未克隆，可浅克隆到 `~/workspace/repo/mihomo`）。TUN 落地看 `listener/sing_tun/server.go`（默认设备名 `Meta`、`tun.Options` 组装）、`config/config.go`（tun/listeners 解析、`PUT /configs` 热重载入口在 `hub/route/configs.go`）。
-  - MetaCubeX/sing-tun：上游 https://github.com/MetaCubeX/sing-tun 。网卡/路由/ip rule 的创建与清理看 `tun_linux.go`（`New/configure/Close`、`unsetRules` 删除区间）；`DefaultIPRoute2TableIndex/RuleIndex` 等常量在 `tun.go`。
-  - （已弃用）sysproxy-rs：https://github.com/clash-verge-rev/sysproxy-rs ，仅 doc/01 附录 A 留档，不再使用。
-- TUI 改动遵循 `.pi/skills/tui-design/SKILL.md` 与 `doc/03-ui设计.md` 的布局 / 配色 / 键位约定。
-- 测试驱动：**先写功能边界的单元测试，再实现**；单元测试通过后再组装/集成（跨组件）；每个逻辑单元与测试一并提交，回归必须全绿。
-- 按 TODO 推进：实现以 `README.md` 的「需求 TODO」为准，逐项完成并勾选；新增/调整需求先改 `doc/05-需求文档.md` 与 README TODO，再实现。
-- 提交：分阶段，每个可独立运行/回滚的逻辑单元立即 `git commit`。
-- 提交信息：Conventional Commits，`<type>: <中文简述>`；type 取值 feat/fix/refactor/docs/style/chore/build。
+Clard：Linux 代理管理工具（Rust）。架构 = root 常驻服务 `clard-helper`（持有 mihomo 核心、TUN 与全部数据）+ TUI 客户端 `clard`（ratatui）。
+
+## 文档即规范
+
+**文档是唯一实现依据**：实现/改动前先读对应文档；架构、边界、安全、数据归属、存储、并发、审计、退出等约束一律以文档为准，本文不重复。
+
+- `doc/01-方案设计.md` — 总体架构、组件关系（§3.4）、系统级服务与访问模型（§4）、核心生命周期、TUN、配置管理、审计。改架构前必读。
+- `doc/03-ui设计.md` — UI/UX（布局/配色/键位/页面）。改 TUI 前必读。
+- `doc/04-mihomo调研.md` — mihomo 运行时接口（REST/WS）。
+- `doc/05-需求文档.md` — 用户操作层需求清单（含每项实现方法）。
+
+文档与代码同步：文档过时/缺失时先改文档，再实现。
+
+## 参考实现
+
+功能实现方式不确定时看 clash-verge-rev；mihomo 接口/行为不确定时看 mihomo（Meta 分支）源码与 `doc/04`。路径优先本机，其次上游；改代码前先读对应实现。
+
+- **clash-verge-rev** — 本机 `~/workspace/project/clash-verge-rev`（dev 分支，较新），备选 `~/workspace/repo/clash-verge-rev`，上游 https://github.com/clash-verge-rev/clash-verge-rev 。核心进程与退出清理看 `src-tauri/src/core/manager/*.rs`、`core/service.rs`、`feat/window.rs`；TUN 降级看 `feat/tun.rs`；配置生成看 `src-tauri/src/config/clash.rs`。`core/sysopt.rs` 已弃用，仅参考不采用。
+- **clash-verge-service-ipc**（特权服务契约 v2.6）— 上游 https://github.com/clash-verge-rev/clash-verge-service-ipc （未克隆，可浅克隆到 `~/workspace/repo/`）。启动自检/孤儿清理看 `src/core/reconcile.rs`、`runtime.rs`、`process.rs`；崩溃自愈 watchdog 看 `src/core/manager.rs`；配置投递的 `RuntimeBundle` 看 `src/core/structure.rs`。
+- **mihomo（Meta 分支）** — 上游 https://github.com/MetaCubeX/mihomo/tree/Meta （未克隆，可浅克隆到 `~/workspace/repo/mihomo`）。TUN 落地看 `listener/sing_tun/server.go`（默认设备名 `Meta`、`tun.Options` 组装）；`config/config.go` 解析 tun/listeners；`PUT /configs` 热重载入口在 `hub/route/configs.go`。
+- **MetaCubeX/sing-tun** — 上游 https://github.com/MetaCubeX/sing-tun 。网卡/路由/ip rule 的创建与清理看 `tun_linux.go`（`New/configure/Close`、`unsetRules` 删除区间）；`DefaultIPRoute2TableIndex/RuleIndex` 等常量在 `tun.go`。
+- **sysproxy-rs** — 已弃用，仅 `doc/01` 附录 A 留档。
+
+## 开发约定
+
+- TUI 改动遵循 `.pi/skills/tui-design/SKILL.md` 与 `doc/03-ui设计.md` 的布局/配色/键位约定。
+- 先写功能边界的单元测试再实现；单元测试通过后再组装/集成（跨组件）。每个逻辑单元与测试一并提交，回归必须全绿。
+- 按 `README.md` 的「需求 TODO」逐项推进并勾选；新增/调整需求先改 `doc/05-需求文档.md` 与 README TODO，再实现。
+- 改本文件遵循 `.pi/skills/agents-md/SKILL.md`。
+
+## 提交
+
+- 分阶段提交：每个可独立运行/回滚的逻辑单元立即 `git commit`。
+- Conventional Commits，`<type>: <中文简述>`；type 取 feat/fix/refactor/docs/style/chore/build。
