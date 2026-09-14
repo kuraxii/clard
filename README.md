@@ -66,4 +66,4 @@ Clard 是 Linux 上的完整代理管理工具：系统级常驻服务 `clard-he
 
 ### 备份与恢复
 
-- [ ] 本地备份 / 恢复 / 备份管理（tar.gz 打包 `/var/lib/clard`，`/var/backups/clard/`）
+- [ ] 本地备份 / 恢复 / 备份管理（helper/proto 已就绪，TUI 页随设置页）

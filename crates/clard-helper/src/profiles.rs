@@ -126,6 +126,16 @@ impl ProfilesStore {
         Ok(Self { root, index })
     }
 
+    pub fn root(&self) -> &Path {
+        &self.root
+    }
+
+    /// 从磁盘重新载入索引（备份恢复后调用）。
+    pub fn reload(&mut self) -> Result<(), ProfilesError> {
+        *self = Self::open(&self.root)?;
+        Ok(())
+    }
+
     pub fn list(&self) -> &[Profile] {
         &self.index.items
     }

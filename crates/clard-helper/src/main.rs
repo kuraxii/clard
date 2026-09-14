@@ -19,6 +19,7 @@
 
 mod audit;
 mod autoupdate;
+mod backup;
 mod core;
 mod daemon;
 mod profiles;

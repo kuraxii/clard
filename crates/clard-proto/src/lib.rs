@@ -73,6 +73,11 @@ pub enum Request {
     ProfileRestore { uid: String, version: u32 },
     /// 投递运行时配置 bundle（TUI config_gen 生成，§5.5）
     ApplyConfig { yaml: String },
+    /// 本地备份（doc/05 §8）：创建 / 列表 / 删除 / 恢复
+    BackupCreate { name: Option<String> },
+    BackupList,
+    BackupDelete { name: String },
+    BackupRestore { name: String },
     /// 启停与重启核心（幂等）
     StartCore,
     StopCore,
@@ -130,6 +135,14 @@ pub struct SettingsPatch {
     pub language: Option<String>,
     pub theme: Option<String>,
     pub mixed_port: Option<u16>,
+}
+
+/// 备份条目（doc/05 §8）。
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct BackupItem {
+    pub name: String,
+    pub created_at: i64,
+    pub size: u64,
 }
 
 /// 配置历史版本条目（doc/05 §2 R2.9）。
@@ -192,6 +205,12 @@ pub enum Response {
     },
     Settings {
         settings: Settings,
+    },
+    BackupList {
+        backups: Vec<BackupItem>,
+    },
+    BackupCreated {
+        item: BackupItem,
     },
     /// 无额外载荷的成功
     Ok,

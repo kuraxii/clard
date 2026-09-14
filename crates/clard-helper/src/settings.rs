@@ -49,6 +49,17 @@ impl SettingsStore {
         &self.settings
     }
 
+    /// 从磁盘重新载入（备份恢复后调用）。
+    pub fn reload(&mut self) -> Result<(), SettingsError> {
+        let root = self
+            .path
+            .parent()
+            .map(Path::to_path_buf)
+            .unwrap_or_default();
+        *self = Self::open(&root)?;
+        Ok(())
+    }
+
     /// 应用补丁并原子落盘。
     pub fn patch(&mut self, patch: &SettingsPatch) -> Result<(), SettingsError> {
         if let Some(v) = patch.auto_update_interval_hours {

@@ -47,6 +47,35 @@ pub async fn handle(
             Ok(()) => ("config.apply", Response::Ok),
             Err(e) => ("config.apply", Response::err(e)),
         },
+        Request::BackupCreate { name } => match crate::backup::create(
+            &crate::backup::backup_dir(),
+            store.root(),
+            name.as_deref(),
+        ) {
+            Ok(item) => ("backup.create", Response::BackupCreated { item }),
+            Err(e) => ("backup.create", Response::err(e.to_string())),
+        },
+        Request::BackupList => match crate::backup::list(&crate::backup::backup_dir()) {
+            Ok(backups) => ("backup.list", Response::BackupList { backups }),
+            Err(e) => ("backup.list", Response::err(e.to_string())),
+        },
+        Request::BackupDelete { name } => match crate::backup::delete(&crate::backup::backup_dir(), &name) {
+            Ok(()) => ("backup.delete", Response::Ok),
+            Err(e) => ("backup.delete", Response::err(e.to_string())),
+        },
+        Request::BackupRestore { name } => match crate::backup::restore(
+            &crate::backup::backup_dir(),
+            store.root(),
+            &name,
+        ) {
+            Ok(()) => {
+                // 恢复后重载内存中的 stores（避免索引/设置与磁盘不一致）
+                let _ = store.reload();
+                let _ = settings.reload();
+                ("backup.restore", Response::Ok)
+            }
+            Err(e) => ("backup.restore", Response::err(e.to_string())),
+        },
         Request::SettingsGet => {
             let settings = settings.get().clone();
             ("settings.get", Response::Settings { settings })
