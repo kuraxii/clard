@@ -29,6 +29,13 @@ pub enum ProtoError {
     VersionMismatch { helper: u32, client: u32 },
 }
 
+/// 配置组节点记忆（doc/05 §2 R2.2：切换配置后恢复 `PUT /proxies/:name`）。
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct NodeSelection {
+    pub group: String,
+    pub node: String,
+}
+
 /// 订阅配置条目（helper 索引中的一项，doc/01 §7）
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct ProfileItem {
@@ -48,6 +55,9 @@ pub struct ProfileItem {
     pub total: u64,
     #[serde(default)]
     pub expire: Option<i64>,
+    /// 记忆的组节点选择（切换配置后恢复，doc/05 §2 R2.2）
+    #[serde(default)]
+    pub selected: Vec<NodeSelection>,
 }
 
 /// TUI → helper 的请求（对应 doc/01 §5.6）
@@ -71,6 +81,8 @@ pub enum Request {
     ProfileMove { uid: String, up: bool },
     ProfileHistory { uid: String },
     ProfileRestore { uid: String, version: u32 },
+    /// 记忆当前配置的组节点选择（doc/05 §2 R2.2）
+    ProfileMemorize { group: String, node: String },
     /// 投递运行时配置 bundle（TUI config_gen 生成，§5.5）
     ApplyConfig { yaml: String },
     /// 本地备份（doc/05 §8）：创建 / 列表 / 删除 / 恢复

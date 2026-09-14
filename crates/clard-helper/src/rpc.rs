@@ -136,6 +136,11 @@ pub async fn handle(
                     download: p.download,
                     total: p.total,
                     expire: p.expire,
+                    selected: p
+                        .selected
+                        .iter()
+                        .map(|s| clard_proto::NodeSelection { group: s.group.clone(), node: s.node.clone() })
+                        .collect(),
                 })
                 .collect();
             (
@@ -193,6 +198,10 @@ pub async fn handle(
         Request::ProfileRestore { uid, version } => match store.restore(&uid, version) {
             Ok(()) => ("profile.restore", Response::Ok, None),
             Err(e) => ("profile.restore", Response::err(e.to_string()), None),
+        },
+        Request::ProfileMemorize { group, node } => match store.memorize(&group, &node) {
+            Ok(()) => ("profile.memorize", Response::Ok, None),
+            Err(e) => ("profile.memorize", Response::err(e.to_string()), None),
         },
         Request::LogSubmit { line } => match crate::logs::append_tui_log(&line) {
             Ok(()) => ("log.submit", Response::Ok, None),
@@ -320,6 +329,7 @@ fn op_and_intent(req: &Request) -> (&'static str, &'static str) {
         Request::ProfileMove { .. } => ("profile.move", "reorder profile"),
         Request::ProfileHistory { .. } => ("profile.history", "view profile history"),
         Request::ProfileRestore { .. } => ("profile.restore", "restore profile version"),
+        Request::ProfileMemorize { .. } => ("profile.memorize", "memorize node selection"),
         Request::ApplyConfig { .. } => ("config.apply", "apply runtime config"),
         Request::BackupCreate { .. } => ("backup.create", "create backup"),
         Request::BackupList => ("backup.list", "list backups"),
@@ -368,6 +378,11 @@ fn get_item_and_content(
         download: p.download,
         total: p.total,
         expire: p.expire,
+        selected: p
+            .selected
+            .iter()
+            .map(|s| clard_proto::NodeSelection { group: s.group.clone(), node: s.node.clone() })
+            .collect(),
     };
     let yaml = store.content(uid)?;
     Ok((item, yaml))

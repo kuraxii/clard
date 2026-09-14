@@ -170,6 +170,30 @@ impl ProfilesStore {
         self.save_index()
     }
 
+    /// 记忆当前配置的组节点选择（doc/05 §2 R2.2，切换后恢复）。
+    pub fn memorize(&mut self, group: &str, node: &str) -> Result<(), ProfilesError> {
+        let uid = self
+            .current()
+            .ok_or_else(|| ProfilesError::NotFound { uid: "(无当前配置)".into() })?
+            .uid
+            .clone();
+        let p = self
+            .index
+            .items
+            .iter_mut()
+            .find(|p| p.uid == uid)
+            .ok_or_else(|| ProfilesError::NotFound { uid: uid.clone() })?;
+        if let Some(s) = p.selected.iter_mut().find(|s| s.group == group) {
+            s.node = node.to_string();
+        } else {
+            p.selected.push(NodeSelection {
+                group: group.to_string(),
+                node: node.to_string(),
+            });
+        }
+        self.save_index()
+    }
+
     /// 导入订阅（yaml 由 TUI 下载并归一化后提交，§7.1）：
     /// 同 URL → 覆盖更新（保留 uid 与内容路径），否则新建。
     pub fn import(
@@ -517,6 +541,32 @@ mod tests {
         assert_eq!(store.current().unwrap().uid, uid);
         store.remove(&uid).unwrap();
         assert!(store.current().is_none());
+    }
+
+    #[test]
+    fn memorize_persists_selection_to_current_profile() {
+        let (dir, mut store) = store_in_tempdir();
+        let uid = match store.import(URL_A, None, 0, "a", None).unwrap() {
+            ImportOutcome::Created { uid } => uid,
+            other => panic!("{other:?}"),
+        };
+        // 无当前配置 → 拒绝
+        assert!(store.memorize("G1", "N1").is_err());
+
+        store.set_current(&uid).unwrap();
+        store.memorize("G1", "N1").unwrap();
+        store.memorize("G2", "N2").unwrap();
+        // 同组覆盖
+        store.memorize("G1", "N1b").unwrap();
+        let p = store.get(&uid).unwrap();
+        let sel: Vec<_> = p.selected.iter().map(|s| (s.group.as_str(), s.node.as_str())).collect();
+        assert_eq!(sel, vec![("G1", "N1b"), ("G2", "N2")]);
+
+        // 重开同一目录（持久化验证）
+        let reopened = ProfilesStore::open(dir.path()).unwrap();
+        let p = reopened.get(&uid).unwrap();
+        let sel: Vec<_> = p.selected.iter().map(|s| (s.group.as_str(), s.node.as_str())).collect();
+        assert_eq!(sel, vec![("G1", "N1b"), ("G2", "N2")]);
     }
 
     #[test]
