@@ -108,8 +108,12 @@ impl ConnectionsState {
 
     fn apply_sort(&mut self) {
         match self.sort {
-            ConnectionsSort::Upload => self.connections.sort_by(|a, b| b.upload.cmp(&a.upload)),
-            ConnectionsSort::Download => self.connections.sort_by(|a, b| b.download.cmp(&a.download)),
+            ConnectionsSort::Upload => {
+                self.connections.sort_by_key(|c| std::cmp::Reverse(c.upload));
+            }
+            ConnectionsSort::Download => {
+                self.connections.sort_by_key(|c| std::cmp::Reverse(c.download));
+            }
         }
     }
 

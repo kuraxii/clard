@@ -9,15 +9,11 @@ use ratatui::{
 
 use clard_core::mihomo::models::{Connection, DelayHistory, Proxy as ProxyModel, ProxyType};
 
-use crate::{
-    app::{
-        APP, WindowState,
-        checker::{AnalysisResult, IPInfo, UnlockStatus},
-        connections::{ConnectionsSort, ConnectionsState},
-        nettest::{NetTestState, NetTestTab, SortOrder, TestStatus},
-        proxy::{ProxyFocus, ProxyState},
-        state::MenuItem,
-    },
+use crate::app::{
+    APP,
+    connections::{ConnectionsSort, ConnectionsState},
+    page::Page,
+    proxy::{ProxyFocus, ProxyState},
 };
 
 #[derive(Debug, Default)]
@@ -51,11 +47,14 @@ impl Painter {
             draw_header(f, shell[0], app, theme);
             draw_navigation(f, shell[1], app, theme);
 
-            match &app.current_page {
-                WindowState::Memu => MenuLayout::draw(f, shell[2], app, theme),
-                WindowState::Proxy(state) => ProxyLayout::draw(f, shell[2], state, theme),
-                WindowState::Connects(state) => ConnectionsLayout::draw(f, shell[2], state, theme),
-                WindowState::NetTest(state) => NetTestLayout::draw(f, shell[2], state, theme),
+            match app.current_page {
+                Page::Home => HomeLayout::draw(f, shell[2], theme),
+                Page::Profiles => ProfilesLayout::draw(f, shell[2], theme),
+                Page::Proxies => ProxyLayout::draw(f, shell[2], &app.proxies, theme),
+                Page::Connections => ConnectionsLayout::draw(f, shell[2], &app.connections, theme),
+                Page::Logs => LogsLayout::draw(f, shell[2], theme),
+                Page::Settings => SettingsLayout::draw(f, shell[2], theme),
+                Page::Rules => RulesLayout::draw(f, shell[2], theme),
             }
 
             draw_footer(f, shell[3], app, theme);
@@ -192,19 +191,17 @@ fn draw_minimum_size(f: &mut Frame<'_>, area: Rect, theme: Theme) {
 }
 
 fn draw_header(f: &mut Frame<'_>, area: Rect, app: &APP, theme: Theme) {
-    let title = Span::styled(
-        " Clard ",
-        Style::default().fg(theme.emphasis).add_modifier(Modifier::BOLD),
-    );
+    let title = Span::styled("Clard", Style::default().fg(theme.emphasis).add_modifier(Modifier::BOLD));
     let page = Span::styled(
         format!(" {} ", page_name(app)),
         Style::default().fg(theme.primary).add_modifier(Modifier::BOLD),
     );
     let summary = Span::styled(header_summary(app), theme.muted_style());
     let line = Line::from(vec![
+        Span::raw(" "),
         title,
-        Span::styled("mihomo / Clash terminal dashboard", theme.muted_style()),
-        Span::raw("  "),
+        Span::styled("  proxy manager", theme.muted_style()),
+        Span::raw("   "),
         page,
         Span::raw("  "),
         summary,
@@ -212,17 +209,20 @@ fn draw_header(f: &mut Frame<'_>, area: Rect, app: &APP, theme: Theme) {
 
     f.render_widget(
         Paragraph::new(line)
-            .block(panel_block("Overview", false, theme))
+            .block(panel_block("Status", false, theme))
             .alignment(Alignment::Left),
         area,
     );
 }
 
 fn draw_navigation(f: &mut Frame<'_>, area: Rect, app: &APP, theme: Theme) {
-    let selected = selected_tab_index(app);
-    let tabs = Tabs::new(vec![" 1  Proxy ", " 2  Connections ", " 3  Net Test "])
-        .block(panel_block("Workspaces", false, theme))
-        .select(selected)
+    let titles: Vec<String> = Page::ALL
+        .iter()
+        .map(|page| format!(" {} {} ", page.key(), page.title()))
+        .collect();
+    let tabs = Tabs::new(titles)
+        .block(panel_block("Pages", false, theme))
+        .select(app.current_page.index())
         .style(Style::default().fg(theme.muted))
         .highlight_style(Style::default().fg(theme.primary).add_modifier(Modifier::BOLD));
 
@@ -252,114 +252,129 @@ fn draw_footer(f: &mut Frame<'_>, area: Rect, app: &APP, theme: Theme) {
     );
 }
 
-struct MenuLayout;
+/// 尚未实现的页面：渲染标题 + 计划能力清单（导航骨架，随各增量替换）。
+fn draw_placeholder(f: &mut Frame<'_>, area: Rect, page: Page, features: &[(&str, &str)], theme: Theme) {
+    let mut lines = vec![
+        Line::from(Span::styled(page.title(), theme.title_style())),
+        Line::from(""),
+        Line::from(Span::styled(
+            "Navigation skeleton — content lands in a later increment.",
+            theme.muted_style(),
+        )),
+        Line::from(""),
+    ];
+    for (label, desc) in features {
+        lines.push(Line::from(vec![
+            Span::styled(format!("  {label:<18}"), Style::default().fg(theme.primary)),
+            Span::styled(*desc, theme.muted_style()),
+        ]));
+    }
 
-impl MenuLayout {
-    fn draw(f: &mut Frame<'_>, area: Rect, app: &APP, theme: Theme) {
-        let columns = Layout::default()
-            .direction(Direction::Horizontal)
-            .constraints([Constraint::Length(34), Constraint::Min(0)].as_ref())
-            .split(area);
+    f.render_widget(
+        Paragraph::new(lines)
+            .block(panel_block(page.title(), true, theme))
+            .wrap(Wrap { trim: true }),
+        area,
+    );
+}
 
-        let menu_items: Vec<ListItem<'_>> = MenuItem::ALL
-            .iter()
-            .enumerate()
-            .map(|(idx, item)| {
-                let selected = app.menusate.current() == *item;
-                let (title, desc, action) = menu_copy(*item);
-                let marker = if selected { "▶" } else { " " };
-                let style = if selected {
-                    Style::default().fg(theme.emphasis).add_modifier(Modifier::BOLD)
-                } else {
-                    Style::default().fg(theme.fg)
-                };
+struct HomeLayout;
 
-                ListItem::new(vec![
-                    Line::from(vec![
-                        Span::styled(marker, Style::default().fg(theme.primary)),
-                        Span::raw(" "),
-                        Span::styled(format!("{}  {}", idx + 1, title), style),
-                    ]),
-                    Line::from(vec![Span::raw("   "), Span::styled(desc, theme.muted_style())]),
-                    Line::from(vec![
-                        Span::raw("   "),
-                        Span::styled(action, Style::default().fg(theme.info)),
-                    ]),
-                ])
-            })
-            .collect();
-
-        let menu = List::new(menu_items).block(panel_block("Choose Workspace", true, theme));
-        f.render_widget(menu, columns[0]);
-
-        let right_rows = Layout::default()
-            .direction(Direction::Vertical)
-            .constraints([Constraint::Length(7), Constraint::Length(7), Constraint::Min(0)].as_ref())
-            .split(columns[1]);
-
-        let data_lines = vec![
-            kv_line(
-                "Proxy",
-                "proxy groups, current selected node, node health, delay history",
-                theme,
-            ),
-            kv_line(
-                "Connections",
-                "active sessions, upload/download totals, memory, routing chains",
-                theme,
-            ),
-            kv_line(
-                "Net Test",
-                "batch latency, per-node history, direct/proxy IP, streaming unlock status",
-                theme,
-            ),
-        ];
-        f.render_widget(
-            Paragraph::new(data_lines)
-                .block(panel_block("Available Data Surface", false, theme))
-                .wrap(Wrap { trim: true }),
-            right_rows[0],
+impl HomeLayout {
+    fn draw(f: &mut Frame<'_>, area: Rect, theme: Theme) {
+        draw_placeholder(
+            f,
+            area,
+            Page::Home,
+            &[
+                ("service", "helper status (connected / not installed)"),
+                ("core", "core state, PID, version, restart count"),
+                ("tun", "TUN on/off, device clard0, table/rule indices"),
+                ("profile", "current profile, updated/next update"),
+                ("traffic", "up/down rate and totals, exit node"),
+            ],
+            theme,
         );
+    }
+}
 
-        let api_lines = vec![
-            kv_line(
-                "HTTP",
-                "version, caches, groups, proxies, connections, rules, configs",
-                theme,
-            ),
-            kv_line(
-                "Actions",
-                "select node, test delay, close selected connection, refresh data",
-                theme,
-            ),
-            kv_line(
-                "Realtime",
-                "connection page refreshes every second while visible",
-                theme,
-            ),
-        ];
-        f.render_widget(
-            Paragraph::new(api_lines)
-                .block(panel_block("Backend Coverage", false, theme))
-                .wrap(Wrap { trim: true }),
-            right_rows[1],
+struct ProfilesLayout;
+
+impl ProfilesLayout {
+    fn draw(f: &mut Frame<'_>, area: Rect, theme: Theme) {
+        draw_placeholder(
+            f,
+            area,
+            Page::Profiles,
+            &[
+                ("i", "import from URL"),
+                ("Enter", "switch current (transactional)"),
+                ("u/d", "update / delete"),
+                ("r", "rename"),
+                ("[ / ]", "reorder"),
+                ("h", "version history (rollback)"),
+            ],
+            theme,
         );
+    }
+}
 
-        let guide = vec![
-            Line::from(vec![
-                Span::styled("Layout model", theme.title_style()),
-                Span::raw("  Persistent multi-panel dashboard"),
-            ]),
-            Line::from(""),
-            Line::from("Use the number keys to jump directly, or open a page and keep its context visible."),
-            Line::from("The focused panel is highlighted; the footer always shows actions that apply now."),
-            Line::from("Press [?] anytime for the full key reference."),
-        ];
-        f.render_widget(
-            Paragraph::new(guide)
-                .block(panel_block("Interaction Model", false, theme))
-                .wrap(Wrap { trim: true }),
-            right_rows[2],
+struct LogsLayout;
+
+impl LogsLayout {
+    fn draw(f: &mut Frame<'_>, area: Rect, theme: Theme) {
+        draw_placeholder(
+            f,
+            area,
+            Page::Logs,
+            &[
+                ("Tab", "app / core / audit / merged"),
+                ("e/f", "level / keyword filter"),
+                ("F/G", "follow tail / jump to end"),
+                ("o", "audit op filter"),
+                ("x", "export audit"),
+            ],
+            theme,
+        );
+    }
+}
+
+struct SettingsLayout;
+
+impl SettingsLayout {
+    fn draw(f: &mut Frame<'_>, area: Rect, theme: Theme) {
+        draw_placeholder(
+            f,
+            area,
+            Page::Settings,
+            &[
+                ("General", "mixed port, auto update, language, theme"),
+                ("TUN", "stack, dns-hijack, route-exclude"),
+                ("Core", "version / check update / upgrade"),
+                ("Service", "install / uninstall / paranoid mode"),
+                ("Backup", "create / restore / delete / export"),
+                ("About", "version, paths, open directory"),
+            ],
+            theme,
+        );
+    }
+}
+
+struct RulesLayout;
+
+impl RulesLayout {
+    fn draw(f: &mut Frame<'_>, area: Rect, theme: Theme) {
+        draw_placeholder(
+            f,
+            area,
+            Page::Rules,
+            &[
+                ("list", "rules with index/type/payload/proxy/hits"),
+                ("Enter", "enable / disable a rule"),
+                ("f", "search filter"),
+                ("Tab", "rule providers view"),
+            ],
+            theme,
         );
     }
 }
@@ -733,246 +748,6 @@ fn draw_connection_detail(f: &mut Frame<'_>, area: Rect, state: &ConnectionsStat
     );
 }
 
-struct NetTestLayout;
-
-impl NetTestLayout {
-    fn draw(f: &mut Frame<'_>, area: Rect, state: &NetTestState, theme: Theme) {
-        let chunks = Layout::default()
-            .direction(Direction::Vertical)
-            .constraints([Constraint::Length(3), Constraint::Min(0)].as_ref())
-            .split(area);
-
-        draw_nettest_tabs(f, chunks[0], state, theme);
-
-        match state.tab {
-            NetTestTab::Latency => draw_latency_view(f, chunks[1], state, theme),
-            NetTestTab::Analysis => draw_analysis_view(f, chunks[1], state, theme),
-        }
-    }
-}
-
-fn draw_nettest_tabs(f: &mut Frame<'_>, area: Rect, state: &NetTestState, theme: Theme) {
-    let selected = match state.tab {
-        NetTestTab::Latency => 0,
-        NetTestTab::Analysis => 1,
-    };
-    let titles = vec![" Latency ", " Active Node Analysis "];
-    let tabs = Tabs::new(titles)
-        .block(panel_block("Net Test", false, theme))
-        .select(selected)
-        .style(Style::default().fg(theme.muted))
-        .highlight_style(Style::default().fg(theme.primary).add_modifier(Modifier::BOLD));
-    f.render_widget(tabs, area);
-}
-
-fn draw_latency_view(f: &mut Frame<'_>, area: Rect, state: &NetTestState, theme: Theme) {
-    let chunks = Layout::default()
-        .direction(Direction::Vertical)
-        .constraints([Constraint::Length(5), Constraint::Min(0)].as_ref())
-        .split(area);
-
-    draw_latency_metrics(f, chunks[0], state, theme);
-    draw_latency_table(f, chunks[1], state, theme);
-}
-
-fn draw_latency_metrics(f: &mut Frame<'_>, area: Rect, state: &NetTestState, theme: Theme) {
-    let total = state.nodes.len();
-    let done = state
-        .nodes
-        .iter()
-        .filter(|node| matches!(node.status, TestStatus::Done(_)))
-        .count();
-    let testing = state
-        .nodes
-        .iter()
-        .filter(|node| matches!(node.status, TestStatus::Testing))
-        .count();
-    let latencies: Vec<u16> = state
-        .nodes
-        .iter()
-        .filter_map(|node| match node.status {
-            TestStatus::Done(latency) => Some(latency),
-            _ => None,
-        })
-        .collect();
-    let fastest = latencies.iter().min().copied();
-    let avg = if latencies.is_empty() {
-        None
-    } else {
-        Some(latencies.iter().map(|latency| u32::from(*latency)).sum::<u32>() / latencies.len() as u32)
-    };
-
-    let chunks = Layout::default()
-        .direction(Direction::Horizontal)
-        .constraints(
-            [
-                Constraint::Percentage(25),
-                Constraint::Percentage(25),
-                Constraint::Percentage(25),
-                Constraint::Percentage(25),
-            ]
-            .as_ref(),
-        )
-        .split(area);
-
-    draw_metric(
-        f,
-        chunks[0],
-        "Progress",
-        &format!("{} / {}", done, total),
-        &progress_bar(done, total, 12),
-        theme.primary,
-        theme,
-    );
-    draw_metric(
-        f,
-        chunks[1],
-        "Testing",
-        &testing.to_string(),
-        if state.is_testing { "running" } else { "idle" },
-        theme.info,
-        theme,
-    );
-    draw_metric(
-        f,
-        chunks[2],
-        "Fastest",
-        &fastest.map_or_else(|| "-".to_string(), format_delay),
-        "lower is better",
-        theme.success,
-        theme,
-    );
-    draw_metric(
-        f,
-        chunks[3],
-        "Average",
-        &avg.map_or_else(|| "-".to_string(), |latency| format!("{} ms", latency)),
-        sort_order_name(&state.sort_order),
-        theme.secondary,
-        theme,
-    );
-}
-
-fn draw_latency_table(f: &mut Frame<'_>, area: Rect, state: &NetTestState, theme: Theme) {
-    let header = Row::new(
-        ["Node", "Status", "Latency", "History", "Quality"]
-            .into_iter()
-            .map(|header| Cell::from(header).style(Style::default().fg(theme.emphasis).add_modifier(Modifier::BOLD))),
-    )
-    .height(1)
-    .bottom_margin(1)
-    .style(Style::default().bg(theme.overlay));
-
-    let rows = state.nodes.iter().map(|node| {
-        let (status, style) = test_status_style(&node.status, theme);
-        let delay = match node.status {
-            TestStatus::Done(latency) => format_delay(latency),
-            _ => "-".to_string(),
-        };
-        let quality = match node.status {
-            TestStatus::Done(latency) => latency_bar(latency, 16),
-            TestStatus::Testing => "testing".to_string(),
-            TestStatus::Timeout => "timeout".to_string(),
-            TestStatus::Error(_) => "error".to_string(),
-            TestStatus::Pending => "pending".to_string(),
-        };
-
-        Row::new(vec![
-            Cell::from(node.name.clone()),
-            Cell::from(status).style(style),
-            Cell::from(delay).style(style),
-            Cell::from(sparkline_u16(&node.history)).style(Style::default().fg(theme.secondary)),
-            Cell::from(quality).style(style),
-        ])
-    });
-
-    let table = Table::new(
-        rows,
-        [
-            Constraint::Percentage(40),
-            Constraint::Percentage(14),
-            Constraint::Percentage(12),
-            Constraint::Percentage(18),
-            Constraint::Percentage(16),
-        ],
-    )
-    .header(header)
-    .block(panel_block("Latency  t/r test all  s sort", true, theme))
-    .row_highlight_style(theme.selected_style())
-    .highlight_symbol("▸ ");
-
-    let mut list_state = state.list_state.clone();
-    f.render_stateful_widget(table, area, &mut list_state);
-}
-
-fn draw_analysis_view(f: &mut Frame<'_>, area: Rect, state: &NetTestState, theme: Theme) {
-    if area.width >= 108 {
-        let chunks = Layout::default()
-            .direction(Direction::Horizontal)
-            .constraints([Constraint::Percentage(42), Constraint::Percentage(58)].as_ref())
-            .split(area);
-        draw_ip_panel(f, chunks[0], &state.analysis_result, state.analysis_testing, theme);
-        draw_streaming_panel(f, chunks[1], &state.analysis_result, state.analysis_testing, theme);
-        return;
-    }
-
-    let chunks = Layout::default()
-        .direction(Direction::Vertical)
-        .constraints([Constraint::Percentage(42), Constraint::Percentage(58)].as_ref())
-        .split(area);
-    draw_ip_panel(f, chunks[0], &state.analysis_result, state.analysis_testing, theme);
-    draw_streaming_panel(f, chunks[1], &state.analysis_result, state.analysis_testing, theme);
-}
-
-fn draw_ip_panel(f: &mut Frame<'_>, area: Rect, result: &AnalysisResult, testing: bool, theme: Theme) {
-    let lines = vec![
-        ip_section("Direct IP", "Domestic view", result.direct_ip.as_ref(), testing, theme),
-        Line::from(""),
-        ip_section(
-            "Proxy IP",
-            "International view",
-            result.proxy_ip.as_ref(),
-            testing,
-            theme,
-        ),
-    ];
-
-    f.render_widget(
-        Paragraph::new(lines)
-            .block(panel_block("IP Identity", false, theme))
-            .wrap(Wrap { trim: true }),
-        area,
-    );
-}
-
-fn draw_streaming_panel(f: &mut Frame<'_>, area: Rect, result: &AnalysisResult, testing: bool, theme: Theme) {
-    let mut lines = vec![
-        unlock_line("YouTube", &result.youtube_status, testing, theme),
-        unlock_line("Netflix", &result.netflix_status, testing, theme),
-        unlock_line("Spotify", &result.spotify_status, testing, theme),
-        unlock_line("Bilibili", &result.bilibili_status, testing, theme),
-    ];
-    lines.push(Line::from(""));
-    lines.push(Line::from(Span::styled(
-        "Analysis runs through the local mixed proxy http://127.0.0.1:7890.",
-        theme.muted_style(),
-    )));
-
-    f.render_widget(
-        Paragraph::new(lines)
-            .block(panel_block(
-                "Streaming Unlock",
-                matches!(result.youtube_status, UnlockStatus::Testing)
-                    || matches!(result.netflix_status, UnlockStatus::Testing)
-                    || matches!(result.spotify_status, UnlockStatus::Testing)
-                    || matches!(result.bilibili_status, UnlockStatus::Testing),
-                theme,
-            ))
-            .wrap(Wrap { trim: true }),
-        area,
-    );
-}
-
 fn draw_help(f: &mut Frame<'_>, area: Rect, app: &APP, theme: Theme) {
     let popup = centered_rect(68, 70, area);
     f.render_widget(Clear, popup);
@@ -984,10 +759,10 @@ fn draw_help(f: &mut Frame<'_>, area: Rect, app: &APP, theme: Theme) {
             key_span("q", theme),
             Span::raw("quit  "),
             key_span("Esc", theme),
-            Span::raw("back/close  "),
+            Span::raw("back/home  "),
             key_span("?", theme),
             Span::raw("help  "),
-            key_span("1/2/3", theme),
+            key_span("1-7", theme),
             Span::raw("jump"),
         ]),
         Line::from(vec![
@@ -996,40 +771,42 @@ fn draw_help(f: &mut Frame<'_>, area: Rect, app: &APP, theme: Theme) {
             key_span("h/j/k/l", theme),
             Span::raw("  "),
             key_span("Tab", theme),
-            Span::raw("focus / tab switch"),
+            Span::raw("focus"),
         ]),
         Line::from(""),
     ];
 
-    lines.extend(match &app.current_page {
-        WindowState::Memu => vec![
-            Line::from(Span::styled("Menu", theme.title_style())),
-            Line::from("Enter opens the selected workspace. Number keys jump directly."),
+    lines.extend(match app.current_page {
+        Page::Home => vec![
+            Line::from(Span::styled("Home", theme.title_style())),
+            Line::from("System overview: helper, core, TUN, profile and traffic."),
         ],
-        WindowState::Proxy(_) => vec![
-            Line::from(Span::styled("Proxy", theme.title_style())),
+        Page::Profiles => vec![
+            Line::from(Span::styled("Profiles", theme.title_style())),
+            Line::from("Import, switch, update, delete, rename and reorder subscriptions."),
+        ],
+        Page::Proxies => vec![
+            Line::from(Span::styled("Proxies", theme.title_style())),
             Line::from("Left/right or Tab changes focus between groups and nodes."),
-            Line::from("Enter selects the highlighted node for the active group."),
-            Line::from("t or d tests delay for the highlighted node."),
+            Line::from("Enter selects the highlighted node; t/d tests its delay."),
         ],
-        WindowState::Connects(_) => vec![
+        Page::Connections => vec![
             Line::from(Span::styled("Connections", theme.title_style())),
             Line::from("u sorts by upload, d sorts by download, x closes the selected connection."),
             Line::from("The list refreshes automatically every second while visible."),
         ],
-        WindowState::NetTest(state) => match state.tab {
-            NetTestTab::Latency => vec![
-                Line::from(Span::styled("Net Test / Latency", theme.title_style())),
-                Line::from("t or r tests every known node concurrently."),
-                Line::from("s cycles sort order: latency asc/desc and name asc/desc."),
-                Line::from("Tab switches to active-node analysis."),
-            ],
-            NetTestTab::Analysis => vec![
-                Line::from(Span::styled("Net Test / Analysis", theme.title_style())),
-                Line::from("Tab returns to latency testing."),
-                Line::from("Entering this tab triggers IP and streaming unlock checks."),
-            ],
-        },
+        Page::Logs => vec![
+            Line::from(Span::styled("Logs", theme.title_style())),
+            Line::from("App / core / audit log columns with filter and export."),
+        ],
+        Page::Settings => vec![
+            Line::from(Span::styled("Settings", theme.title_style())),
+            Line::from("General, TUN, core, service, backup and about sections."),
+        ],
+        Page::Rules => vec![
+            Line::from(Span::styled("Rules", theme.title_style())),
+            Line::from("View, enable/disable, filter rules and rule providers."),
+        ],
     });
 
     lines.push(Line::from(""));
@@ -1077,46 +854,30 @@ fn key_span(key: &str, theme: Theme) -> Span<'static> {
     )
 }
 
-fn selected_tab_index(app: &APP) -> usize {
-    match &app.current_page {
-        WindowState::Memu => match app.menusate.current() {
-            MenuItem::Proxy => 0,
-            MenuItem::Connections => 1,
-            MenuItem::NetTest => 2,
-        },
-        WindowState::Proxy(_) => 0,
-        WindowState::Connects(_) => 1,
-        WindowState::NetTest(_) => 2,
-    }
-}
-
 fn page_name(app: &APP) -> &'static str {
-    match &app.current_page {
-        WindowState::Memu => "Menu",
-        WindowState::Proxy(_) => "Proxy",
-        WindowState::Connects(_) => "Connections",
-        WindowState::NetTest(_) => "Net Test",
-    }
+    app.current_page.title()
 }
 
 fn header_summary(app: &APP) -> String {
-    match &app.current_page {
-        WindowState::Memu => "3 workspaces · keyboard-first · async actions".to_string(),
-        WindowState::Proxy(state) => {
-            let groups = state.groups.len();
-            let nodes: usize = state
+    match app.current_page {
+        Page::Home => "system overview".to_string(),
+        Page::Profiles => "subscription profiles".to_string(),
+        Page::Proxies => {
+            let groups = app.proxies.groups.len();
+            let nodes: usize = app
+                .proxies
                 .groups
                 .iter()
                 .filter_map(|group| group.all.as_ref())
                 .map(Vec::len)
                 .sum();
-            format!("{} groups · {} selectable nodes", groups, nodes)
+            format!("{groups} groups · {nodes} selectable nodes")
         }
-        WindowState::Connects(state) => {
-            if let Some(data) = &state.connections_data {
+        Page::Connections => {
+            if let Some(data) = &app.connections.connections_data {
                 format!(
                     "{} active · up {} · down {} · mem {}",
-                    state.connections.len(),
+                    app.connections.connections.len(),
                     format_network_bytes(data.upload_total),
                     format_network_bytes(data.download_total),
                     format_network_bytes(u64::from(data.memory))
@@ -1125,71 +886,53 @@ fn header_summary(app: &APP) -> String {
                 "loading connections".to_string()
             }
         }
-        WindowState::NetTest(state) => {
-            let completed = state
-                .nodes
-                .iter()
-                .filter(|node| matches!(node.status, TestStatus::Done(_)))
-                .count();
-            let suffix = if state.is_testing || state.analysis_testing {
-                " · running"
-            } else {
-                ""
-            };
-            format!("{} nodes · {} tested{}", state.nodes.len(), completed, suffix)
-        }
+        Page::Logs => "app · core · audit".to_string(),
+        Page::Settings => "general · tun · core · service · backup".to_string(),
+        Page::Rules => "rules · providers".to_string(),
     }
 }
 
 fn footer_keys(app: &APP) -> Vec<(&'static str, &'static str)> {
-    match &app.current_page {
-        WindowState::Memu => vec![
-            ("↑↓/jk", "select"),
-            ("Enter", "open"),
-            ("1-3", "jump"),
-            ("?", "help"),
-            ("q", "quit"),
-        ],
-        WindowState::Proxy(state) => {
-            let focus = if state.focus == ProxyFocus::Groups {
+    let mut keys = Vec::new();
+    match app.current_page {
+        Page::Home => {
+            keys.push(("1-7", "page"));
+        }
+        Page::Profiles => {
+            keys.push(("↑↓/jk", "move"));
+            keys.push(("Enter", "switch"));
+        }
+        Page::Proxies => {
+            let focus = if app.proxies.focus == ProxyFocus::Groups {
                 "nodes focus"
             } else {
                 "groups focus"
             };
-            vec![
-                ("↑↓/jk", "move"),
-                ("Tab/←→", focus),
-                ("Enter", "select"),
-                ("t", "test"),
-                ("Esc", "menu"),
-            ]
+            keys.push(("↑↓/jk", "move"));
+            keys.push(("Tab/←→", focus));
+            keys.push(("Enter", "select"));
+            keys.push(("t", "test"));
         }
-        WindowState::Connects(_) => vec![
-            ("↑↓/jk", "move"),
-            ("u/d", "sort"),
-            ("x", "close"),
-            ("?", "help"),
-            ("Esc", "menu"),
-        ],
-        WindowState::NetTest(state) => match state.tab {
-            NetTestTab::Latency => vec![
-                ("↑↓/jk", "move"),
-                ("t/r", "test all"),
-                ("s", "sort"),
-                ("Tab", "analysis"),
-                ("Esc", "menu"),
-            ],
-            NetTestTab::Analysis => vec![("Tab", "latency"), ("?", "help"), ("Esc", "menu"), ("q", "quit")],
-        },
+        Page::Connections => {
+            keys.push(("↑↓/jk", "move"));
+            keys.push(("u/d", "sort"));
+            keys.push(("x", "close"));
+        }
+        Page::Logs => {
+            keys.push(("Tab", "source"));
+        }
+        Page::Settings => {
+            keys.push(("↑↓/jk", "move"));
+        }
+        Page::Rules => {
+            keys.push(("↑↓/jk", "move"));
+        }
     }
-}
 
-fn menu_copy(item: MenuItem) -> (&'static str, &'static str, &'static str) {
-    match item {
-        MenuItem::Proxy => ("Proxy", "代理组与节点选择", "Enter: open · t: node delay"),
-        MenuItem::Connections => ("Connections", "实时连接、流量与路由链路", "u/d: sort · x: close"),
-        MenuItem::NetTest => ("Net Test", "节点延迟与流媒体解锁分析", "t: test all · Tab: switch"),
-    }
+    keys.push(("?", "help"));
+    keys.push(("Esc", "home"));
+    keys.push(("q", "quit"));
+    keys
 }
 
 fn selected_group(state: &ProxyState) -> Option<&ProxyModel> {
@@ -1357,65 +1100,12 @@ fn empty_as_dash(value: &str) -> &str {
     if value.is_empty() { "-" } else { value }
 }
 
-fn ip_section(title: &str, subtitle: &str, ip: Option<&IPInfo>, testing: bool, theme: Theme) -> Line<'static> {
-    let (status, color) = match ip {
-        Some(_) => ("READY", theme.success),
-        None if testing => ("TESTING", theme.info),
-        None => ("MISSING", theme.warning),
-    };
-    let detail = ip.map_or_else(|| "-".to_string(), |ip| format!("{}  {}", ip.ip, ip.region));
-
-    Line::from(vec![
-        Span::styled(format!("{:<10}", title), theme.title_style()),
-        Span::styled(format!("{:<8}", status), Style::default().fg(color)),
-        Span::styled(format!("{}  ", subtitle), theme.muted_style()),
-        Span::raw(detail),
-    ])
-}
-
-fn unlock_line(service: &str, status: &UnlockStatus, testing: bool, theme: Theme) -> Line<'static> {
-    let (label, detail, color) = match status {
-        UnlockStatus::Testing if testing => ("TESTING", "checking".to_string(), theme.info),
-        UnlockStatus::Testing => ("WAIT", "not tested".to_string(), theme.warning),
-        UnlockStatus::Unlocked(region) => ("OK", format!("unlocked ({})", region), theme.success),
-        UnlockStatus::OriginalsOnly => ("PARTIAL", "originals only".to_string(), theme.warning),
-        UnlockStatus::Blocked(reason) => ("BLOCKED", reason.clone(), theme.error),
-        UnlockStatus::Error(err) => ("ERROR", err.clone(), theme.error),
-    };
-
-    Line::from(vec![
-        Span::styled(format!("{:<10}", service), theme.title_style()),
-        Span::styled(format!("{:<9}", label), Style::default().fg(color)),
-        Span::raw(detail),
-    ])
-}
-
-fn test_status_style(status: &TestStatus, theme: Theme) -> (String, Style) {
-    match status {
-        TestStatus::Pending => ("pending".to_string(), theme.muted_style()),
-        TestStatus::Testing => ("testing".to_string(), Style::default().fg(theme.info)),
-        TestStatus::Done(latency) => ("online".to_string(), delay_style(Some(*latency), theme)),
-        TestStatus::Timeout => ("timeout".to_string(), Style::default().fg(theme.error)),
-        TestStatus::Error(_) => ("error".to_string(), Style::default().fg(theme.error)),
-    }
-}
-
 fn delay_style(delay: Option<u16>, theme: Theme) -> Style {
     match delay {
         Some(delay) if delay < 180 => Style::default().fg(theme.success),
         Some(delay) if delay < 500 => Style::default().fg(theme.warning),
         Some(_) => Style::default().fg(theme.error),
         None => theme.muted_style(),
-    }
-}
-
-fn sort_order_name(sort_order: &SortOrder) -> &'static str {
-    match sort_order {
-        SortOrder::None => "unsorted",
-        SortOrder::LatencyAsc => "latency asc",
-        SortOrder::LatencyDesc => "latency desc",
-        SortOrder::NameAsc => "name asc",
-        SortOrder::NameDesc => "name desc",
     }
 }
 
@@ -1445,27 +1135,6 @@ fn format_network_bytes(bytes: u64) -> String {
     let formatted = formatted.strip_suffix(".0").unwrap_or(&formatted);
 
     format!("{} {}", formatted, UNITS[unit])
-}
-
-fn progress_bar(done: usize, total: usize, width: usize) -> String {
-    if total == 0 || width == 0 {
-        return "░".repeat(width);
-    }
-    let filled = ((done * width) + total - 1) / total;
-    format!("{}{}", "█".repeat(filled), "░".repeat(width.saturating_sub(filled)))
-}
-
-fn latency_bar(delay: u16, width: usize) -> String {
-    let score = if delay < 180 {
-        width
-    } else if delay < 500 {
-        width.saturating_mul(2) / 3
-    } else if delay < 1000 {
-        width / 3
-    } else {
-        width / 6
-    };
-    format!("{}{}", "█".repeat(score), "░".repeat(width.saturating_sub(score)))
 }
 
 fn sparkline_history(history: &[DelayHistory]) -> String {

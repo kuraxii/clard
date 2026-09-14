@@ -157,7 +157,7 @@ pub async fn start_clard() -> Result<()> {
     loop {
         tokio::select! {
             _ = connections_refresh.tick() => {
-                if matches!(app.current_page, app::WindowState::Connects(_)) {
+                if app.current_page == app::page::Page::Connections {
                     app.fetch_connections();
                 }
             }
@@ -176,43 +176,16 @@ pub async fn start_clard() -> Result<()> {
                         handle_mouse_event(event, &mut app);
                     }
                     ClardEvent::UpdateGroups(groups) => {
-                        if let app::WindowState::Proxy(ref mut state) = app.current_page {
-                            state.update_groups(groups);
-                        }
+                        app.proxies.update_groups(groups);
                     }
                     ClardEvent::UpdateConnections(conns) => {
-                        if let app::WindowState::Connects(ref mut state) = app.current_page {
-                            state.update_connections(conns);
-                        }
+                        app.connections.update_connections(conns);
                     }
                     ClardEvent::UpdateTraffic(traffic) => {
-                        if let app::WindowState::Connects(ref mut state) = app.current_page {
-                            state.update_traffic(traffic);
-                        }
+                        app.connections.update_traffic(traffic);
                     }
-                    ClardEvent::NodeTested(node, delay) => {
-                        app.message = Some(format!("Node '{}' delay: {}ms", node, delay));
-                        if let app::WindowState::NetTest(ref mut state) = app.current_page {
-                            state.update_node_latency(&node, delay);
-                            state.finish_testing_if_complete();
-                        }
-                    }
-                    ClardEvent::NetTestNodesReady(nodes) => {
-                        if let app::WindowState::NetTest(ref mut state) = app.current_page {
-                            state.set_nodes(nodes);
-                        }
-                    }
-                    ClardEvent::NetTestError(node, err) => {
-                        if let app::WindowState::NetTest(ref mut state) = app.current_page {
-                            state.update_node_error(&node, err);
-                            state.finish_testing_if_complete();
-                        }
-                    }
-                    ClardEvent::AnalysisResultUpdated(result) => {
-                        if let app::WindowState::NetTest(ref mut state) = app.current_page {
-                            state.analysis_result = *result;
-                            state.analysis_testing = false;
-                        }
+                    ClardEvent::Notify(msg) => {
+                        app.message = Some(msg);
                     }
                     ClardEvent::Error(msg) => {
                         app.message = Some(msg);
