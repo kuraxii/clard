@@ -113,7 +113,8 @@ pub fn inject(doc: &mut Mapping, options: &ConfigGenOptions) {
 
     match &options.tun {
         Some(tun) => {
-            // TUN 下强制 DNS fake-ip（保留用户 dns 的其他字段）
+            // TUN 下强制 DNS fake-ip（保留用户 dns 的其他字段）+ 上游 nameserver
+            // （dns-hijack 劫持 53 后必须有上游 DNS，否则域名解析失败=全断网）
             let mut dns = doc
                 .get(&Value::String("dns".into()))
                 .and_then(Value::as_mapping)
@@ -121,6 +122,10 @@ pub fn inject(doc: &mut Mapping, options: &ConfigGenOptions) {
                 .unwrap_or_default();
             dns.insert(Value::String("enable".into()), Value::Bool(true));
             dns.insert(Value::String("enhanced-mode".into()), Value::String("fake-ip".into()));
+            dns.insert(
+                Value::String("nameserver".into()),
+                Value::Sequence(vec![Value::String("8.8.8.8".into()), Value::String("1.1.1.1".into())]),
+            );
             doc.insert(Value::String("dns".into()), Value::Mapping(dns));
 
             let mut t = Mapping::new();

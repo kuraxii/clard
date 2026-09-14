@@ -143,6 +143,19 @@ pub fn tun_off_block() -> Mapping {
     t
 }
 
+/// TUN 开启时配套的 fake-ip DNS 块（§6.3 + 上游 nameserver）。
+/// dns-hijack 劫持本地 53 后，mihomo 必须有可用的上游 DNS，否则域名解析失败=全断网。
+pub fn build_dns_block() -> Mapping {
+    let mut d = Mapping::new();
+    kv(&mut d, "enable", true);
+    kv(&mut d, "enhanced-mode", "fake-ip");
+    d.insert(
+        Value::String("nameserver".into()),
+        Value::Sequence(strs(&["8.8.8.8", "1.1.1.1"])),
+    );
+    d
+}
+
 fn strs(list: &[&str]) -> Vec<Value> {
     list.iter().map(|s| Value::String((*s).to_string())).collect()
 }
@@ -360,10 +373,15 @@ pub async fn set_tun(
     let mut doc: Value = serde_yaml_ng::from_str(&original)
         .map_err(|e| format!("解析运行态配置失败: {e}"))?;
     let block = if enable { build_tun_block(settings) } else { tun_off_block() };
+    let dns_block = enable.then(build_dns_block);
     let mapping = doc
         .as_mapping_mut()
         .ok_or_else(|| "运行态配置根必须是 mapping".to_string())?;
     mapping.insert(Value::String("tun".into()), Value::Mapping(block.clone()));
+    // TUN 开启必须配完整 fake-ip DNS（劫持 53 后无上游 nameserver 会断网，见下）
+    if let Some(d) = &dns_block {
+        mapping.insert(Value::String("dns".into()), Value::Mapping(d.clone()));
+    }
     let new_yaml = serde_yaml_ng::to_string(&doc).map_err(|e| e.to_string())?;
 
     write_yaml_atomic(runtime_yaml, &new_yaml).map_err(|e| e.to_string())?;
@@ -372,8 +390,12 @@ pub async fn set_tun(
         return Ok(TunApply { hot_reloaded: false, verified: false });
     }
 
-    // 热更（PATCH 只带 tun 块，字段级）
-    let body = serde_json::json!({ "tun": yaml_to_json(&block) });
+    // 热更（PATCH tun 块；TUN 开启时一并注入 dns 块——否则 dns-hijack 劫持 53 后
+    // 无上游 nameserver，fake-ip 无法解析真实域名，表现为「开 TUN 后全断网」）
+    let mut body = serde_json::json!({ "tun": yaml_to_json(&block) });
+    if let Some(d) = &dns_block {
+        body["dns"] = yaml_to_json(d);
+    }
     if let Err(e) = crate::core::patch_configs(core_sock, &body).await {
         rollback(runtime_yaml, core_sock, &original).await;
         return Err(format!("TUN 热更失败: {e}"));
@@ -543,6 +565,15 @@ mod tests {
     }
 
     #[test]
+    fn build_dns_block_injects_fakeip_and_nameserver() {
+        let d = build_dns_block();
+        assert_eq!(get(&d, "enable").unwrap().as_bool(), Some(true));
+        assert_eq!(get(&d, "enhanced-mode").unwrap().as_str(), Some("fake-ip"));
+        let ns = get(&d, "nameserver").unwrap().as_sequence().unwrap();
+        assert_eq!(ns[0].as_str(), Some("8.8.8.8"));
+    }
+
+    #[test]
     fn tun_off_block_only_enable_false() {
         let block = tun_off_block();
         assert_eq!(block.len(), 1);
@@ -587,6 +618,11 @@ mod tests {
         let tun = as_mapping(doc.get("tun").unwrap());
         assert_eq!(get(tun, "enable").unwrap().as_bool(), Some(true));
         assert_eq!(get(tun, "device").unwrap().as_str(), Some("clard0"), "托管块完整注入");
+        // 开启时必须注入 fake-ip dns（劫持 53 后无上游 nameserver 会断网）
+        let dns = as_mapping(doc.get("dns").unwrap());
+        assert_eq!(get(dns, "enable").unwrap().as_bool(), Some(true));
+        let ns = get(dns, "nameserver").unwrap().as_sequence().unwrap();
+        assert_eq!(ns[0].as_str(), Some("8.8.8.8"));
         // 其他顶层字段不受影响
         assert_eq!(as_mapping(&doc).get(&Value::String("mode".into())).unwrap().as_str(), Some("rule"));
 

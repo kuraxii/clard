@@ -142,6 +142,8 @@ mod tests {
         let dns = get(&m, "dns").unwrap().as_mapping().unwrap();
         assert_eq!(get(dns, "enable").unwrap().as_bool(), Some(true));
         assert_eq!(get(dns, "enhanced-mode").unwrap().as_str(), Some("fake-ip"));
+        let ns = get(dns, "nameserver").unwrap().as_sequence().unwrap();
+        assert_eq!(ns[0].as_str(), Some("8.8.8.8"), "TUN 下必须有上游 nameserver（劫持 53 后解析依赖）");
     }
 
     #[test]
