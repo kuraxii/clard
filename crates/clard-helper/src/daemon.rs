@@ -99,13 +99,29 @@ pub async fn run() -> io::Result<()> {
     // §5.3 启动自检：TUN 残留扫描 → 有残留即 cleanup-tun（fail-open，幂等）
     {
         let audit = audit.clone();
+        let core = core.clone();
+        let events = events_tx.clone();
         tokio::spawn(async move {
+            // §5.2 启动自检：TUN 残留清理（fail-open，幂等）
             let (clean, residuals) = crate::tun::cleanup_tun(&crate::tun::Tools::system()).await;
             if !clean {
                 let msg = residuals.join(", ");
                 let op_id = audit.intent("cleanup.tun", &Actor::system(), "startup residual cleanup");
                 audit.result("cleanup.tun", &op_id, &Actor::system(), "partial", Some(&msg), None);
                 tracing::warn!("启动自检：TUN 残留已清理，仍有残余: {msg}");
+            }
+            // §5.2 生命周期：helper 起 → 核心自动拉起（运行态配置存在时，与用户
+            // 之前开启的核心状态一致）。失败不阻塞（全新安装未应用配置/核心二进制
+            // 异常时仅告警，等 TUI 指令）；watchdog 随后接管崩溃退避重启。
+            let mut core = core.lock().await;
+            match core.start().await {
+                Ok(()) => {
+                    tracing::info!("启动自检：核心已自动拉起");
+                    let _ = events.send(clard_proto::Event::CoreStatusChanged);
+                }
+                Err(e) => {
+                    tracing::warn!("启动自检：自动拉起核心失败（运行态配置缺失或核心异常）: {e}");
+                }
             }
         });
     }

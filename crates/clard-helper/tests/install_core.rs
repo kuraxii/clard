@@ -55,7 +55,9 @@ struct Harness {
     state: std::path::PathBuf,
     inbox: std::path::PathBuf,
     bin: std::path::PathBuf,
-    /// 核心 mock 占位进程写入的 pid 文件（PDEATHSIG 测试用）
+    core_sock: std::path::PathBuf,
+    log_dir: std::path::PathBuf,
+    /// 核心 mock 占位进程写入的 pid 文件（PDEATHSIG/自动拉起测试用）
     mock_pidfile: std::path::PathBuf,
 }
 
@@ -98,6 +100,8 @@ impl Harness {
             state,
             inbox,
             bin,
+            core_sock: core_sock.clone(),
+            log_dir: root.join("log"),
             mock_pidfile,
             _dir: dir,
             child,
@@ -107,6 +111,33 @@ impl Harness {
         }
         wait_ready(&sock).await;
         h
+    }
+
+    /// 同目录重启 helper（模拟升级/服务重启）：SIGTERM 优雅退出（停核心）→ 重新 spawn。
+    /// 核心 mock 的 pid 文件先删，`wait_pidfile` 等待新核心写入（避免读到旧 pid）。
+    async fn restart_helper(&mut self) {
+        let pid = self.child.id().expect("helper pid");
+        let st = std::process::Command::new("kill")
+            .args(["-TERM", &pid.to_string()])
+            .status()
+            .unwrap();
+        assert!(st.success());
+        let _ = tokio::time::timeout(Duration::from_secs(8), self.child.wait()).await;
+        let _ = std::fs::remove_file(&self.mock_pidfile);
+
+        let mut cmd = Command::new(env!("CARGO_BIN_EXE_clard-helper"));
+        cmd.arg("run")
+            .env("CLARD_SOCKET", &self.sock)
+            .env("CLARD_STATE_DIR", &self.state)
+            .env("CLARD_LOG_DIR", &self.log_dir)
+            .env("CLARD_INBOX_DIR", &self.inbox)
+            .env("CLARD_CORE_BIN", &self.bin)
+            .env("CLARD_CORE_SOCK", &self.core_sock)
+            .stdout(Stdio::null())
+            .stderr(Stdio::null())
+            .kill_on_drop(true);
+        self.child = cmd.spawn().unwrap();
+        wait_ready(&self.sock).await;
     }
 }
 
@@ -489,4 +520,21 @@ async fn wait_gone(pid: u32) {
         tokio::time::sleep(Duration::from_millis(100)).await;
     }
     panic!("核心进程 {pid} 未随 helper 退出（PDEATHSIG 未生效）");
+}
+
+/// 生命周期（§5.2）：helper 启动自动拉起核心。ApplyConfig 落盘后（未 StartCore）
+/// 重启 helper → 核心应自动运行（mock 核心 pid 文件出现且存活）。
+#[tokio::test]
+async fn helper_restart_auto_starts_core() {
+    let mut h = Harness::start(true).await;
+    let resp = rpc_call(&h.sock, &Request::ApplyConfig { yaml: "mode: rule\n".into() }).await;
+    assert!(matches!(resp, Response::Ok { .. }), "ApplyConfig 应成功: {resp:?}");
+    // 未 StartCore：核心 pid 文件不应出现（等 500ms 确认）
+    tokio::time::sleep(Duration::from_millis(500)).await;
+    assert!(!h.mock_pidfile.exists(), "未 StartCore 时核心不应运行");
+
+    // 重启 helper（升级/服务重启场景）→ 自动拉起核心
+    h.restart_helper().await;
+    let core_pid = wait_pidfile(&h.mock_pidfile).await;
+    assert!(process_alive(core_pid), "helper 重启后核心应自动拉起");
 }
