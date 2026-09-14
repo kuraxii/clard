@@ -264,6 +264,9 @@ pub async fn start_clard() -> Result<()> {
                     ClardEvent::HelperVersion(version) => {
                         app.home.apply_helper_version(version);
                     }
+                    ClardEvent::HelperConfigReady(cfg) => {
+                        app.settings.apply_helper_config(cfg);
+                    }
                     // §5.6 事件订阅：连接建立（重连成功）→ Status 全量同步
                     ClardEvent::Subscribed => {
                         app.fetch_core_status();

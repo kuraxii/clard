@@ -156,6 +156,7 @@ impl APP {
                 self.fetch_settings();
                 self.fetch_core_status();
                 self.fetch_backups();
+                self.fetch_helper_config();
             }
             Page::Home => {
                 self.fetch_core_status();
@@ -351,11 +352,17 @@ impl APP {
     pub fn set_current_profile(&mut self, uid: String) {
         let previous = self.profiles.current.clone();
         let settings = self.settings.settings.clone().unwrap_or_default();
+        let log_level = self
+            .settings
+            .helper_config
+            .as_ref()
+            .map(|c| c.log_level.clone())
+            .unwrap_or_else(|| "info".to_string());
         let backend = self.backend.clone();
         self.message = Some(format!("switching to {uid}…"));
         let sender = self.event_sender.clone();
         tokio::spawn(async move {
-            match switch_profile_flow(&uid, previous, &settings).await {
+            match switch_profile_flow(&uid, previous, &settings, &log_level).await {
                 Ok(msg) => {
                     // R2.2 记忆节点恢复：新配置的 selected → 逐个 PUT /proxies/:name
                     if let Err(e) = restore_memorized_nodes(&backend, &uid).await {
@@ -674,6 +681,18 @@ impl APP {
         });
     }
 
+    /// 拉取 helper 系统配置（R7.5：/etc/clard/helper.toml）。
+    pub fn fetch_helper_config(&self) {
+        let sender = self.event_sender.clone();
+        tokio::spawn(async move {
+            if let Ok(Response::HelperConfig { config }) =
+                rpc::call(&Request::HelperConfigGet).await
+            {
+                let _ = sender.send(ClardEvent::HelperConfigReady(config));
+            }
+        });
+    }
+
     /// 拉取 helper 版本（`Hello` 握手）。
     pub fn fetch_helper_version(&self) {
         let sender = self.event_sender.clone();
@@ -802,6 +821,12 @@ impl APP {
     pub fn set_tun_setting(&mut self, patch: clard_proto::SettingsPatch) {
         let sender = self.event_sender.clone();
         let uid = self.profiles.current.clone();
+        let log_level = self
+            .settings
+            .helper_config
+            .as_ref()
+            .map(|c| c.log_level.clone())
+            .unwrap_or_else(|| "info".to_string());
         tokio::spawn(async move {
             match rpc::call(&Request::SettingsSet(patch)).await {
                 Ok(Response::Ok) => {
@@ -818,7 +843,7 @@ impl APP {
             // 用最新设置重新应用当前配置（使 TUN 字段生效）
             if let Some(uid) = uid {
                 if let Ok(Response::Settings { settings }) = rpc::call(&Request::SettingsGet).await {
-                    match switch_profile_flow(&uid, None, &settings).await {
+                    match switch_profile_flow(&uid, None, &settings, &log_level).await {
                         Ok(msg) => {
                             let _ = sender.send(ClardEvent::Notify(msg));
                         }
@@ -1008,6 +1033,7 @@ impl APP {
                 }
                 _ => {}
             },
+            SettingsTab::Logs => self.on_settings_logs_char(c),
             SettingsTab::Backup => match c {
                 'b' => self.create_backup(),
                 'd' => {
@@ -1179,6 +1205,20 @@ impl APP {
         }
     }
 
+    /// Logs 页签：`e`/Enter 显示该行的 sudo 编辑命令（R7.5，TUI 不直写 helper.toml）。
+    fn on_settings_logs_char(&mut self, c: char) {
+        if c != 'e' {
+            return;
+        }
+        let Some(row) = self.settings.selected_logs_row() else {
+            return;
+        };
+        let Some(cfg) = self.settings.helper_config.clone() else {
+            return;
+        };
+        self.message = Some(row.edit_hint(&cfg));
+    }
+
     fn on_settings_general_char(&mut self, c: char) {
         if c != 'e' {
             return;
@@ -1242,6 +1282,7 @@ impl APP {
                     ));
                 }
             }
+            SettingsTab::Logs => self.on_settings_logs_char('e'),
             _ => {}
         }
     }
@@ -1778,6 +1819,7 @@ async fn switch_profile_flow(
     uid: &str,
     previous: Option<String>,
     settings: &clard_proto::Settings,
+    log_level: &str,
 ) -> Result<String, String> {
     rpc::call(&Request::ProfileSetCurrent {
         uid: uid.to_string(),
@@ -1795,7 +1837,7 @@ async fn switch_profile_flow(
             Ok(other) => return Err(rpc::unexpected(other).to_string()),
             Err(e) => return Err(e.to_string()),
         };
-        let runtime = config_gen::generate(&yaml, None, &config_options(settings))
+        let runtime = config_gen::generate(&yaml, None, &config_options(settings, log_level))
             .map_err(|e| format!("生成运行态配置失败: {e}"))?;
         rpc::call(&Request::ApplyConfig { yaml: runtime })
             .await
@@ -1822,9 +1864,14 @@ async fn switch_profile_flow(
 
 /// 从系统设置构造 config_gen 托管选项（doc/01 §6.3）：TUN 开关 + 可配字段 + 混合端口。
 /// 空列表语义 = 用默认值（与 helper tun::build_tun_block 的约定一致）。
-fn config_options(settings: &clard_proto::Settings) -> ConfigGenOptions {
+fn config_options(settings: &clard_proto::Settings, log_level: &str) -> ConfigGenOptions {
     let mut base = ConfigGenOptions::default();
     base.mixed_port = settings.mixed_port;
+    base.log_level = if log_level.trim().is_empty() {
+        "info".to_string()
+    } else {
+        log_level.trim().to_string()
+    };
     base.tun = if settings.tun_enabled {
         let default_tun = TunOptions::default();
         Some(TunOptions {

@@ -203,6 +203,22 @@ pub async fn handle(
             Ok(()) => ("profile.memorize", Response::Ok, None),
             Err(e) => ("profile.memorize", Response::err(e.to_string()), None),
         },
+        Request::HelperConfigGet => {
+            let cfg = crate::helper_config::global();
+            (
+                "helper.config",
+                Response::HelperConfig {
+                    config: clard_proto::HelperConfig {
+                        log_level: cfg.log_level.clone(),
+                        app_log_max_bytes: cfg.app_log_max_bytes,
+                        app_log_keep: cfg.app_log_keep,
+                        audit_keep: cfg.audit_keep,
+                        audit_dual_write: cfg.audit_dual_write,
+                    },
+                },
+                None,
+            )
+        }
         Request::LogSubmit { line } => match crate::logs::append_tui_log(&line) {
             Ok(()) => ("log.submit", Response::Ok, None),
             Err(e) => ("log.submit", Response::err(e.to_string()), None),
@@ -330,6 +346,7 @@ fn op_and_intent(req: &Request) -> (&'static str, &'static str) {
         Request::ProfileHistory { .. } => ("profile.history", "view profile history"),
         Request::ProfileRestore { .. } => ("profile.restore", "restore profile version"),
         Request::ProfileMemorize { .. } => ("profile.memorize", "memorize node selection"),
+        Request::HelperConfigGet => ("helper.config", "read helper config"),
         Request::ApplyConfig { .. } => ("config.apply", "apply runtime config"),
         Request::BackupCreate { .. } => ("backup.create", "create backup"),
         Request::BackupList => ("backup.list", "list backups"),

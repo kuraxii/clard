@@ -20,7 +20,7 @@
 use serde::{Deserialize, Serialize};
 
 /// 当前协议版本。任何不兼容变更都必须递增并在 `Hello` 握手中核对。
-pub const PROTO_VERSION: u32 = 6;
+pub const PROTO_VERSION: u32 = 7;
 
 /// 协议层错误
 #[derive(Debug, thiserror::Error)]
@@ -83,6 +83,8 @@ pub enum Request {
     ProfileRestore { uid: String, version: u32 },
     /// 记忆当前配置的组节点选择（doc/05 §2 R2.2）
     ProfileMemorize { group: String, node: String },
+    /// helper 系统配置（/etc/clard/helper.toml，R7.5：日志轮转/双写/核心日志级别）
+    HelperConfigGet,
     /// 投递运行时配置 bundle（TUI config_gen 生成，§5.5）
     ApplyConfig { yaml: String },
     /// 本地备份（doc/05 §8）：创建 / 列表 / 删除 / 恢复
@@ -267,6 +269,34 @@ pub struct ProfileImport {
     pub info: Option<SubscriptionInfo>,
 }
 
+/// helper 系统配置（/etc/clard/helper.toml，doc/05 R7.5）。
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(default)]
+pub struct HelperConfig {
+    /// 核心日志级别（注入 mihomo `log-level`）
+    pub log_level: String,
+    /// 应用日志轮转上限（字节）
+    pub app_log_max_bytes: u64,
+    /// 应用日志保留份数
+    pub app_log_keep: usize,
+    /// 审计保留份数
+    pub audit_keep: usize,
+    /// 审计是否双写 journald
+    pub audit_dual_write: bool,
+}
+
+impl Default for HelperConfig {
+    fn default() -> Self {
+        Self {
+            log_level: "info".into(),
+            app_log_max_bytes: 1024 * 1024,
+            app_log_keep: 5,
+            audit_keep: 5,
+            audit_dual_write: true,
+        }
+    }
+}
+
 /// helper → TUI 的响应
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[non_exhaustive]
@@ -301,6 +331,10 @@ pub enum Response {
     },
     Settings {
         settings: Settings,
+    },
+    /// helper 系统配置（R7.5）
+    HelperConfig {
+        config: HelperConfig,
     },
     BackupList {
         backups: Vec<BackupItem>,
@@ -360,7 +394,7 @@ mod tests {
 
     #[test]
     fn proto_version_is_current() {
-        assert_eq!(PROTO_VERSION, 6);
+        assert_eq!(PROTO_VERSION, 7);
     }
 
     #[test]

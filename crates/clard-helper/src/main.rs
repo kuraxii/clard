@@ -22,6 +22,7 @@ mod autoupdate;
 mod backup;
 mod core;
 mod daemon;
+mod helper_config;
 mod logs;
 mod profiles;
 mod rpc;

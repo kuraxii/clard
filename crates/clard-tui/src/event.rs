@@ -41,6 +41,8 @@ pub enum ClardEvent {
     },
     BackupsReady(Vec<clard_proto::BackupItem>),
     HelperVersion(String),
+    /// helper 系统配置（R7.5）
+    HelperConfigReady(clard_proto::HelperConfig),
     /// 事件订阅连接建立（每次重连成功；触发 Status 全量同步）
     Subscribed,
     /// 成功/信息消息（页脚消息条）

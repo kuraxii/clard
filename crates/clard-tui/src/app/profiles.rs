@@ -151,6 +151,7 @@ mod tests {
             download: 0,
             total: 0,
             expire: None,
+            selected: Vec::new(),
         }
     }
 

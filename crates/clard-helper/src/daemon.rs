@@ -49,6 +49,8 @@ pub fn inbox_dir() -> PathBuf {
 pub async fn run() -> io::Result<()> {
     let state = state_dir();
     let sock = socket_path();
+    // helper 系统配置（/etc/clard/helper.toml；日志轮转/双写/核心日志级别，R7.5）
+    crate::helper_config::init();
 
     // 单实例（flock 非阻塞排它锁；锁随 run() 栈上句柄存活到进程退出）
     let dir = sock.parent().unwrap_or(std::path::Path::new("/run/clard"));

@@ -109,14 +109,6 @@ impl Audit {
         let err_s = err.unwrap_or("");
         let net_s = net.as_deref().unwrap_or("");
         let cfg_s = cfg_sha256.unwrap_or("");
-        // journald：stdout KEY=VALUE
-        println!(
-            "CLARD_TS={ts} CLARD_OP={op} CLARD_OP_ID={op_id} CLARD_PHASE={phase} \
-             CLARD_ACTOR_UID={} CLARD_ACTOR_PID={} CLARD_RESULT={result} CLARD_INTENT={intent} \
-             CLARD_ERR={err_s} CLARD_NET={net_s} CLARD_CFG_SHA256={cfg_s}",
-            actor.uid, actor.pid
-        );
-        // JSON lines（轮转由 append_rotated 处理）
         let json = serde_json::json!({
             "ts": ts,
             "op": op,
@@ -129,11 +121,20 @@ impl Audit {
             "net": net,
             "cfg_sha256": cfg_sha256,
         });
+        // 双写 journald（helper.toml `audit_dual_write`，默认开；R7.5 可关）
+        if crate::helper_config::global().audit_dual_write {
+            println!(
+                "CLARD_TS={ts} CLARD_OP={op} CLARD_OP_ID={op_id} CLARD_PHASE={phase} \
+                 CLARD_ACTOR_UID={} CLARD_ACTOR_PID={} CLARD_RESULT={result} CLARD_INTENT={intent} \
+                 CLARD_ERR={err_s} CLARD_NET={net_s} CLARD_CFG_SHA256={cfg_s}",
+                actor.uid, actor.pid
+            );
+        }
         let _ = crate::logs::append_rotated(
             &self.log_path,
             &json.to_string(),
             crate::logs::AUDIT_CORE_MAX_BYTES,
-            crate::logs::KEEP_FILES,
+            crate::helper_config::global().audit_keep,
         );
     }
 }

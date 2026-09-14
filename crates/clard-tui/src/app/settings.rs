@@ -16,6 +16,8 @@ pub enum SettingsTab {
     Core,
     Service,
     Backup,
+    /// 日志与审计配置（R7.5：/etc/clard/helper.toml，提示 sudo 编辑）
+    Logs,
     About,
 }
 
@@ -95,6 +97,47 @@ impl TunRow {
     }
 }
 
+/// Logs 页签配置行（R7.5）。
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum LogsRow {
+    CoreLogLevel,
+    AppLogMaxBytes,
+    AppLogKeep,
+    AuditKeep,
+    AuditDualWrite,
+}
+
+impl LogsRow {
+    pub const ALL: [Self; 5] = [
+        Self::CoreLogLevel,
+        Self::AppLogMaxBytes,
+        Self::AppLogKeep,
+        Self::AuditKeep,
+        Self::AuditDualWrite,
+    ];
+
+    pub fn label(self) -> &'static str {
+        match self {
+            Self::CoreLogLevel => "Core log level",
+            Self::AppLogMaxBytes => "App log max (MiB)",
+            Self::AppLogKeep => "App log keep",
+            Self::AuditKeep => "Audit keep",
+            Self::AuditDualWrite => "Audit dual-write",
+        }
+    }
+
+    /// 修改该行对应的 sudo 命令（TUI 不直写 helper.toml，R7.5）。
+    pub fn edit_hint(self, _current: &clard_proto::HelperConfig) -> String {
+        match self {
+            Self::CoreLogLevel => "sudo sed -i 's/log_level = \"info\"/log_level = \"debug\"/' /etc/clard/helper.toml".into(),
+            Self::AppLogMaxBytes => "sudo sed -i 's/app_log_max_bytes = [0-9]*/app_log_max_bytes = 2097152/' /etc/clard/helper.toml".into(),
+            Self::AppLogKeep => "sudo sed -i 's/app_log_keep = [0-9]*/app_log_keep = 5/' /etc/clard/helper.toml".into(),
+            Self::AuditKeep => "sudo sed -i 's/audit_keep = [0-9]*/audit_keep = 5/' /etc/clard/helper.toml".into(),
+            Self::AuditDualWrite => "sudo sed -i 's/audit_dual_write = true/audit_dual_write = false/' /etc/clard/helper.toml".into(),
+        }
+    }
+}
+
 /// 设置页状态。
 #[derive(Debug)]
 pub struct SettingsState {
@@ -107,6 +150,8 @@ pub struct SettingsState {
     /// 已安装核心的 sha256（R7.3）
     pub core_sha256: Option<String>,
     pub helper_version: Option<String>,
+    /// helper 系统配置（R7.5，/etc/clard/helper.toml）
+    pub helper_config: Option<clard_proto::HelperConfig>,
     pub backups: Vec<BackupItem>,
     pub list_state: ListState,
     pub backups_state: TableState,
@@ -122,6 +167,7 @@ impl SettingsState {
             core_version: None,
             core_sha256: None,
             helper_version: None,
+            helper_config: None,
             backups: Vec::new(),
             list_state: ListState::default(),
             backups_state: TableState::default(),
@@ -164,7 +210,8 @@ impl SettingsState {
             SettingsTab::Tun => SettingsTab::Core,
             SettingsTab::Core => SettingsTab::Service,
             SettingsTab::Service => SettingsTab::Backup,
-            SettingsTab::Backup => SettingsTab::About,
+            SettingsTab::Backup => SettingsTab::Logs,
+            SettingsTab::Logs => SettingsTab::About,
             SettingsTab::About => SettingsTab::General,
         });
     }
@@ -176,7 +223,8 @@ impl SettingsState {
             SettingsTab::Core => SettingsTab::Tun,
             SettingsTab::Service => SettingsTab::Core,
             SettingsTab::Backup => SettingsTab::Service,
-            SettingsTab::About => SettingsTab::Backup,
+            SettingsTab::Logs => SettingsTab::Backup,
+            SettingsTab::About => SettingsTab::Logs,
         });
     }
 
@@ -185,6 +233,8 @@ impl SettingsState {
         self.list_state.select(if tab == SettingsTab::General {
             Some(0)
         } else if tab == SettingsTab::Tun {
+            Some(0)
+        } else if tab == SettingsTab::Logs {
             Some(0)
         } else {
             None
@@ -205,6 +255,16 @@ impl SettingsState {
         self.list_state.selected().and_then(|i| TunRow::ALL.get(i).copied())
     }
 
+    /// 应用 helper 系统配置（R7.5）。
+    pub fn apply_helper_config(&mut self, cfg: clard_proto::HelperConfig) {
+        self.helper_config = Some(cfg);
+    }
+
+    /// 当前 Logs 配置行。
+    pub fn selected_logs_row(&self) -> Option<LogsRow> {
+        self.list_state.selected().and_then(|i| LogsRow::ALL.get(i).copied())
+    }
+
     pub fn selected_backup(&self) -> Option<&BackupItem> {
         self.backups_state.selected().and_then(|i| self.backups.get(i))
     }
@@ -213,6 +273,7 @@ impl SettingsState {
         let row_count = match self.tab {
             SettingsTab::General => GeneralRow::ALL.len(),
             SettingsTab::Tun => TunRow::ALL.len(),
+            SettingsTab::Logs => LogsRow::ALL.len(),
             _ => 0,
         };
         if row_count > 0 {
@@ -234,6 +295,7 @@ impl SettingsState {
         let row_count = match self.tab {
             SettingsTab::General => GeneralRow::ALL.len(),
             SettingsTab::Tun => TunRow::ALL.len(),
+            SettingsTab::Logs => LogsRow::ALL.len(),
             _ => 0,
         };
         if row_count > 0 {
@@ -268,10 +330,10 @@ mod tests {
         assert_eq!(s.tab, SettingsTab::General);
         s.next_tab();
         assert_eq!(s.tab, SettingsTab::Tun);
-        for _ in 0..5 {
+        for _ in 0..6 {
             s.next_tab();
         }
-        assert_eq!(s.tab, SettingsTab::General, "6 次 next 循环回到 General");
+        assert_eq!(s.tab, SettingsTab::General, "7 次 next 循环回到 General");
         s.prev_tab();
         assert_eq!(s.tab, SettingsTab::About);
     }

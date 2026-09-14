@@ -18,7 +18,7 @@ use crate::app::{
     profiles::{HistoryView, ProfileBusy, ProfilesState},
     proxy::{ProxyFocus, ProxyState},
     rules::{RulesState, RulesTab},
-    settings::{GeneralRow, SettingsState, SettingsTab, TunRow},
+    settings::{GeneralRow, LogsRow, SettingsState, SettingsTab, TunRow},
 };
 
 #[derive(Debug, Default)]
@@ -689,6 +689,7 @@ impl SettingsLayout {
             SettingsTab::Core => draw_settings_core(f, rows[1], state, theme),
             SettingsTab::Service => draw_settings_service(f, rows[1], state, theme),
             SettingsTab::Backup => draw_settings_backup(f, rows[1], state, theme),
+            SettingsTab::Logs => draw_settings_logs(f, rows[1], state, theme),
             SettingsTab::About => draw_settings_about(f, rows[1], theme),
         }
     }
@@ -701,9 +702,10 @@ fn draw_settings_tabs(f: &mut Frame<'_>, area: Rect, state: &SettingsState, them
         SettingsTab::Core => 2,
         SettingsTab::Service => 3,
         SettingsTab::Backup => 4,
-        SettingsTab::About => 5,
+        SettingsTab::Logs => 5,
+        SettingsTab::About => 6,
     };
-    let titles = vec![" General ", " TUN ", " Core ", " Service ", " Backup ", " About "];
+    let titles = vec![" General ", " TUN ", " Core ", " Service ", " Backup ", " Logs ", " About "];
     let tabs = Tabs::new(titles)
         .block(panel_block("Settings", false, theme))
         .select(selected)
@@ -853,6 +855,47 @@ fn draw_settings_tun(f: &mut Frame<'_>, area: Rect, state: &SettingsState, theme
         .highlight_symbol("▸ ");
     let mut list_state = state.list_state.clone();
     f.render_stateful_widget(list, area, &mut list_state);
+}
+
+fn draw_settings_logs(f: &mut Frame<'_>, area: Rect, state: &SettingsState, theme: Theme) {
+    let cfg = state.helper_config.as_ref();
+    let items: Vec<ListItem<'_>> = LogsRow::ALL
+        .iter()
+        .map(|row| {
+            let value = match row {
+                LogsRow::CoreLogLevel => cfg
+                    .map(|c| c.log_level.clone())
+                    .unwrap_or_else(|| "info".to_string()),
+                LogsRow::AppLogMaxBytes => cfg
+                    .map(|c| (c.app_log_max_bytes / 1024 / 1024).to_string())
+                    .unwrap_or_else(|| "1".to_string()),
+                LogsRow::AppLogKeep => cfg.map(|c| c.app_log_keep.to_string()).unwrap_or_else(|| "5".to_string()),
+                LogsRow::AuditKeep => cfg.map(|c| c.audit_keep.to_string()).unwrap_or_else(|| "5".to_string()),
+                LogsRow::AuditDualWrite => cfg
+                    .map(|c| if c.audit_dual_write { "on" } else { "off" }.to_string())
+                    .unwrap_or_else(|| "on".to_string()),
+            };
+            ListItem::new(Line::from(vec![
+                Span::styled(format!("{:<20}", row.label()), Style::default().fg(theme.fg)),
+                Span::styled(value, Style::default().fg(theme.primary)),
+            ]))
+        })
+        .collect();
+
+    let list = List::new(items)
+        .block(panel_block("Logs / Audit  Enter shows sudo edit hint", true, theme))
+        .highlight_style(theme.selected_style())
+        .highlight_symbol("▸ ");
+    let mut list_state = state.list_state.clone();
+    f.render_stateful_widget(list, area, &mut list_state);
+
+    let hint = Paragraph::new(Line::from(vec![Span::styled(
+        "These live in /etc/clard/helper.toml (root). Edit with sudo, then: sudo systemctl restart clard-helper",
+        theme.muted_style(),
+    )]));
+    let h = area.height.min(3);
+    let hint_area = Rect::new(area.x, area.y + area.height - h, area.width, h);
+    f.render_widget(hint, hint_area);
 }
 
 fn draw_settings_core(f: &mut Frame<'_>, area: Rect, state: &SettingsState, theme: Theme) {

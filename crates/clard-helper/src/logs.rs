@@ -17,10 +17,6 @@ use crate::audit::log_dir;
 
 /// 审计/核心日志轮转上限（doc/01 §10）。
 pub const AUDIT_CORE_MAX_BYTES: u64 = 10 * 1024 * 1024;
-/// 应用日志轮转上限（doc/05 R6.2：1MB×5）。
-pub const APP_MAX_BYTES: u64 = 1024 * 1024;
-/// 保留份数（含当前文件）。
-pub const KEEP_FILES: usize = 5;
 
 /// 日志源。
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -42,14 +38,20 @@ fn log_path(source: LogSource) -> PathBuf {
     log_dir().join(source.file_name())
 }
 
-/// 追加一行到 TUI 应用日志（R6.2，1MB×5 轮转）。
+/// 追加一行到 TUI 应用日志（R6.2，大小/份数可配：helper.toml，R7.5）。
 pub fn append_tui_log(line: &str) -> std::io::Result<()> {
-    append_rotated(&log_path(LogSource::Tui), line, APP_MAX_BYTES, KEEP_FILES)
+    let cfg = crate::helper_config::global();
+    append_rotated(
+        &log_path(LogSource::Tui),
+        line,
+        cfg.app_log_max_bytes,
+        cfg.app_log_keep,
+    )
 }
 
 /// 追加一行到核心日志（stdout 管道转储，10MB×5 轮转）。
 pub fn append_core_log(line: &str) -> std::io::Result<()> {
-    append_rotated(&log_path(LogSource::Core), line, AUDIT_CORE_MAX_BYTES, KEEP_FILES)
+    append_rotated(&log_path(LogSource::Core), line, AUDIT_CORE_MAX_BYTES, 5)
 }
 
 /// 追加一行，超过上限先轮转（`x.log` → `x.log.1` … `x.log.{keep-1}`，最旧删除）。
