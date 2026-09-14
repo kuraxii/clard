@@ -99,7 +99,8 @@ pub async fn run() -> io::Result<()> {
             let (clean, residuals) = crate::tun::cleanup_tun(&crate::tun::Tools::system()).await;
             if !clean {
                 let msg = residuals.join(", ");
-                audit.record("cleanup.tun", &Actor::system(), &format!("partial: {msg}"));
+                let op_id = audit.intent("cleanup.tun", &Actor::system(), "startup residual cleanup");
+                audit.result("cleanup.tun", &op_id, &Actor::system(), "partial", Some(&msg), None);
                 tracing::warn!("启动自检：TUN 残留已清理，仍有残余: {msg}");
             }
         });

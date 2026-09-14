@@ -55,18 +55,19 @@ async fn run_once(store: &Mutex<ProfilesStore>, settings: &Mutex<SettingsStore>,
     };
 
     for (url, name) in due {
+        let op_id = audit.intent("profile.update", &Actor::system(), &format!("auto update {name}"));
         match fetch_subscription(&url).await {
             Ok((yaml, info)) => {
                 let mut st = store.lock().await;
                 match st.auto_update(&url, &yaml, Some(info)) {
-                    Ok(true) => audit.record("profile.update", &Actor::system(), "ok"),
-                    Ok(false) => audit.record("profile.update", &Actor::system(), "missing"),
-                    Err(e) => audit.record("profile.update", &Actor::system(), &format!("err:{e}")),
+                    Ok(true) => audit.result("profile.update", &op_id, &Actor::system(), "ok", None, None),
+                    Ok(false) => audit.result("profile.update", &op_id, &Actor::system(), "missing", None, None),
+                    Err(e) => audit.result("profile.update", &op_id, &Actor::system(), "error", Some(&e.to_string()), None),
                 }
             }
             Err(e) => {
                 tracing::warn!("auto update {name} failed: {e}");
-                audit.record("profile.update", &Actor::system(), &format!("err:{e}"));
+                audit.result("profile.update", &op_id, &Actor::system(), "error", Some(&e.to_string()), None);
             }
         }
     }

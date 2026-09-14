@@ -254,14 +254,18 @@ async fn install_core_sha_mismatch_rejects_and_keeps_binary() {
         "二进制不被污染"
     );
 
-    // 审计记录 error
+    // 审计记录 error（intent/result 双记录，找 core.install 的 result 行）
     let Response::AuditQuery { records, .. } = rpc_call(&h.sock, &Request::AuditQuery { cursor: 0 }).await
     else {
         panic!("unexpected");
     };
-    let last = records.last().unwrap();
-    assert_eq!(last.op, "core.install");
-    assert_eq!(last.result, "error");
+    let install = records
+        .iter()
+        .rev()
+        .find(|r| r.op == "core.install" && r.phase == "result")
+        .unwrap();
+    assert_eq!(install.result, "error");
+    assert!(install.err.as_deref().is_some_and(|m| m.contains("校验和失败")));
 }
 
 #[tokio::test]

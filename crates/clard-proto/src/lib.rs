@@ -186,7 +186,9 @@ pub struct AuditActor {
     pub pid: i32,
 }
 
-/// 审计记录（audit.log JSON lines，doc/01 §10.2）。
+/// 审计记录（audit.log JSON lines，doc/01 §10.2，R6.3）。
+/// intent/result 双记录：同一次操作写两条（相同 `op_id`），`phase` 区分；
+/// intent 行带操作前 net 快照，result 行带操作后 net 快照 + result/err。
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct AuditRecord {
     #[serde(default)]
@@ -197,6 +199,24 @@ pub struct AuditRecord {
     pub actor: AuditActor,
     #[serde(default)]
     pub result: String,
+    /// 同一次操作的关联 id（intent/result 配对，`I` 切换）
+    #[serde(default)]
+    pub op_id: String,
+    /// `intent`（操作前）/ `result`（操作后）
+    #[serde(default)]
+    pub phase: String,
+    /// 操作意图描述（如「切换配置到 R1」）
+    #[serde(default)]
+    pub intent: String,
+    /// 网络快照（前后各一条；JSON：clard0 link / table 2023 / rule 9100）
+    #[serde(default)]
+    pub net: Option<String>,
+    /// 配置 sha256（ApplyConfig 相关操作）
+    #[serde(default)]
+    pub cfg_sha256: Option<String>,
+    /// 失败原因（result=error 时）
+    #[serde(default)]
+    pub err: Option<String>,
 }
 
 /// 备份条目（doc/05 §8）。

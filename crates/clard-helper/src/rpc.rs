@@ -1,15 +1,19 @@
 //! RPC 请求分发：`clard-proto` 契约 → helper 领域操作（doc/01 §5.6/§7）。
+//!
+//! 审计（R6.3）：每次操作 intent 先记（net_before 快照），执行后 result 再记
+//! （net_after 快照 + result/err + cfg_sha256），同 op_id 配对。
 
 use std::path::Path;
 
 use clard_proto::{ProfileItem, Request, Response};
+use sha2::{Digest, Sha256};
 
 use crate::audit::{Actor, Audit};
 use crate::core::CoreManager;
 use crate::profiles::{ImportOutcome, ProfilesError, ProfilesStore};
 use crate::settings::SettingsStore;
 
-/// 处理一个请求。`actor` 来自 `SO_PEERCRED`，随结果写审计。
+/// 处理一个请求。`actor` 来自 `SO_PEERCRED`，intent/result 双记录审计。
 /// 核心相关操作异步执行（spawn/就绪探测/热重载）。
 pub async fn handle(
     req: Request,
@@ -19,11 +23,16 @@ pub async fn handle(
     audit: &Audit,
     actor: &Actor,
 ) -> Response {
-    let (op, resp) = match req {
+    // 阶段一：intent（操作前，含 net_before 快照）
+    let (op, intent) = op_and_intent(&req);
+    let op_id = audit.intent(op, actor, intent);
+
+    // 阶段二：执行
+    let (op, resp, cfg_sha256) = match req {
         Request::Hello => ("rpc.hello", Response::Hello {
             helper_version: env!("CARGO_PKG_VERSION").to_string(),
             proto_version: clard_proto::PROTO_VERSION,
-        }),
+        }, None),
         Request::Status => {
             let tun_active = crate::tun::tun_active(&crate::tun::Tools::system()).await;
             let state = store.root();
@@ -48,39 +57,46 @@ pub async fn handle(
                     tun_active,
                     core_sha256,
                 },
+                None,
             )
         }
         Request::StartCore => match core.start().await {
-            Ok(()) => ("core.start", Response::Ok),
-            Err(e) => ("core.start", Response::err(e)),
+            Ok(()) => ("core.start", Response::Ok, None),
+            Err(e) => ("core.start", Response::err(e), None),
         },
         Request::StopCore => match core.stop().await {
-            Ok(()) => ("core.stop", Response::Ok),
-            Err(e) => ("core.stop", Response::err(e)),
+            Ok(()) => ("core.stop", Response::Ok, None),
+            Err(e) => ("core.stop", Response::err(e), None),
         },
         Request::RestartCore => match core.restart().await {
-            Ok(()) => ("core.restart", Response::Ok),
-            Err(e) => ("core.restart", Response::err(e)),
+            Ok(()) => ("core.restart", Response::Ok, None),
+            Err(e) => ("core.restart", Response::err(e), None),
         },
-        Request::ApplyConfig { yaml } => match core.apply_config(&yaml).await {
-            Ok(()) => ("config.apply", Response::Ok),
-            Err(e) => ("config.apply", Response::err(e)),
-        },
+        Request::ApplyConfig { yaml } => {
+            // cfg_sha256（R6.3：字段级审计用）
+            let mut h = Sha256::new();
+            h.update(yaml.as_bytes());
+            let cfg = Some(format!("{:x}", h.finalize()));
+            match core.apply_config(&yaml).await {
+                Ok(()) => ("config.apply", Response::Ok, cfg),
+                Err(e) => ("config.apply", Response::err(e), cfg),
+            }
+        }
         Request::BackupCreate { name } => match crate::backup::create(
             &crate::backup::backup_dir(),
             store.root(),
             name.as_deref(),
         ) {
-            Ok(item) => ("backup.create", Response::BackupCreated { item }),
-            Err(e) => ("backup.create", Response::err(e.to_string())),
+            Ok(item) => ("backup.create", Response::BackupCreated { item }, None),
+            Err(e) => ("backup.create", Response::err(e.to_string()), None),
         },
         Request::BackupList => match crate::backup::list(&crate::backup::backup_dir()) {
-            Ok(backups) => ("backup.list", Response::BackupList { backups }),
-            Err(e) => ("backup.list", Response::err(e.to_string())),
+            Ok(backups) => ("backup.list", Response::BackupList { backups }, None),
+            Err(e) => ("backup.list", Response::err(e.to_string()), None),
         },
         Request::BackupDelete { name } => match crate::backup::delete(&crate::backup::backup_dir(), &name) {
-            Ok(()) => ("backup.delete", Response::Ok),
-            Err(e) => ("backup.delete", Response::err(e.to_string())),
+            Ok(()) => ("backup.delete", Response::Ok, None),
+            Err(e) => ("backup.delete", Response::err(e.to_string()), None),
         },
         Request::BackupRestore { name } => match crate::backup::restore(
             &crate::backup::backup_dir(),
@@ -91,17 +107,17 @@ pub async fn handle(
                 // 恢复后重载内存中的 stores（避免索引/设置与磁盘不一致）
                 let _ = store.reload();
                 let _ = settings.reload();
-                ("backup.restore", Response::Ok)
+                ("backup.restore", Response::Ok, None)
             }
-            Err(e) => ("backup.restore", Response::err(e.to_string())),
+            Err(e) => ("backup.restore", Response::err(e.to_string()), None),
         },
         Request::SettingsGet => {
             let settings = settings.get().clone();
-            ("settings.get", Response::Settings { settings })
+            ("settings.get", Response::Settings { settings }, None)
         }
         Request::SettingsSet(patch) => match settings.patch(&patch) {
-            Ok(()) => ("settings.set", Response::Ok),
-            Err(e) => ("settings.set", Response::err(e.to_string())),
+            Ok(()) => ("settings.set", Response::Ok, None),
+            Err(e) => ("settings.set", Response::err(e.to_string()), None),
         },
         Request::ProfileList => {
             let items = store
@@ -125,6 +141,7 @@ pub async fn handle(
                     current: store.current().map(|p| p.uid.clone()),
                     items,
                 },
+                None,
             )
         }
         Request::ProfileImport(import) => {
@@ -132,48 +149,51 @@ pub async fn handle(
                 Ok(ImportOutcome::Created { uid }) => (
                     "profile.import",
                     Response::ProfileImported { uid, updated: false },
+                    None,
                 ),
                 Ok(ImportOutcome::Updated { uid }) => (
                     "profile.import",
                     Response::ProfileImported { uid, updated: true },
+                    None,
                 ),
-                Err(e) => ("profile.import", Response::err(e.to_string())),
+                Err(e) => ("profile.import", Response::err(e.to_string()), None),
             }
         }
         Request::ProfileGet { uid } => match get_item_and_content(store, &uid) {
             Ok((item, yaml)) => (
                 "profile.get",
                 Response::ProfileContent { item, yaml },
+                None,
             ),
-            Err(e) => ("profile.get", Response::err(e.to_string())),
+            Err(e) => ("profile.get", Response::err(e.to_string()), None),
         },
         Request::ProfileRemove { uid } => match store.remove(&uid) {
-            Ok(()) => ("profile.remove", Response::Ok),
-            Err(e) => ("profile.remove", Response::err(e.to_string())),
+            Ok(()) => ("profile.remove", Response::Ok, None),
+            Err(e) => ("profile.remove", Response::err(e.to_string()), None),
         },
         Request::ProfileSetCurrent { uid } => match store.set_current(&uid) {
-            Ok(()) => ("profile.switch", Response::Ok),
-            Err(e) => ("profile.switch", Response::err(e.to_string())),
+            Ok(()) => ("profile.switch", Response::Ok, None),
+            Err(e) => ("profile.switch", Response::err(e.to_string()), None),
         },
         Request::ProfileRename { uid, name } => match store.rename(&uid, &name) {
-            Ok(()) => ("profile.rename", Response::Ok),
-            Err(e) => ("profile.rename", Response::err(e.to_string())),
+            Ok(()) => ("profile.rename", Response::Ok, None),
+            Err(e) => ("profile.rename", Response::err(e.to_string()), None),
         },
         Request::ProfileMove { uid, up } => match store.move_item(&uid, up) {
-            Ok(()) => ("profile.move", Response::Ok),
-            Err(e) => ("profile.move", Response::err(e.to_string())),
+            Ok(()) => ("profile.move", Response::Ok, None),
+            Err(e) => ("profile.move", Response::err(e.to_string()), None),
         },
         Request::ProfileHistory { uid } => match store.history(&uid) {
-            Ok(versions) => ("profile.history", Response::ProfileHistory { versions }),
-            Err(e) => ("profile.history", Response::err(e.to_string())),
+            Ok(versions) => ("profile.history", Response::ProfileHistory { versions }, None),
+            Err(e) => ("profile.history", Response::err(e.to_string()), None),
         },
         Request::ProfileRestore { uid, version } => match store.restore(&uid, version) {
-            Ok(()) => ("profile.restore", Response::Ok),
-            Err(e) => ("profile.restore", Response::err(e.to_string())),
+            Ok(()) => ("profile.restore", Response::Ok, None),
+            Err(e) => ("profile.restore", Response::err(e.to_string()), None),
         },
         Request::LogSubmit { line } => match crate::logs::append_tui_log(&line) {
-            Ok(()) => ("log.submit", Response::Ok),
-            Err(e) => ("log.submit", Response::err(e.to_string())),
+            Ok(()) => ("log.submit", Response::Ok, None),
+            Err(e) => ("log.submit", Response::err(e.to_string()), None),
         },
         Request::LogTail { source, cursor } => {
             let src = match source.as_str() {
@@ -181,13 +201,13 @@ pub async fn handle(
                 _ => crate::logs::LogSource::Core,
             };
             match crate::logs::tail(src, cursor) {
-                Ok((cursor, lines)) => ("log.tail", Response::LogTail { cursor, lines }),
-                Err(e) => ("log.tail", Response::err(e.to_string())),
+                Ok((cursor, lines)) => ("log.tail", Response::LogTail { cursor, lines }, None),
+                Err(e) => ("log.tail", Response::err(e.to_string()), None),
             }
         }
         Request::AuditQuery { cursor } => match crate::logs::audit_query(cursor) {
-            Ok((cursor, records)) => ("audit.query", Response::AuditQuery { cursor, records }),
-            Err(e) => ("audit.query", Response::err(e.to_string())),
+            Ok((cursor, records)) => ("audit.query", Response::AuditQuery { cursor, records }, None),
+            Err(e) => ("audit.query", Response::err(e.to_string()), None),
         },
         Request::SetTun { enable } => {
             let s = settings.get().clone();
@@ -217,16 +237,17 @@ pub async fn handle(
                                 hot_reloaded: apply.hot_reloaded,
                                 verified: apply.verified,
                             },
+                            None,
                         ),
-                        Err(e) => ("tun.enable", Response::err(e.to_string())),
+                        Err(e) => ("tun.enable", Response::err(e.to_string()), None),
                     }
                 }
-                Err(e) => ("tun.enable", Response::err(e)),
+                Err(e) => ("tun.enable", Response::err(e), None),
             }
         }
         Request::CleanupTun => {
             let (clean, residuals) = crate::tun::cleanup_tun(&crate::tun::Tools::system()).await;
-            ("cleanup.tun", Response::CleanupResult { clean, residuals })
+            ("cleanup.tun", Response::CleanupResult { clean, residuals }, None)
         }
         Request::InstallCore {
             inbox_path,
@@ -246,26 +267,72 @@ pub async fn handle(
                         (
                             "core.install",
                             Response::err(format!("二进制已更新，但重启核心失败: {e}")),
+                            None,
                         )
                     } else {
-                        ("core.install", Response::Ok)
+                        ("core.install", Response::Ok, None)
                     }
                 }
-                Err(e) => ("core.install", Response::err(e)),
+                Err(e) => ("core.install", Response::err(e), None),
             }
         }
         other => {
             let op = "rpc.unimplemented";
-            (op, Response::err(format!("方法未实现: {other:?}")))
+            (op, Response::err(format!("方法未实现: {other:?}")), None)
         }
     };
-    let result = match &resp {
-        Response::Error { .. } => "error",
-        Response::CleanupResult { clean, .. } if !*clean => "partial",
-        _ => "ok",
-    };
-    audit.record(op, actor, result);
+
+    // 阶段三：result（操作后，含 net_after 快照 + err + cfg_sha256）
+    let (result, err) = classify(&resp);
+    audit.result(op, &op_id, actor, result, err, cfg_sha256.as_deref());
     resp
+}
+
+/// 请求 → (op 名, 意图描述)（审计 intent 记录用）。
+fn op_and_intent(req: &Request) -> (&'static str, &'static str) {
+    match req {
+        Request::Hello => ("rpc.hello", "hello handshake"),
+        Request::Status => ("rpc.status", "query status"),
+        Request::SettingsGet => ("settings.get", "read settings"),
+        Request::SettingsSet(_) => ("settings.set", "update settings"),
+        Request::ProfileList => ("profile.list", "list profiles"),
+        Request::ProfileImport(_) => ("profile.import", "import profile"),
+        Request::ProfileGet { .. } => ("profile.get", "fetch profile content"),
+        Request::ProfileRemove { .. } => ("profile.remove", "remove profile"),
+        Request::ProfileSetCurrent { .. } => ("profile.switch", "switch current profile"),
+        Request::ProfileRename { .. } => ("profile.rename", "rename profile"),
+        Request::ProfileMove { .. } => ("profile.move", "reorder profile"),
+        Request::ProfileHistory { .. } => ("profile.history", "view profile history"),
+        Request::ProfileRestore { .. } => ("profile.restore", "restore profile version"),
+        Request::ApplyConfig { .. } => ("config.apply", "apply runtime config"),
+        Request::BackupCreate { .. } => ("backup.create", "create backup"),
+        Request::BackupList => ("backup.list", "list backups"),
+        Request::BackupDelete { .. } => ("backup.delete", "delete backup"),
+        Request::BackupRestore { .. } => ("backup.restore", "restore backup"),
+        Request::StartCore => ("core.start", "start core"),
+        Request::StopCore => ("core.stop", "stop core"),
+        Request::RestartCore => ("core.restart", "restart core"),
+        Request::SetTun { enable } => (
+            "tun.enable",
+            if *enable { "enable TUN" } else { "disable TUN" },
+        ),
+        Request::CleanupTun => ("cleanup.tun", "cleanup TUN residuals"),
+        Request::AuditQuery { .. } => ("audit.query", "query audit log"),
+        Request::LogTail { .. } => ("log.tail", "tail log file"),
+        Request::LogSubmit { .. } => ("log.submit", "submit app log line"),
+        Request::Subscribe => ("rpc.subscribe", "subscribe to events"),
+        Request::InstallCore { .. } => ("core.install", "install/upgrade core binary"),
+        _ => ("rpc.unimplemented", "unimplemented request"),
+    }
+}
+
+/// 响应 → (result 分类, 错误信息)。
+fn classify(resp: &Response) -> (&'static str, Option<&str>) {
+    match resp {
+        Response::Error { message } => ("error", Some(message)),
+        Response::CleanupResult { clean: false, .. } => ("partial", None),
+        _ => ("ok", None),
+    }
 }
 
 fn get_item_and_content(
