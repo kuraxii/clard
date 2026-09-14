@@ -27,6 +27,9 @@ Requires:       nftables
 Requires(post): systemd
 Requires(preun): systemd
 
+# 二进制由 build-rpm.sh 预构建，无 debug 源参与；禁用 debuginfo/debugsource 子包
+%global debug_package %{nil}
+
 %description
 Clard 是 Linux 上的完整代理管理工具：系统级常驻服务 clard-helper（root，
 拥有 mihomo 核心、TUN 与全部数据）+ TUI 客户端 clard（ratatui）。

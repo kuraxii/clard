@@ -15,7 +15,8 @@ RestartSec=2
 ProtectSystem=strict
 ReadWritePaths=/run/clard /var/clard
 ProtectHome=yes
-PrivateTmp=yes
+# 不用 PrivateTmp：helper 不依赖 /tmp，且该选项在部分受限 systemd 环境下
+# 会因无法创建 mount namespace 导致 NAMESPACE 启动失败（226）
 NoNewPrivileges=yes
 RestrictSUIDSGID=yes
 CapabilityBoundingSet=CAP_NET_ADMIN CAP_NET_RAW CAP_NET_BIND_SERVICE CAP_CHOWN CAP_FOWNER CAP_SETUID CAP_SETGID CAP_DAC_OVERRIDE
