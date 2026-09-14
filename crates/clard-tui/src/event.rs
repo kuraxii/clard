@@ -34,6 +34,8 @@ pub enum ClardEvent {
         state: String,
         pid: Option<u32>,
         version: Option<String>,
+        /// TUN 是否在工作（doc/01 §6.5 判据：网卡 UP + 规则 + 路由）
+        tun_active: bool,
     },
     BackupsReady(Vec<clard_proto::BackupItem>),
     HelperVersion(String),

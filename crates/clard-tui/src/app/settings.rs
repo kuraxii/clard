@@ -6,11 +6,13 @@
 use clard_proto::{BackupItem, Settings};
 use ratatui::widgets::{ListState, TableState};
 
-/// 设置页页签（TUN 最后实现，暂不列出）。
+/// 设置页页签（doc/03 §5.7）。
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub enum SettingsTab {
     #[default]
     General,
+    /// TUN 与旁路（doc/05 §7 R7.2）
+    Tun,
     Core,
     Service,
     Backup,
@@ -43,6 +45,52 @@ impl GeneralRow {
             Self::Language => "Language",
             Self::Theme => "Theme",
             Self::TestUrl => "Test URL",
+        }
+    }
+}
+
+/// TUN 页签的配置行（doc/05 §7 R7.2）。
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum TunRow {
+    TunEnabled,
+    TunStack,
+    DnsHijack,
+    RouteExclude,
+    ExcludeUid,
+    ExcludeInterface,
+    ExcludeDstPort,
+    StrictRoute,
+    AutoRedirect,
+    /// 紧急恢复直连（CleanupTun，§6.4 手动挂载点）
+    RecoverDirect,
+}
+
+impl TunRow {
+    pub const ALL: [Self; 10] = [
+        Self::TunEnabled,
+        Self::TunStack,
+        Self::DnsHijack,
+        Self::RouteExclude,
+        Self::ExcludeUid,
+        Self::ExcludeInterface,
+        Self::ExcludeDstPort,
+        Self::StrictRoute,
+        Self::AutoRedirect,
+        Self::RecoverDirect,
+    ];
+
+    pub fn label(self) -> &'static str {
+        match self {
+            Self::TunEnabled => "TUN",
+            Self::TunStack => "TUN stack",
+            Self::DnsHijack => "dns-hijack",
+            Self::RouteExclude => "Route exclude",
+            Self::ExcludeUid => "exclude-uid",
+            Self::ExcludeInterface => "exclude-interface",
+            Self::ExcludeDstPort => "exclude-dst-port",
+            Self::StrictRoute => "strict-route",
+            Self::AutoRedirect => "auto-redirect",
+            Self::RecoverDirect => "Recover direct",
         }
     }
 }
@@ -102,7 +150,8 @@ impl SettingsState {
 
     pub fn next_tab(&mut self) {
         self.set_tab(match self.tab {
-            SettingsTab::General => SettingsTab::Core,
+            SettingsTab::General => SettingsTab::Tun,
+            SettingsTab::Tun => SettingsTab::Core,
             SettingsTab::Core => SettingsTab::Service,
             SettingsTab::Service => SettingsTab::Backup,
             SettingsTab::Backup => SettingsTab::About,
@@ -113,7 +162,8 @@ impl SettingsState {
     pub fn prev_tab(&mut self) {
         self.set_tab(match self.tab {
             SettingsTab::General => SettingsTab::About,
-            SettingsTab::Core => SettingsTab::General,
+            SettingsTab::Tun => SettingsTab::General,
+            SettingsTab::Core => SettingsTab::Tun,
             SettingsTab::Service => SettingsTab::Core,
             SettingsTab::Backup => SettingsTab::Service,
             SettingsTab::About => SettingsTab::Backup,
@@ -122,7 +172,13 @@ impl SettingsState {
 
     pub fn set_tab(&mut self, tab: SettingsTab) {
         self.tab = tab;
-        self.list_state.select(if tab == SettingsTab::General { Some(0) } else { None });
+        self.list_state.select(if tab == SettingsTab::General {
+            Some(0)
+        } else if tab == SettingsTab::Tun {
+            Some(0)
+        } else {
+            None
+        });
         self.backups_state.select(None);
         if tab == SettingsTab::Backup && !self.backups.is_empty() {
             self.backups_state.select(Some(0));
@@ -134,14 +190,24 @@ impl SettingsState {
         self.list_state.selected().and_then(|i| GeneralRow::ALL.get(i).copied())
     }
 
+    /// 当前 TUN 配置行。
+    pub fn selected_tun_row(&self) -> Option<TunRow> {
+        self.list_state.selected().and_then(|i| TunRow::ALL.get(i).copied())
+    }
+
     pub fn selected_backup(&self) -> Option<&BackupItem> {
         self.backups_state.selected().and_then(|i| self.backups.get(i))
     }
 
     pub fn on_down_key(&mut self) {
-        if self.tab == SettingsTab::General {
+        let row_count = match self.tab {
+            SettingsTab::General => GeneralRow::ALL.len(),
+            SettingsTab::Tun => TunRow::ALL.len(),
+            _ => 0,
+        };
+        if row_count > 0 {
             let i = match self.list_state.selected() {
-                Some(i) if i + 1 < GeneralRow::ALL.len() => i + 1,
+                Some(i) if i + 1 < row_count => i + 1,
                 _ => 0,
             };
             self.list_state.select(Some(i));
@@ -155,9 +221,14 @@ impl SettingsState {
     }
 
     pub fn on_up_key(&mut self) {
-        if self.tab == SettingsTab::General {
+        let row_count = match self.tab {
+            SettingsTab::General => GeneralRow::ALL.len(),
+            SettingsTab::Tun => TunRow::ALL.len(),
+            _ => 0,
+        };
+        if row_count > 0 {
             let i = match self.list_state.selected() {
-                Some(0) | None => GeneralRow::ALL.len() - 1,
+                Some(0) | None => row_count - 1,
                 Some(i) => i - 1,
             };
             self.list_state.select(Some(i));
@@ -186,13 +257,27 @@ mod tests {
         let mut s = SettingsState::new();
         assert_eq!(s.tab, SettingsTab::General);
         s.next_tab();
-        assert_eq!(s.tab, SettingsTab::Core);
-        for _ in 0..4 {
+        assert_eq!(s.tab, SettingsTab::Tun);
+        for _ in 0..5 {
             s.next_tab();
         }
-        assert_eq!(s.tab, SettingsTab::General, "5 次 next 循环回到 General");
+        assert_eq!(s.tab, SettingsTab::General, "6 次 next 循环回到 General");
         s.prev_tab();
         assert_eq!(s.tab, SettingsTab::About);
+    }
+
+    #[test]
+    fn tun_row_selection_cycles() {
+        let mut s = SettingsState::new();
+        s.set_tab(SettingsTab::Tun);
+        assert_eq!(s.selected_tun_row(), Some(TunRow::TunEnabled));
+        s.on_down_key();
+        s.on_down_key();
+        assert_eq!(s.selected_tun_row(), Some(TunRow::DnsHijack));
+        for _ in 0..8 {
+            s.on_down_key();
+        }
+        assert_eq!(s.selected_tun_row(), Some(TunRow::TunEnabled), "10 行循环回到 TUN");
     }
 
     #[test]

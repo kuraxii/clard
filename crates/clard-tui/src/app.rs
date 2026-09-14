@@ -21,11 +21,11 @@ use page::Page;
 use profiles::{HistoryView, ProfileBusy, ProfilesState};
 use proxy::{ProxyFocus, ProxyState};
 use rules::{RulesState, RulesTab};
-use settings::{GeneralRow, SettingsState, SettingsTab};
+use settings::{GeneralRow, SettingsState, SettingsTab, TunRow};
 use tokio::sync::mpsc::UnboundedSender;
 
 use clard_core::{
-    config_gen::{self, subscription_to_yaml, ConfigGenOptions},
+    config_gen::{self, subscription_to_yaml, ConfigGenOptions, TunOptions},
     mihomo::{backend::Backend, models::Traffic, websocket::get_websocket_url},
     profiles::HttpFetcher,
 };
@@ -350,10 +350,11 @@ impl APP {
     /// 运行态配置 → ApplyConfig 落盘+热重载 → 核心未运行则启动；任一步失败回滚 current。
     pub fn set_current_profile(&mut self, uid: String) {
         let previous = self.profiles.current.clone();
+        let settings = self.settings.settings.clone().unwrap_or_default();
         self.message = Some(format!("switching to {uid}…"));
         let sender = self.event_sender.clone();
         tokio::spawn(async move {
-            match switch_profile_flow(&uid, previous).await {
+            match switch_profile_flow(&uid, previous, &settings).await {
                 Ok(msg) => {
                     let _ = sender.send(ClardEvent::Notify(msg));
                 }
@@ -478,6 +479,46 @@ impl APP {
                 };
                 self.set_setting(patch);
             }
+            InputPurpose::EditDnsHijack => {
+                let list = split_csv(&text);
+                let patch = clard_proto::SettingsPatch {
+                    dns_hijack: Some(list),
+                    ..Default::default()
+                };
+                self.set_tun_setting(patch);
+            }
+            InputPurpose::EditRouteExclude => {
+                let list = split_csv(&text);
+                let patch = clard_proto::SettingsPatch {
+                    route_exclude_address: Some(list),
+                    ..Default::default()
+                };
+                self.set_tun_setting(patch);
+            }
+            InputPurpose::EditExcludeUid => {
+                let list = split_csv_u32(&text);
+                let patch = clard_proto::SettingsPatch {
+                    exclude_uid: Some(list),
+                    ..Default::default()
+                };
+                self.set_tun_setting(patch);
+            }
+            InputPurpose::EditExcludeInterface => {
+                let list = split_csv(&text);
+                let patch = clard_proto::SettingsPatch {
+                    exclude_interface: Some(list),
+                    ..Default::default()
+                };
+                self.set_tun_setting(patch);
+            }
+            InputPurpose::EditExcludeDstPort => {
+                let list = split_csv_u16(&text);
+                let patch = clard_proto::SettingsPatch {
+                    exclude_dst_port: Some(list),
+                    ..Default::default()
+                };
+                self.set_tun_setting(patch);
+            }
         }
     }
 
@@ -488,6 +529,22 @@ impl APP {
             ConfirmPurpose::StopCore => self.stop_core(),
             ConfirmPurpose::DeleteBackup { name } => self.delete_backup(name),
             ConfirmPurpose::RestoreBackup { name } => self.restore_backup(name),
+            ConfirmPurpose::SetTun { enable } => self.toggle_tun(enable),
+            ConfirmPurpose::EnableStrictRoute => {
+                let patch = clard_proto::SettingsPatch {
+                    strict_route: Some(true),
+                    ..Default::default()
+                };
+                self.set_tun_setting(patch);
+            }
+            ConfirmPurpose::EnableAutoRedirect => {
+                let patch = clard_proto::SettingsPatch {
+                    auto_redirect: Some(true),
+                    ..Default::default()
+                };
+                self.set_tun_setting(patch);
+            }
+            ConfirmPurpose::CleanupTun => self.recover_direct(),
         }
     }
 
@@ -613,13 +670,14 @@ impl APP {
                 core_state,
                 core_pid,
                 core_version,
-                ..
+                tun_active,
             }) = rpc::call(&Request::Status).await
             {
                 let _ = sender.send(ClardEvent::CoreStatusReady {
                     state: core_state,
                     pid: core_pid,
                     version: core_version,
+                    tun_active,
                 });
             }
         });
@@ -655,8 +713,97 @@ impl APP {
                     let _ = sender.send(ClardEvent::Error(e.to_string()));
                 }
             }
-            if let Ok(Response::Settings { settings }) = rpc::call(&Request::SettingsGet).await {
-                let _ = sender.send(ClardEvent::SettingsReady(settings));
+            send_settings(&sender).await;
+        });
+    }
+
+    /// TUN 开关（R7.2）：经 helper `SetTun`（托管注入 + 热重载 + 读回校验，失败已回退）。
+    pub fn toggle_tun(&mut self, enable: bool) {
+        let sender = self.event_sender.clone();
+        tokio::spawn(async move {
+            match rpc::call(&Request::SetTun { enable }).await {
+                Ok(Response::TunSet { hot_reloaded, .. }) => {
+                    let msg = if hot_reloaded {
+                        if enable {
+                            "TUN on (verified)".to_string()
+                        } else {
+                            "TUN off (verified)".to_string()
+                        }
+                    } else {
+                        "TUN setting saved; core not running, takes effect on start".to_string()
+                    };
+                    let _ = sender.send(ClardEvent::Notify(msg));
+                }
+                Ok(other) => {
+                    let _ = sender.send(ClardEvent::Error(rpc::unexpected(other).to_string()));
+                }
+                Err(e) => {
+                    let _ = sender.send(ClardEvent::Error(e.to_string()));
+                }
+            }
+            send_settings(&sender).await;
+            send_core_status(&sender).await;
+        });
+    }
+
+    /// 紧急恢复直连（§6.4）：幂等清理 TUN 残留（ip rule / route / 网卡）。
+    pub fn recover_direct(&mut self) {
+        let sender = self.event_sender.clone();
+        tokio::spawn(async move {
+            match rpc::call(&Request::CleanupTun).await {
+                Ok(Response::CleanupResult { clean, residuals }) => {
+                    if clean {
+                        let _ = sender.send(ClardEvent::Notify(
+                            "TUN cleaned: direct connection restored".to_string(),
+                        ));
+                    } else {
+                        let _ = sender.send(ClardEvent::Error(format!(
+                            "cleanup partial, residuals: {}",
+                            residuals.join(", ")
+                        )));
+                    }
+                }
+                Ok(other) => {
+                    let _ = sender.send(ClardEvent::Error(rpc::unexpected(other).to_string()));
+                }
+                Err(e) => {
+                    let _ = sender.send(ClardEvent::Error(e.to_string()));
+                }
+            }
+            send_core_status(&sender).await;
+        });
+    }
+
+    /// TUN 可配字段改动（R7.2）：存 helper → 用最新设置重新应用当前配置（热重载生效）。
+    /// 无 current 配置时仅保存。
+    pub fn set_tun_setting(&mut self, patch: clard_proto::SettingsPatch) {
+        let sender = self.event_sender.clone();
+        let uid = self.profiles.current.clone();
+        tokio::spawn(async move {
+            match rpc::call(&Request::SettingsSet(patch)).await {
+                Ok(Response::Ok) => {
+                    let _ = sender.send(ClardEvent::Notify("settings saved".to_string()));
+                }
+                Ok(other) => {
+                    let _ = sender.send(ClardEvent::Error(rpc::unexpected(other).to_string()));
+                }
+                Err(e) => {
+                    let _ = sender.send(ClardEvent::Error(e.to_string()));
+                }
+            }
+            send_settings(&sender).await;
+            // 用最新设置重新应用当前配置（使 TUN 字段生效）
+            if let Some(uid) = uid {
+                if let Ok(Response::Settings { settings }) = rpc::call(&Request::SettingsGet).await {
+                    match switch_profile_flow(&uid, None, &settings).await {
+                        Ok(msg) => {
+                            let _ = sender.send(ClardEvent::Notify(msg));
+                        }
+                        Err(e) => {
+                            let _ = sender.send(ClardEvent::Error(e));
+                        }
+                    }
+                }
             }
         });
     }
@@ -782,6 +929,7 @@ impl APP {
     fn on_settings_char(&mut self, c: char) {
         match self.settings.tab {
             SettingsTab::General => self.on_settings_general_char(c),
+            SettingsTab::Tun => self.on_settings_tun_char(c),
             SettingsTab::Core => match c {
                 's' => self.start_core(),
                 'S' => {
@@ -809,6 +957,159 @@ impl APP {
                 _ => {}
             },
             _ => {}
+        }
+    }
+
+    /// TUN 页签编辑（R7.2）：`e` 编辑当前行。布尔项二次确认，枚举循环，列表项进输入弹窗。
+    fn on_settings_tun_char(&mut self, c: char) {
+        if c != 'e' {
+            return;
+        }
+        let Some(row) = self.settings.selected_tun_row() else {
+            return;
+        };
+        match row {
+            TunRow::TunEnabled => {
+                let enable = !self
+                    .settings
+                    .settings
+                    .as_ref()
+                    .map(|s| s.tun_enabled)
+                    .unwrap_or(false);
+                let (title, msg) = if enable {
+                    (
+                        "Enable TUN",
+                        "Enable TUN? Global transparent proxy + DNS hijack (fake-ip).",
+                    )
+                } else {
+                    ("Disable TUN", "Disable TUN? Restores direct connection.")
+                };
+                self.confirm = Some(ConfirmState::new(title, msg, ConfirmPurpose::SetTun { enable }));
+            }
+            TunRow::TunStack => {
+                let cur = self
+                    .settings
+                    .settings
+                    .as_ref()
+                    .map(|s| s.tun_stack.clone())
+                    .unwrap_or_else(|| "system".into());
+                let next = match cur.as_str() {
+                    "system" => "gvisor",
+                    "gvisor" => "mixed",
+                    _ => "system",
+                };
+                let patch = clard_proto::SettingsPatch {
+                    tun_stack: Some(next.to_string()),
+                    ..Default::default()
+                };
+                self.set_tun_setting(patch);
+            }
+            TunRow::DnsHijack => {
+                let mut input = InputState::new(
+                    "dns-hijack (comma separated; empty = default any:53,tcp://any:53)",
+                    InputPurpose::EditDnsHijack,
+                );
+                if let Some(s) = self.settings.settings.as_ref() {
+                    input.buffer = s.dns_hijack.join(",");
+                    input.cursor = input.buffer.len();
+                }
+                self.input = Some(input);
+            }
+            TunRow::RouteExclude => {
+                let mut input = InputState::new(
+                    "route-exclude CIDRs (comma separated; empty = private nets)",
+                    InputPurpose::EditRouteExclude,
+                );
+                if let Some(s) = self.settings.settings.as_ref() {
+                    input.buffer = s.route_exclude_address.join(",");
+                    input.cursor = input.buffer.len();
+                }
+                self.input = Some(input);
+            }
+            TunRow::ExcludeUid => {
+                let mut input = InputState::new(
+                    "exclude-uid (comma separated uids)",
+                    InputPurpose::EditExcludeUid,
+                );
+                if let Some(s) = self.settings.settings.as_ref() {
+                    input.buffer = s.exclude_uid.iter().map(|v| v.to_string()).collect::<Vec<_>>().join(",");
+                    input.cursor = input.buffer.len();
+                }
+                self.input = Some(input);
+            }
+            TunRow::ExcludeInterface => {
+                let mut input = InputState::new(
+                    "exclude-interface (comma separated ifaces)",
+                    InputPurpose::EditExcludeInterface,
+                );
+                if let Some(s) = self.settings.settings.as_ref() {
+                    input.buffer = s.exclude_interface.join(",");
+                    input.cursor = input.buffer.len();
+                }
+                self.input = Some(input);
+            }
+            TunRow::ExcludeDstPort => {
+                let mut input = InputState::new(
+                    "exclude-dst-port (comma separated ports)",
+                    InputPurpose::EditExcludeDstPort,
+                );
+                if let Some(s) = self.settings.settings.as_ref() {
+                    input.buffer =
+                        s.exclude_dst_port.iter().map(|v| v.to_string()).collect::<Vec<_>>().join(",");
+                    input.cursor = input.buffer.len();
+                }
+                self.input = Some(input);
+            }
+            TunRow::StrictRoute => {
+                let enable = !self
+                    .settings
+                    .settings
+                    .as_ref()
+                    .map(|s| s.strict_route)
+                    .unwrap_or(false);
+                if enable {
+                    // 二次确认 + 风险提示（§6.3：残留即全机断网）
+                    self.confirm = Some(ConfirmState::new(
+                        "Enable strict-route",
+                        "strict-route installs unreachable rules; crash residuals = full network outage. Enable?",
+                        ConfirmPurpose::EnableStrictRoute,
+                    ));
+                } else {
+                    let patch = clard_proto::SettingsPatch {
+                        strict_route: Some(false),
+                        ..Default::default()
+                    };
+                    self.set_tun_setting(patch);
+                }
+            }
+            TunRow::AutoRedirect => {
+                let enable = !self
+                    .settings
+                    .settings
+                    .as_ref()
+                    .map(|s| s.auto_redirect)
+                    .unwrap_or(false);
+                if enable {
+                    self.confirm = Some(ConfirmState::new(
+                        "Enable auto-redirect",
+                        "auto-redirect installs nftables/iptables rules; residuals persist after crash. Enable?",
+                        ConfirmPurpose::EnableAutoRedirect,
+                    ));
+                } else {
+                    let patch = clard_proto::SettingsPatch {
+                        auto_redirect: Some(false),
+                        ..Default::default()
+                    };
+                    self.set_tun_setting(patch);
+                }
+            }
+            TunRow::RecoverDirect => {
+                self.confirm = Some(ConfirmState::new(
+                    "Recover direct",
+                    "Run cleanup-tun? Removes ip rules / routes / clard0 residuals (idempotent).",
+                    ConfirmPurpose::CleanupTun,
+                ));
+            }
         }
     }
 
@@ -863,15 +1164,19 @@ impl APP {
     }
 
     fn on_settings_enter(&mut self) {
-        if self.settings.tab == SettingsTab::Backup
-            && let Some(b) = self.settings.selected_backup()
-        {
-            let name = b.name.clone();
-            self.confirm = Some(ConfirmState::new(
-                "Restore backup",
-                format!("Restore '{name}'? This overwrites current profiles and settings."),
-                ConfirmPurpose::RestoreBackup { name },
-            ));
+        match self.settings.tab {
+            SettingsTab::Tun => self.on_settings_tun_char('e'),
+            SettingsTab::Backup => {
+                if let Some(b) = self.settings.selected_backup() {
+                    let name = b.name.clone();
+                    self.confirm = Some(ConfirmState::new(
+                        "Restore backup",
+                        format!("Restore '{name}'? This overwrites current profiles and settings."),
+                        ConfirmPurpose::RestoreBackup { name },
+                    ));
+                }
+            }
+            _ => {}
         }
     }
 
@@ -1334,14 +1639,21 @@ async fn send_core_status(sender: &UnboundedSender<ClardEvent>) {
         core_state,
         core_pid,
         core_version,
-        ..
+        tun_active,
     }) = rpc::call(&Request::Status).await
     {
         let _ = sender.send(ClardEvent::CoreStatusReady {
             state: core_state,
             pid: core_pid,
             version: core_version,
+            tun_active,
         });
+    }
+}
+
+async fn send_settings(sender: &UnboundedSender<ClardEvent>) {
+    if let Ok(Response::Settings { settings }) = rpc::call(&Request::SettingsGet).await {
+        let _ = sender.send(ClardEvent::SettingsReady(settings));
     }
 }
 
@@ -1351,9 +1663,13 @@ async fn send_backups(sender: &UnboundedSender<ClardEvent>) {
     }
 }
 
-/// 切换配置事务（R2.2）：标记 current → 取回原始 yaml → config_gen → ApplyConfig → 启动核心。
-/// 任一步失败回滚 current 到 previous。
-async fn switch_profile_flow(uid: &str, previous: Option<String>) -> Result<String, String> {
+/// 切换配置事务（R2.2）：标记 current → 取回原始 yaml → config_gen（注入 TUN 设置）→
+/// ApplyConfig → 启动核心。任一步失败回滚 current 到 previous。
+async fn switch_profile_flow(
+    uid: &str,
+    previous: Option<String>,
+    settings: &clard_proto::Settings,
+) -> Result<String, String> {
     rpc::call(&Request::ProfileSetCurrent {
         uid: uid.to_string(),
     })
@@ -1370,7 +1686,7 @@ async fn switch_profile_flow(uid: &str, previous: Option<String>) -> Result<Stri
             Ok(other) => return Err(rpc::unexpected(other).to_string()),
             Err(e) => return Err(e.to_string()),
         };
-        let runtime = config_gen::generate(&yaml, None, &ConfigGenOptions::default())
+        let runtime = config_gen::generate(&yaml, None, &config_options(settings))
             .map_err(|e| format!("生成运行态配置失败: {e}"))?;
         rpc::call(&Request::ApplyConfig { yaml: runtime })
             .await
@@ -1393,6 +1709,61 @@ async fn switch_profile_flow(uid: &str, previous: Option<String>) -> Result<Stri
         let _ = rpc::call(&Request::ProfileSetCurrent { uid: prev }).await;
     }
     result
+}
+
+/// 从系统设置构造 config_gen 托管选项（doc/01 §6.3）：TUN 开关 + 可配字段 + 混合端口。
+/// 空列表语义 = 用默认值（与 helper tun::build_tun_block 的约定一致）。
+fn config_options(settings: &clard_proto::Settings) -> ConfigGenOptions {
+    let mut base = ConfigGenOptions::default();
+    base.mixed_port = settings.mixed_port;
+    base.tun = if settings.tun_enabled {
+        let default_tun = TunOptions::default();
+        Some(TunOptions {
+            stack: if settings.tun_stack.is_empty() {
+                default_tun.stack
+            } else {
+                settings.tun_stack.clone()
+            },
+            dns_hijack: if settings.dns_hijack.is_empty() {
+                default_tun.dns_hijack
+            } else {
+                settings.dns_hijack.clone()
+            },
+            route_exclude_address: if settings.route_exclude_address.is_empty() {
+                default_tun.route_exclude_address
+            } else {
+                settings.route_exclude_address.clone()
+            },
+            exclude_uid: settings.exclude_uid.clone(),
+            exclude_interface: settings.exclude_interface.clone(),
+            exclude_dst_port: settings.exclude_dst_port.clone(),
+            strict_route: settings.strict_route,
+            auto_redirect: settings.auto_redirect,
+            ..default_tun
+        })
+    } else {
+        None
+    };
+    base
+}
+
+/// 逗号分隔字符串 → 非空条目列表（trim + 去空，R7.2 列表项输入）。
+fn split_csv(text: &str) -> Vec<String> {
+    text.split(',')
+        .map(str::trim)
+        .filter(|s| !s.is_empty())
+        .map(str::to_string)
+        .collect()
+}
+
+/// 逗号分隔数字 → u32 列表（忽略非法项）。
+fn split_csv_u32(text: &str) -> Vec<u32> {
+    split_csv(text).iter().filter_map(|s| s.parse().ok()).collect()
+}
+
+/// 逗号分隔数字 → u16 列表（忽略非法项）。
+fn split_csv_u16(text: &str) -> Vec<u16> {
+    split_csv(text).iter().filter_map(|s| s.parse().ok()).collect()
 }
 
 /// 下载 → 归一化 → 提交 helper（R2.1/R2.3 共用）。

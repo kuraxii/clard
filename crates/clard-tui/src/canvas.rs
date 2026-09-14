@@ -18,7 +18,7 @@ use crate::app::{
     profiles::{HistoryView, ProfileBusy, ProfilesState},
     proxy::{ProxyFocus, ProxyState},
     rules::{RulesState, RulesTab},
-    settings::{GeneralRow, SettingsState, SettingsTab},
+    settings::{GeneralRow, SettingsState, SettingsTab, TunRow},
 };
 
 #[derive(Debug, Default)]
@@ -295,18 +295,34 @@ fn draw_home_core(f: &mut Frame<'_>, area: Rect, app: &APP, theme: Theme) {
     let state_color = if state_text == "running" { theme.success } else { theme.muted };
     let pid = app.home.core_pid.map(|p| p.to_string()).unwrap_or_else(|| "-".to_string());
     let version = app.home.core_version.clone().unwrap_or_else(|| "-".to_string());
+    let tun_text = if app.home.tun_active {
+        "On"
+    } else {
+        "Off"
+    };
+    let tun_color = if app.home.tun_active {
+        theme.success
+    } else {
+        theme.muted
+    };
     let lines = vec![
         Line::from(vec![
             Span::styled("State:", theme.title_style()),
             Span::raw("  "),
             Span::styled(state_text.to_string(), Style::default().fg(state_color)),
         ]),
+        Line::from(vec![
+            Span::styled("TUN:", theme.title_style()),
+            Span::raw("  "),
+            Span::styled(tun_text, Style::default().fg(tun_color)),
+            Span::styled("  (clard0 / tbl 2023 / rule 9100)", theme.muted_style()),
+        ]),
         kv_line("PID", &pid, theme),
         kv_line("Version", &version, theme),
     ];
     f.render_widget(
         Paragraph::new(lines)
-            .block(panel_block("Core", false, theme))
+            .block(panel_block("Core / TUN", false, theme))
             .wrap(Wrap { trim: true }),
         area,
     );
@@ -611,6 +627,7 @@ impl SettingsLayout {
         draw_settings_tabs(f, rows[0], state, theme);
         match state.tab {
             SettingsTab::General => draw_settings_general(f, rows[1], state, theme),
+            SettingsTab::Tun => draw_settings_tun(f, rows[1], state, theme),
             SettingsTab::Core => draw_settings_core(f, rows[1], state, theme),
             SettingsTab::Service => draw_settings_service(f, rows[1], state, theme),
             SettingsTab::Backup => draw_settings_backup(f, rows[1], state, theme),
@@ -622,12 +639,13 @@ impl SettingsLayout {
 fn draw_settings_tabs(f: &mut Frame<'_>, area: Rect, state: &SettingsState, theme: Theme) {
     let selected = match state.tab {
         SettingsTab::General => 0,
-        SettingsTab::Core => 1,
-        SettingsTab::Service => 2,
-        SettingsTab::Backup => 3,
-        SettingsTab::About => 4,
+        SettingsTab::Tun => 1,
+        SettingsTab::Core => 2,
+        SettingsTab::Service => 3,
+        SettingsTab::Backup => 4,
+        SettingsTab::About => 5,
     };
-    let titles = vec![" General ", " Core ", " Service ", " Backup ", " About "];
+    let titles = vec![" General ", " TUN ", " Core ", " Service ", " Backup ", " About "];
     let tabs = Tabs::new(titles)
         .block(panel_block("Settings", false, theme))
         .select(selected)
@@ -673,6 +691,106 @@ fn draw_settings_general(f: &mut Frame<'_>, area: Rect, state: &SettingsState, t
 
     let list = List::new(items)
         .block(panel_block("General  Enter edit", true, theme))
+        .highlight_style(theme.selected_style())
+        .highlight_symbol("▸ ");
+    let mut list_state = state.list_state.clone();
+    f.render_stateful_widget(list, area, &mut list_state);
+}
+
+fn draw_settings_tun(f: &mut Frame<'_>, area: Rect, state: &SettingsState, theme: Theme) {
+    let settings = state.settings.as_ref();
+    let items: Vec<ListItem<'_>> = TunRow::ALL
+        .iter()
+        .map(|row| {
+            let value = match row {
+                TunRow::TunEnabled => {
+                    if settings.map(|s| s.tun_enabled).unwrap_or(false) {
+                        "● on".to_string()
+                    } else {
+                        "○ off".to_string()
+                    }
+                }
+                TunRow::TunStack => settings
+                    .map(|s| {
+                        if s.tun_stack.is_empty() {
+                            "[system]".to_string()
+                        } else {
+                            format!("[{}]", s.tun_stack)
+                        }
+                    })
+                    .unwrap_or_else(|| "[system]".to_string()),
+                TunRow::DnsHijack => {
+                    let v = settings.map(|s| s.dns_hijack.join(",")).unwrap_or_default();
+                    if v.is_empty() {
+                        "default (any:53,tcp://any:53)".to_string()
+                    } else {
+                        v
+                    }
+                }
+                TunRow::RouteExclude => {
+                    let v = settings
+                        .map(|s| s.route_exclude_address.join(","))
+                        .unwrap_or_default();
+                    if v.is_empty() {
+                        "default private nets (10/8,172.16/12,192.168/16,…)".to_string()
+                    } else {
+                        v
+                    }
+                }
+                TunRow::ExcludeUid => settings
+                    .map(|s| {
+                        if s.exclude_uid.is_empty() {
+                            "(empty)".to_string()
+                        } else {
+                            s.exclude_uid.iter().map(|v| v.to_string()).collect::<Vec<_>>().join(",")
+                        }
+                    })
+                    .unwrap_or_else(|| "(empty)".to_string()),
+                TunRow::ExcludeInterface => settings
+                    .map(|s| {
+                        if s.exclude_interface.is_empty() {
+                            "(empty)".to_string()
+                        } else {
+                            s.exclude_interface.join(",")
+                        }
+                    })
+                    .unwrap_or_else(|| "(empty)".to_string()),
+                TunRow::ExcludeDstPort => settings
+                    .map(|s| {
+                        if s.exclude_dst_port.is_empty() {
+                            "(empty)".to_string()
+                        } else {
+                            s.exclude_dst_port.iter().map(|v| v.to_string()).collect::<Vec<_>>().join(",")
+                        }
+                    })
+                    .unwrap_or_else(|| "(empty)".to_string()),
+                TunRow::StrictRoute => format!(
+                    "{} risk: crash residuals = full outage",
+                    if settings.map(|s| s.strict_route).unwrap_or(false) {
+                        "● on"
+                    } else {
+                        "○ off"
+                    }
+                ),
+                TunRow::AutoRedirect => format!(
+                    "{} risk: nft/iptables residuals",
+                    if settings.map(|s| s.auto_redirect).unwrap_or(false) {
+                        "● on"
+                    } else {
+                        "○ off"
+                    }
+                ),
+                TunRow::RecoverDirect => "run cleanup-tun".to_string(),
+            };
+            ListItem::new(Line::from(vec![
+                Span::styled(format!("{:<22}", row.label()), Style::default().fg(theme.fg)),
+                Span::styled(value, Style::default().fg(theme.primary)),
+            ]))
+        })
+        .collect();
+
+    let list = List::new(items)
+        .block(panel_block("TUN  Enter edit / confirm hot-reload", true, theme))
         .highlight_style(theme.selected_style())
         .highlight_symbol("▸ ");
     let mut list_state = state.list_state.clone();
@@ -1457,10 +1575,12 @@ fn draw_help(f: &mut Frame<'_>, area: Rect, app: &APP, theme: Theme) {
         ],
         Page::Settings => vec![
             Line::from(Span::styled("Settings", theme.title_style())),
-            Line::from("Tab switches General / Core / Service / Backup / About."),
+            Line::from("Tab switches General / TUN / Core / Service / Backup / About."),
             Line::from("General: Enter edits port/interval, toggles language/theme."),
+            Line::from("TUN: Enter toggles TUN (hot reload + read-back verify), stack cycles,"),
+            Line::from("     list fields open editors; strict-route/auto-redirect need confirm."),
+            Line::from("     Recover direct runs cleanup-tun (fail-open, idempotent)."),
             Line::from("Core: s start, S stop, r restart. Backup: b create, d delete."),
-            Line::from("TUN settings land last (see plan)."),
         ],
         Page::Rules => vec![
             Line::from(Span::styled("Rules", theme.title_style())),

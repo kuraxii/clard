@@ -97,6 +97,16 @@ pub enum InputPurpose {
     EditAutoUpdateHours,
     /// 设置：自定义测速 URL（doc/05 §3 R3.4）
     EditTestUrl,
+    /// 设置：dns-hijack 列表（逗号分隔，doc/05 §7 R7.2）
+    EditDnsHijack,
+    /// 设置：route-exclude-address（逗号分隔 CIDR，空 = 默认私网段）
+    EditRouteExclude,
+    /// 设置：exclude-uid（逗号分隔数字）
+    EditExcludeUid,
+    /// 设置：exclude-interface（逗号分隔网卡名）
+    EditExcludeInterface,
+    /// 设置：exclude-dst-port（逗号分隔端口）
+    EditExcludeDstPort,
 }
 
 /// 确认弹窗状态。
@@ -130,6 +140,14 @@ pub enum ConfirmPurpose {
     DeleteBackup { name: String },
     /// 恢复备份（doc/05 §8 R8.2）
     RestoreBackup { name: String },
+    /// TUN 开关（doc/05 §7 R7.2，确认后热重载 + 读回校验）
+    SetTun { enable: bool },
+    /// 开启 strict-route（二次确认 + 风险提示，doc/01 §6.3）
+    EnableStrictRoute,
+    /// 开启 auto-redirect（二次确认 + 风险提示，doc/01 §6.3）
+    EnableAutoRedirect,
+    /// 紧急恢复直连：cleanup-tun（doc/01 §6.4）
+    CleanupTun,
 }
 
 #[cfg(test)]

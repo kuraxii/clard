@@ -213,9 +213,15 @@ pub async fn start_clard() -> Result<()> {
                     ClardEvent::SettingsReady(settings) => {
                         app.apply_settings(settings);
                     }
-                    ClardEvent::CoreStatusReady { state, pid, version } => {
-                        app.settings.apply_core_status(state.clone(), pid, version.clone());
-                        app.home.apply_core_status(state, pid, version);
+                    ClardEvent::CoreStatusReady {
+                        state,
+                        pid,
+                        version,
+                        tun_active,
+                    } => {
+                        app.settings
+                            .apply_core_status(state.clone(), pid, version.clone());
+                        app.home.apply_core_status(state, pid, version, tun_active);
                     }
                     ClardEvent::HelperVersion(version) => {
                         app.home.apply_helper_version(version);
