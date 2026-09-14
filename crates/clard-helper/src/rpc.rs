@@ -5,15 +5,17 @@
 
 use std::path::Path;
 
-use clard_proto::{ProfileItem, Request, Response};
+use clard_proto::{Event, ProfileItem, Request, Response};
 use sha2::{Digest, Sha256};
+use tokio::sync::broadcast;
 
 use crate::audit::{Actor, Audit};
 use crate::core::CoreManager;
 use crate::profiles::{ImportOutcome, ProfilesError, ProfilesStore};
 use crate::settings::SettingsStore;
 
-/// 处理一个请求。`actor` 来自 `SO_PEERCRED`，intent/result 双记录审计。
+/// 处理一个请求。`actor` 来自 `SO_PEERCRED`，intent/result 双记录审计；
+/// 状态变化类操作成功后经 `events` 广播事件（§5.6 Subscribe）。
 /// 核心相关操作异步执行（spawn/就绪探测/热重载）。
 pub async fn handle(
     req: Request,
@@ -21,6 +23,7 @@ pub async fn handle(
     settings: &mut SettingsStore,
     core: &mut CoreManager,
     audit: &Audit,
+    events: &broadcast::Sender<Event>,
     actor: &Actor,
 ) -> Response {
     // 阶段一：intent（操作前，含 net_before 快照）
@@ -285,6 +288,19 @@ pub async fn handle(
     // 阶段三：result（操作后，含 net_after 快照 + err + cfg_sha256）
     let (result, err) = classify(&resp);
     audit.result(op, &op_id, actor, result, err, cfg_sha256.as_deref());
+
+    // 状态变化事件推送（仅成功时；Degraded 由 watchdog 单独推）
+    if result == "ok" {
+        match op {
+            "core.start" | "core.stop" | "core.restart" | "core.install" => {
+                let _ = events.send(Event::CoreStatusChanged);
+            }
+            "tun.enable" | "cleanup.tun" => {
+                let _ = events.send(Event::TunChanged);
+            }
+            _ => {}
+        }
+    }
     resp
 }
 

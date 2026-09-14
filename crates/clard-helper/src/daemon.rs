@@ -91,6 +91,8 @@ pub async fn run() -> io::Result<()> {
         })?,
     ));
     let core = Arc::new(Mutex::new(CoreManager::new(&state)));
+    // 事件广播（§5.6 Subscribe：状态变化/Degraded 推给订阅连接）
+    let (events_tx, _) = tokio::sync::broadcast::channel::<clard_proto::Event>(64);
 
     // §5.3 启动自检：TUN 残留扫描 → 有残留即 cleanup-tun（fail-open，幂等）
     {
@@ -116,33 +118,77 @@ pub async fn run() -> io::Result<()> {
         let store = store.clone();
         let settings = settings.clone();
         let core = core.clone();
+        let events = events_tx.clone();
         tokio::spawn(async move {
-            let mut store = store.lock().await;
-            let mut settings = settings.lock().await;
-            let mut core = core.lock().await;
-            if let Err(e) = serve_connection(stream, &mut store, &mut settings, &mut core, &audit, actor).await {
+            if let Err(e) = serve_connection(stream, &store, &settings, &core, &audit, &events, actor).await {
                 tracing::warn!("连接处理失败: {e}");
             }
         });
     }
 }
 
-/// 单连接：循环读请求直到 EOF（CLI 一次一个请求后关闭）。
+/// 单连接：循环读请求直到 EOF。锁改为**每请求临时获取**——
+/// Subscribe 长连接不持有锁，避免阻塞其他连接（§9 单写者仍满足）。
 async fn serve_connection(
     mut stream: UnixStream,
-    store: &mut ProfilesStore,
-    settings: &mut SettingsStore,
-    core: &mut CoreManager,
+    store: &Mutex<ProfilesStore>,
+    settings: &Mutex<SettingsStore>,
+    core: &Mutex<CoreManager>,
     audit: &Audit,
+    events: &tokio::sync::broadcast::Sender<clard_proto::Event>,
     actor: Actor,
 ) -> io::Result<()> {
     loop {
         let Some(req) = read_frame(&mut stream).await? else {
             return Ok(()); // EOF
         };
-        let resp = rpc::handle(req, store, settings, core, audit, &actor).await;
+        // Subscribe：切换为事件长连接（TUI 侧先 Status 全量同步再订阅，doc/01 §5.6）
+        if matches!(req, Request::Subscribe) {
+            return subscribe_loop(stream, events).await;
+        }
+        let mut store = store.lock().await;
+        let mut settings = settings.lock().await;
+        let mut core = core.lock().await;
+        let resp = rpc::handle(req, &mut store, &mut settings, &mut core, audit, events, &actor).await;
+        drop(store);
+        drop(settings);
+        drop(core);
         write_frame(&mut stream, &resp).await?;
     }
+}
+
+/// 订阅循环：把 helper 全局事件广播转发给对端，直到对端断开。
+async fn subscribe_loop(
+    mut stream: UnixStream,
+    events: &tokio::sync::broadcast::Sender<clard_proto::Event>,
+) -> io::Result<()> {
+    let mut rx = events.subscribe();
+    loop {
+        tokio::select! {
+            // 对端关闭/发数据检测（Subscribe 期间对端不应再发请求）
+            r = read_frame(&mut stream) => {
+                match r {
+                    Ok(None) | Err(_) => return Ok(()),
+                    Ok(Some(_)) => continue,
+                }
+            }
+            e = rx.recv() => {
+                match e {
+                    Ok(ev) => write_event(&mut stream, &ev).await?,
+                    Err(tokio::sync::broadcast::error::RecvError::Lagged(_)) => continue,
+                    Err(_) => return Ok(()),
+                }
+            }
+        }
+    }
+}
+
+async fn write_event(stream: &mut UnixStream, ev: &clard_proto::Event) -> io::Result<()> {
+    let buf = serde_json::to_vec(ev)
+        .map_err(|e| io::Error::new(io::ErrorKind::InvalidData, e.to_string()))?;
+    stream.write_all(&(buf.len() as u32).to_be_bytes()).await?;
+    stream.write_all(&buf).await?;
+    Ok(())
 }
 
 /// 读一帧：u32 BE 长度 + JSON；EOF 返回 None。
