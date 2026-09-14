@@ -1091,7 +1091,7 @@ impl APP {
                     .settings
                     .as_ref()
                     .map(|s| s.tun_stack.clone())
-                    .unwrap_or_else(|| "system".into());
+                    .unwrap_or_else(|| "gvisor".into());
                 let next = match cur.as_str() {
                     "system" => "gvisor",
                     "gvisor" => "mixed",

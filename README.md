@@ -61,7 +61,7 @@ Clard 是 Linux 上的完整代理管理工具：系统级常驻服务 `clard-he
 ### 设置
 
 - [x] 通用（混合端口 7890 仅回环、自动更新间隔、语言、主题）
-- [x] TUN 与旁路（热重载 + 读回校验）：开关（helper 托管注入 + `PATCH /configs` 热更 + 回读校验 + 失败回退）、stack、**DNS 模式（fake-ip/redir-host）**、dns-hijack、route-exclude、exclude-uid/interface/dst-port、strict-route/auto-redirect（二次确认 + 风险提示）、紧急恢复直连（cleanup-tun，幂等）；能力探测/冲突检测；启动自检残留清理；配置生成注入设置
+- [x] TUN 与旁路（热重载 + 读回校验）：开关（helper 托管注入 + `PATCH /configs` 热更 + 回读校验 + 失败回退）、stack（**默认 gvisor**，绕开防火墙拦截）、**DNS 模式（fake-ip/redir-host）**、dns-hijack、route-exclude、exclude-uid/interface/dst-port、strict-route/auto-redirect（二次确认 + 风险提示）、紧急恢复直连（cleanup-tun，幂等）；能力探测/冲突检测；启动自检残留清理；配置生成注入设置
 - [x] 核心（版本/checksum 展示、启停/重启、`c` 检查更新、`i` 升级——自动获取 GitHub 最新 release，helper 复核 + 原子替换 + 重启）；RPM 随包携带最新 mihomo 安装即用，升级为可选；**helper 启动自动拉起核心**（生命周期绑定，服务重启/升级后核心自动恢复）
 - [x] 后台服务（RPM 安装/卸载命令展示；安装即 systemd enable --now，packaging/clard.spec）
 - [x] 关于（版本 / 路径一览）

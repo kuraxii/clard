@@ -773,12 +773,12 @@ fn draw_settings_tun(f: &mut Frame<'_>, area: Rect, state: &SettingsState, theme
                 TunRow::TunStack => settings
                     .map(|s| {
                         if s.tun_stack.is_empty() {
-                            "[system]".to_string()
+                            "[gvisor]".to_string()
                         } else {
                             format!("[{}]", s.tun_stack)
                         }
                     })
-                    .unwrap_or_else(|| "[system]".to_string()),
+                    .unwrap_or_else(|| "[gvisor]".to_string()),
                 TunRow::TunDnsMode => settings
                     .map(|s| {
                         if s.tun_dns_mode.is_empty() {

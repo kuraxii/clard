@@ -162,7 +162,7 @@ impl Default for Settings {
             mixed_port: 7890,
             test_url: String::new(),
             tun_enabled: false,
-            tun_stack: "system".into(),
+            tun_stack: "gvisor".into(),
             tun_dns_mode: "fake-ip".into(),
             dns_hijack: Vec::new(),
             route_exclude_address: Vec::new(),

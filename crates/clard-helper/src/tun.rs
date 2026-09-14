@@ -535,7 +535,7 @@ mod tests {
         let block = build_tun_block(&settings());
         assert_eq!(get(&block, "enable").unwrap().as_bool(), Some(true));
         assert_eq!(get(&block, "device").unwrap().as_str(), Some("clard0"));
-        assert_eq!(get(&block, "stack").unwrap().as_str(), Some("system"));
+        assert_eq!(get(&block, "stack").unwrap().as_str(), Some("gvisor"));
         assert_eq!(get(&block, "auto-route").unwrap().as_bool(), Some(true));
         assert_eq!(get(&block, "iproute2-table-index").unwrap().as_i64(), Some(2023));
         assert_eq!(get(&block, "iproute2-rule-index").unwrap().as_i64(), Some(9100));

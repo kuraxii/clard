@@ -162,7 +162,7 @@ mod tests {
         assert_eq!(s.theme, "dark");
         assert_eq!(s.mixed_port, 7890);
         assert!(!s.tun_enabled, "TUN 默认关");
-        assert_eq!(s.tun_stack, "system");
+        assert_eq!(s.tun_stack, "gvisor");
         assert!(s.route_exclude_address.is_empty(), "空 = 用默认私网段");
     }
 

@@ -81,7 +81,7 @@ impl Default for TunOptions {
     fn default() -> Self {
         Self {
             device: "clard0".into(),
-            stack: "system".into(),
+            stack: "gvisor".into(),
             table_index: 2023,
             rule_index: 9100,
             auto_route: true,
