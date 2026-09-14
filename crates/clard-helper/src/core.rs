@@ -15,14 +15,15 @@ use std::{
 use std::process::Stdio;
 use tokio::process::{Child, Command};
 
-/// 核心二进制默认路径（root 拥有，非 symlink）。
+/// 核心二进制默认路径（/var/clard/bin，root 拥有，动态升级；doc/01 §5.1）。
+/// 放在 /var 而非 /usr/libexec：属于动态变化的外部二进制，随数据目录统一管理。
 fn core_bin_path() -> PathBuf {
     if let Ok(p) = std::env::var("CLARD_CORE_BIN") {
         if !p.is_empty() {
             return PathBuf::from(p);
         }
     }
-    PathBuf::from("/usr/libexec/clard/mihomo")
+    PathBuf::from("/var/clard/bin/mihomo")
 }
 
 /// 核心 ext-ctl unix socket 路径。
@@ -151,7 +152,7 @@ impl CoreManager {
         self.start().await
     }
 
-    /// 投递运行态配置：落盘 `/var/lib/clard/runtime/config.yaml`（原子），
+    /// 投递运行态配置：落盘 `/var/clard/lib/runtime/config.yaml`（原子），
     /// 核心运行中则 `PUT /configs?force=true`（内联 payload）热重载。
     pub async fn apply_config(&mut self, yaml: &str) -> Result<(), String> {
         std::fs::create_dir_all(&self.runtime_dir).map_err(|e| e.to_string())?;

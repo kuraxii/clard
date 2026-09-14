@@ -4,7 +4,7 @@
 //! - `<state>/profiles.yaml` —— 索引（`current` + `items`）
 //! - `<state>/profiles/<uid>.yaml` —— 订阅内容文件
 //!
-//! `state` 默认 `/var/lib/clard`（测试/开发可经 `CLARD_STATE_DIR` 覆盖）。
+//! `state` 默认 `/var/clard/lib`（测试/开发可经 `CLARD_STATE_DIR` 覆盖）。
 //! 规则：同 URL 再次导入 → **覆盖更新**（保留 uid/内容路径）；写操作原子替换索引。
 
 use std::{
@@ -98,20 +98,20 @@ pub enum ImportOutcome {
     Updated { uid: String },
 }
 
-/// 配置索引存储；`root` 为状态目录（默认 `/var/lib/clard`）。
+/// 配置索引存储；`root` 为状态目录（默认 `/var/clard/lib`）。
 pub struct ProfilesStore {
     root: PathBuf,
     index: ProfilesIndex,
 }
 
-/// 状态目录：`CLARD_STATE_DIR` 覆盖，默认 `/var/lib/clard`。
+/// 状态目录：`CLARD_STATE_DIR` 覆盖，默认 `/var/clard/lib`（doc/01 §4，统一 /var/clard 子树）。
 pub fn state_dir() -> PathBuf {
     if let Ok(dir) = std::env::var("CLARD_STATE_DIR") {
         if !dir.is_empty() {
             return PathBuf::from(dir);
         }
     }
-    PathBuf::from("/var/lib/clard")
+    PathBuf::from("/var/clard/lib")
 }
 
 impl ProfilesStore {

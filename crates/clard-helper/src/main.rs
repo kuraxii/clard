@@ -45,7 +45,7 @@ enum Command {
     Install,
     /// 卸载：cleanup-tun → 停核心 → disable → 删 unit（数据默认保留）
     Uninstall {
-        /// 连同 /var/lib/clard、/var/cache/clard、/var/log/clard 一并删除
+        /// 连同 /var/clard（lib/cache/log/backups/bin）一并删除
         #[arg(long)]
         purge: bool,
     },

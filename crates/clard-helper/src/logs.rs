@@ -1,6 +1,6 @@
 //! 日志读取与 TUI 应用日志落盘（doc/01 §10）。
 //!
-//! - TUI 应用日志经 `LogSubmit` 交 helper 落盘 `/var/log/clard/tui.log`（root 0600）。
+//! - TUI 应用日志经 `LogSubmit` 交 helper 落盘 `/var/clard/log/tui.log`（root 0600）。
 //! - `LogTail` 按字节游标分页读取 tui.log / core.log。
 //! - `AuditQuery` 按字节游标分页读取 audit.log 并解析为结构化记录（供 TUI 过滤/展示）。
 

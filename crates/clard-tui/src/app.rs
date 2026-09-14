@@ -1215,7 +1215,7 @@ impl APP {
         });
     }
 
-    /// TUI 应用日志交 helper 落盘（R6.2，/var/log/clard/tui.log）。
+    /// TUI 应用日志交 helper 落盘（R6.2，/var/clard/log/tui.log）。
     pub fn submit_app_log(&self, msg: String) {
         tokio::spawn(async move {
             let _ = rpc::call(&Request::LogSubmit { line: msg }).await;

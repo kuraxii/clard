@@ -1,5 +1,5 @@
-//! 本地备份/恢复（doc/05 §8）：打包 `/var/lib/clard` 的配置数据为 tar.gz，
-//! 存 `/var/backups/clard/`（`CLARD_BACKUP_DIR` 可覆盖用于测试）。
+//! 本地备份/恢复（doc/05 §8）：打包 `/var/clard/lib` 的配置数据为 tar.gz，
+//! 存 `/var/clard/backups/`（`CLARD_BACKUP_DIR` 可覆盖用于测试）。
 //!
 //! 打包范围：`profiles.yaml`、`profiles/`、`clard.toml`（运行态 runtime/ 与缓存不备份，
 //! 恢复后由当前配置重新生成）。恢复时校验归档结构（拒绝路径穿越/超大）。
@@ -15,14 +15,14 @@ use clard_proto::BackupItem;
 use flate2::{Compression, read::GzDecoder, write::GzEncoder};
 use thiserror::Error;
 
-/// 备份目录：`CLARD_BACKUP_DIR` 覆盖，默认 `/var/backups/clard`。
+/// 备份目录：`CLARD_BACKUP_DIR` 覆盖，默认 `/var/clard/backups`。
 pub fn backup_dir() -> PathBuf {
     if let Ok(dir) = std::env::var("CLARD_BACKUP_DIR") {
         if !dir.is_empty() {
             return PathBuf::from(dir);
         }
     }
-    PathBuf::from("/var/backups/clard")
+    PathBuf::from("/var/clard/backups")
 }
 
 #[derive(Debug, Error)]

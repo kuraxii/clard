@@ -901,9 +901,11 @@ fn draw_settings_backup(f: &mut Frame<'_>, area: Rect, state: &SettingsState, th
 fn draw_settings_about(f: &mut Frame<'_>, area: Rect, theme: Theme) {
     let paths = [
         ("/run/clard", "runtime sockets"),
-        ("/var/lib/clard", "persistent data"),
-        ("/var/cache/clard", "downloads / assets"),
-        ("/var/log/clard", "audit and logs"),
+        ("/var/clard/lib", "persistent data"),
+        ("/var/clard/cache", "downloads / assets"),
+        ("/var/clard/log", "audit and logs"),
+        ("/var/clard/bin", "mihomo core binary"),
+        ("/var/clard/backups", "local backups"),
         ("/etc/clard", "helper config"),
     ];
     let mut lines = vec![kv_line("Clard", env!("CARGO_PKG_VERSION"), theme), Line::from("")];

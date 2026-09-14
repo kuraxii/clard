@@ -90,7 +90,7 @@ pub enum Request {
     AuditQuery { cursor: u64 },
     /// 核心日志分页读取
     LogTail { source: String, cursor: u64 },
-    /// TUI 应用日志交给 helper 落盘（/var/log/clard/tui.log）
+    /// TUI 应用日志交给 helper 落盘（/var/clard/log/tui.log）
     LogSubmit { line: String },
     /// 订阅事件流（断线重连后先 Status 全量同步再增量订阅）
     Subscribe,
@@ -102,7 +102,7 @@ pub enum Request {
     },
 }
 
-/// 系统级设置（`/var/lib/clard/clard.toml`，doc/05 §7 R7.1/R7.2）。
+/// 系统级设置（`/var/clard/lib/clard.toml`，doc/05 §7 R7.1/R7.2）。
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(default)]
 pub struct Settings {

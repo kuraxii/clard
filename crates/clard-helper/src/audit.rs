@@ -2,7 +2,7 @@
 //!
 //! 系统级操作由 helper 记录：op + actor（uid/pid）+ result。双写：
 //! - stdout `KEY=VALUE` 行（systemd 自动解析为 journald 字段）；
-//! - JSON lines 文件（`/var/log/clard/audit.log`，`CLARD_LOG_DIR` 可覆盖用于开发/测试）。
+//! - JSON lines 文件（`/var/clard/log/audit.log`，`CLARD_LOG_DIR` 可覆盖用于开发/测试）。
 //!
 //! 完整规格（intent+result 双记录、net 前后快照、cfg_sha256 等）随 M1/M2 里程碑补全。
 
@@ -35,14 +35,14 @@ pub struct Audit {
     log_path: PathBuf,
 }
 
-/// 日志目录：`CLARD_LOG_DIR` 覆盖，默认 `/var/log/clard`。
+/// 日志目录：`CLARD_LOG_DIR` 覆盖，默认 `/var/clard/log`。
 pub fn log_dir() -> PathBuf {
     if let Ok(dir) = std::env::var("CLARD_LOG_DIR") {
         if !dir.is_empty() {
             return PathBuf::from(dir);
         }
     }
-    PathBuf::from("/var/log/clard")
+    PathBuf::from("/var/clard/log")
 }
 
 impl Audit {
