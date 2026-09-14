@@ -1276,8 +1276,11 @@ impl APP {
     }
 
     fn on_logs_char(&mut self, c: char) {
-        if c == 'f' {
-            self.open_logs_filter();
+        match c {
+            'f' => self.open_logs_filter(),
+            // R6.1：核心日志级别过滤（全部 → info → warn → error → debug → 全部）
+            'e' => self.logs.cycle_level_filter(),
+            _ => {}
         }
     }
 

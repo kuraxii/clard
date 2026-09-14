@@ -33,6 +33,14 @@ impl LogLine {
             || self.source.to_lowercase().contains(&needle)
             || self.level.to_lowercase().contains(&needle)
     }
+
+    /// 级别过滤匹配（None = 全部；level 已归一为 warn/debug/info/error）。
+    pub fn matches_level(&self, level: Option<&str>) -> bool {
+        match level {
+            None => true,
+            Some(l) => self.level.eq_ignore_ascii_case(l),
+        }
+    }
 }
 
 /// 日志页状态。
@@ -49,6 +57,8 @@ pub struct LogsState {
     audit_cursor: u64,
     /// 关键字过滤（本地）。
     pub filter: String,
+    /// 核心日志级别过滤（None = 全部；R6.1 `e` 循环切换）。
+    pub level_filter: Option<String>,
     /// 行视图（App/Core）选中。
     pub lines_state: ListState,
     /// 审计表选中。
@@ -66,6 +76,7 @@ impl LogsState {
             core_cursor: 0,
             audit_cursor: 0,
             filter: String::new(),
+            level_filter: None,
             lines_state: ListState::default(),
             table_state: TableState::default(),
         }
@@ -87,6 +98,22 @@ impl LogsState {
 
     pub fn set_filter(&mut self, filter: String) {
         self.filter = filter;
+    }
+
+    /// `e` 级别过滤循环：全部 → info → warn → error → debug → 全部。
+    pub fn cycle_level_filter(&mut self) {
+        self.level_filter = match self.level_filter.as_deref() {
+            None => Some("info".to_string()),
+            Some("info") => Some("warn".to_string()),
+            Some("warn") => Some("error".to_string()),
+            Some("error") => Some("debug".to_string()),
+            _ => None,
+        };
+    }
+
+    /// 当前级别过滤文案（None = all）。
+    pub fn level_filter_label(&self) -> String {
+        self.level_filter.clone().unwrap_or_else(|| "all".to_string())
     }
 
     /// 全量替换应用日志（每次从游标 0 重读，语义为「刷新」）。
@@ -114,7 +141,7 @@ impl LogsState {
         };
         lines
             .into_iter()
-            .filter(|l| l.matches(&self.filter))
+            .filter(|l| l.matches(&self.filter) && l.matches_level(self.level_filter.as_deref()))
             .collect()
     }
 
@@ -180,7 +207,8 @@ impl Default for LogsState {
     }
 }
 
-/// 文本行解析：`HH:MM:SS [level] [source] msg` 或原样。简单启发式：前 8 字符为时间戳。
+/// 文本行解析：`HH:MM:SS [level] [source] msg` 或 mihomo structured 格式。
+/// 简单启发式：前 8 字符为时间戳；级别取 `level=` 或 `[INFO]` 等。
 fn parse_text_line(line: String, source: &str) -> LogLine {
     let ts = line
         .get(..8)
@@ -188,8 +216,72 @@ fn parse_text_line(line: String, source: &str) -> LogLine {
         .map(|_| 0);
     LogLine {
         ts,
-        level: "info".to_string(),
+        level: extract_level(&line),
         source: source.to_string(),
         message: line,
+    }
+}
+
+/// 从日志行提取级别（归一化：warning→warn）。
+fn extract_level(line: &str) -> String {
+    // mihomo structured：`level=info` / `level=warning`
+    if let Some(rest) = line.split("level=").nth(1) {
+        let v = rest
+            .split(|c: char| c.is_whitespace() || c == '"' || c == ',')
+            .next()
+            .unwrap_or("")
+            .to_ascii_lowercase();
+        if !v.is_empty() {
+            return normalize_level(&v);
+        }
+    }
+    // 传统：`[INFO]` / `[WARN]` / `[ERROR]` / `[DEBUG]`
+    for lvl in ["DEBUG", "INFO", "WARN", "ERROR"] {
+        if line.contains(&format!("[{lvl}]")) {
+            return normalize_level(lvl);
+        }
+    }
+    "info".to_string()
+}
+
+fn normalize_level(level: &str) -> String {
+    match level.to_ascii_lowercase().as_str() {
+        "warning" => "warn".to_string(),
+        other => other.to_string(),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn parse_level_from_structured_and_bracket() {
+        assert_eq!(extract_level(r#"time="x" level=warning msg="y""#), "warn");
+        assert_eq!(extract_level("level=debug something"), "debug");
+        assert_eq!(extract_level("2026/09/14 05:12:47 [ERROR] boom"), "error");
+        assert_eq!(extract_level("no level here"), "info");
+    }
+
+    #[test]
+    fn level_filter_cycles_and_matches() {
+        let mut s = LogsState::new();
+        assert_eq!(s.level_filter, None);
+        s.cycle_level_filter();
+        assert_eq!(s.level_filter.as_deref(), Some("info"));
+        s.cycle_level_filter();
+        assert_eq!(s.level_filter.as_deref(), Some("warn"));
+        for _ in 0..2 {
+            s.cycle_level_filter();
+        }
+        assert_eq!(s.level_filter.as_deref(), Some("debug"));
+        s.cycle_level_filter();
+        assert_eq!(s.level_filter, None, "debug → all");
+
+        let warn = LogLine { ts: None, level: "warn".into(), source: "Core".into(), message: "x".into() };
+        let info = LogLine { ts: None, level: "info".into(), source: "Core".into(), message: "y".into() };
+        assert!(warn.matches_level(Some("warn")));
+        assert!(!info.matches_level(Some("warn")));
+        assert!(info.matches_level(None));
     }
 }

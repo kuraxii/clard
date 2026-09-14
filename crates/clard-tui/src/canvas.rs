@@ -530,9 +530,14 @@ fn draw_logs_tabs(f: &mut Frame<'_>, area: Rect, state: &LogsState, theme: Theme
         LogsTab::Core => 1,
         LogsTab::Audit => 2,
     };
+    let title = if state.tab == LogsTab::Core {
+        format!("Logs  (level: {})", state.level_filter_label())
+    } else {
+        "Logs".to_string()
+    };
     let titles = vec![" App ", " Core ", " Audit "];
     let tabs = Tabs::new(titles)
-        .block(panel_block("Logs", false, theme))
+        .block(panel_block(title.as_str(), false, theme))
         .select(selected)
         .style(Style::default().fg(theme.muted))
         .highlight_style(Style::default().fg(theme.primary).add_modifier(Modifier::BOLD));
@@ -1591,7 +1596,8 @@ fn draw_help(f: &mut Frame<'_>, area: Rect, app: &APP, theme: Theme) {
         Page::Logs => vec![
             Line::from(Span::styled("Logs", theme.title_style())),
             Line::from("Tab switches between App / Core / Audit columns."),
-            Line::from("f filters by keyword; audit rows show op/actor/result."),
+            Line::from("f filters by keyword; e cycles core level (all/info/warn/error/debug)."),
+            Line::from("Audit rows show op/actor/result."),
         ],
         Page::Settings => vec![
             Line::from(Span::styled("Settings", theme.title_style())),
