@@ -1,4 +1,4 @@
-use std::{net::SocketAddr, path::PathBuf};
+use std::{collections::HashMap, net::SocketAddr, path::PathBuf};
 
 use http::Method;
 use reqwest::{Client, RequestBuilder, Url};
@@ -264,12 +264,12 @@ impl Backend {
         Ok(())
     }
 
-    /// 指定代理组下不再使用固定的代理节点
+    /// 指定代理组下不再使用固定的代理节点（doc/04 `DELETE /proxies/:name`）
     ///
     /// 一般用于自动选择的代理组（例如：URLTest 类型的代理组）下的节点
     pub async fn unfixed_proxy(&self, group_name: &str) -> Result<()> {
         let group_name_encode = urlencoding::encode(group_name);
-        let req = self.build_request(Method::GET, &format!("/proxies/{group_name_encode}"))?;
+        let req = self.build_request(Method::DELETE, &format!("/proxies/{group_name_encode}"))?;
         let res = req.send().await?;
         if !res.status().is_success() {
             let err_msg = res.json::<ResponseError>().await.map_or_else(
@@ -279,6 +279,32 @@ impl Backend {
             return Err(IpcError::ResponseError(err_msg));
         }
         Ok(())
+    }
+
+    /// 对指定代理组下所有节点测延迟（doc/04 `GET /group/:name/delay`，Meta 扩展）。
+    ///
+    /// 返回节点名 → 延迟（ms）map；自动组测前 mihomo 会先清固定选择。
+    pub async fn delay_group_for_name(
+        &self,
+        group_name: &str,
+        test_url: &str,
+        timeout: u32,
+    ) -> Result<HashMap<String, u16>> {
+        let group_name_encode = urlencoding::encode(group_name);
+        let req = self
+            .build_request(Method::GET, &format!("/group/{group_name_encode}/delay"))?
+            .query(&[("url", test_url), ("timeout", &timeout.to_string())]);
+
+        let res = req.send().await?;
+        if !res.status().is_success() {
+            let err_msg = res.json::<ResponseError>().await.map_or_else(
+                |msg| format!("group delay test for [{group_name}] failed: {msg}"),
+                |err| err.message.to_string(),
+            );
+            return Err(IpcError::ResponseError(err_msg));
+        }
+
+        Ok(res.json::<HashMap<String, u16>>().await?)
     }
 
     /// 对指定代理进行延迟测试
@@ -992,6 +1018,36 @@ mod tests {
         let result = backend.upgrade_geo().await;
         assert_response_error(result, "upgrade geo failed");
 
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn unfixed_proxy_uses_delete() -> Result<()> {
+        let (backend, handle) = mock_backend_ok().await?;
+        let result = backend.unfixed_proxy("auto-group").await;
+        assert!(result.is_ok());
+
+        let req = wait_request(handle).await;
+        assert_method_path(&req, "DELETE", "/proxies/auto-group");
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn delay_group_for_name_returns_node_map() -> Result<()> {
+        let (addr, handle) = spawn_mock_server("200 OK", r#"{"node-a":132,"node-b":88}"#).await?;
+        let backend = backend_tcp(addr)?;
+        let result = backend.delay_group_for_name("group", "http://x", 5000).await;
+
+        assert!(result.is_ok());
+        let map = result?;
+        assert_eq!(map.get("node-a"), Some(&132));
+        assert_eq!(map.get("node-b"), Some(&88));
+
+        let req = wait_request(handle).await;
+        assert_method_path(&req, "GET", "/group/group/delay");
+        let query = req.query.unwrap_or_default();
+        assert!(query.contains("timeout=5000"));
+        assert!(query.contains("url=http%3A%2F%2Fx"));
         Ok(())
     }
 }

@@ -594,7 +594,7 @@ fn draw_proxy_list(f: &mut Frame<'_>, area: Rect, state: &ProxyState, theme: The
 
     let list = List::new(items)
         .block(panel_block(
-            "Nodes  Enter select  t test",
+            "Nodes  Enter select  t test  T all  d clear",
             state.focus == ProxyFocus::Proxies,
             theme,
         ))
@@ -931,7 +931,8 @@ fn draw_help(f: &mut Frame<'_>, area: Rect, app: &APP, theme: Theme) {
         Page::Proxies => vec![
             Line::from(Span::styled("Proxies", theme.title_style())),
             Line::from("Left/right or Tab changes focus between groups and nodes."),
-            Line::from("Enter selects the highlighted node; t/d tests its delay."),
+            Line::from("Enter selects the highlighted node; t tests its delay."),
+            Line::from("T tests every group; d clears the group's fixed selection."),
         ],
         Page::Connections => vec![
             Line::from(Span::styled("Connections", theme.title_style())),
@@ -1058,7 +1059,8 @@ fn footer_keys(app: &APP) -> Vec<(&'static str, &'static str)> {
             keys.push(("↑↓/jk", "move"));
             keys.push(("Tab/←→", focus));
             keys.push(("Enter", "select"));
-            keys.push(("t", "test"));
+            keys.push(("t/T", "test"));
+            keys.push(("d", "clear"));
         }
         Page::Connections => {
             keys.push(("↑↓/jk", "move"));

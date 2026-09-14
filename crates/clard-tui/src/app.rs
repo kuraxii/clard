@@ -375,6 +375,65 @@ impl APP {
         });
     }
 
+    /// 清除当前分组的固定选择，回退 URLTest 自动（R3.2，`DELETE /proxies/:name`）。
+    fn clear_group_selection(&mut self) {
+        let Some(group_name) = self.proxies.selected_group_name().map(str::to_string) else {
+            return;
+        };
+        let backend = self.backend.clone();
+        let sender = self.event_sender.clone();
+        let name = group_name.clone();
+        tokio::spawn(async move {
+            match backend.unfixed_proxy(&group_name).await {
+                Ok(()) => {
+                    let _ = sender.send(ClardEvent::Notify(format!("cleared selection: {name}")));
+                    if let Ok(groups) = backend.get_groups().await {
+                        let _ = sender.send(ClardEvent::UpdateGroups(groups));
+                    }
+                }
+                Err(e) => {
+                    let _ = sender.send(ClardEvent::Error(format!("Clear selection error: {e}")));
+                }
+            }
+        });
+    }
+
+    /// 全部分组测速（R3.3 `T`，`GET /group/:name/delay`）。
+    fn test_all_groups(&mut self) {
+        let groups: Vec<String> = self.proxies.groups.iter().map(|g| g.name.clone()).collect();
+        if groups.is_empty() {
+            return;
+        }
+        let backend = self.backend.clone();
+        let sender = self.event_sender.clone();
+        tokio::spawn(async move {
+            let url = "http://www.gstatic.com/generate_204".to_string();
+            let timeout = 5000;
+            for group in groups {
+                match backend.delay_group_for_name(&group, &url, timeout).await {
+                    Ok(map) => {
+                        let _ = sender.send(ClardEvent::Notify(format!("{group}: {} nodes tested", map.len())));
+                    }
+                    Err(e) => {
+                        let _ = sender.send(ClardEvent::Error(format!("{group} test failed: {e}")));
+                    }
+                }
+            }
+            if let Ok(groups_data) = backend.get_groups().await {
+                let _ = sender.send(ClardEvent::UpdateGroups(groups_data));
+            }
+        });
+    }
+
+    fn on_proxies_char(&mut self, c: char) {
+        match c {
+            't' if self.proxies.focus == ProxyFocus::Proxies => self.test_proxy_delay(),
+            'T' => self.test_all_groups(),
+            'd' => self.clear_group_selection(),
+            _ => {}
+        }
+    }
+
     fn close_selected_connection(&mut self) {
         let Some(idx) = self.connections.list_state.selected() else {
             return;
@@ -580,9 +639,7 @@ impl APP {
 
         match self.current_page {
             Page::Profiles => self.on_profiles_char(char),
-            Page::Proxies if (char == 'd' || char == 't') && self.proxies.focus == ProxyFocus::Proxies => {
-                self.test_proxy_delay();
-            }
+            Page::Proxies => self.on_proxies_char(char),
             Page::Connections => self.on_connections_char(char),
             _ => {}
         }

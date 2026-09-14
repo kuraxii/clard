@@ -101,6 +101,14 @@ impl ProxyState {
         Some((&group.name, node))
     }
 
+    /// 当前选中的分组名（清除固定选择 / 全组测速用）。
+    pub fn selected_group_name(&self) -> Option<&str> {
+        self.group_list_state
+            .selected()
+            .and_then(|idx| self.groups.get(idx))
+            .map(|group| group.name.as_str())
+    }
+
     fn select_default_proxy_for_group(&mut self, group_idx: usize) {
         let selected_idx = self.groups.get(group_idx).and_then(|group| {
             group
