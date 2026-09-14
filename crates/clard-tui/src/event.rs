@@ -36,6 +36,7 @@ pub enum ClardEvent {
         version: Option<String>,
     },
     BackupsReady(Vec<clard_proto::BackupItem>),
+    HelperVersion(String),
     /// 成功/信息消息（页脚消息条）
     Notify(String),
     Error(String),

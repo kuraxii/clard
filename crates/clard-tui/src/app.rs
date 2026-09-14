@@ -157,7 +157,10 @@ impl APP {
                 self.fetch_core_status();
                 self.fetch_backups();
             }
-            _ => {}
+            Page::Home => {
+                self.fetch_core_status();
+                self.fetch_helper_version();
+            }
         }
     }
 
@@ -582,6 +585,16 @@ impl APP {
         tokio::spawn(async move {
             if let Ok(Response::Settings { settings }) = rpc::call(&Request::SettingsGet).await {
                 let _ = sender.send(ClardEvent::SettingsReady(settings));
+            }
+        });
+    }
+
+    /// 拉取 helper 版本（`Hello` 握手）。
+    pub fn fetch_helper_version(&self) {
+        let sender = self.event_sender.clone();
+        tokio::spawn(async move {
+            if let Ok(Response::Hello { helper_version, .. }) = rpc::call(&Request::Hello).await {
+                let _ = sender.send(ClardEvent::HelperVersion(helper_version));
             }
         });
     }

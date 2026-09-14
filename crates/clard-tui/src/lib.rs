@@ -141,6 +141,11 @@ pub async fn start_clard() -> Result<()> {
     let backend = default_backend()?;
 
     let mut app = APP::init(sender.clone(), Arc::new(backend.clone()));
+    // 流量 WS 全局订阅一次（主页/连接页共用）
+    app.subscribe_traffic();
+    // 启动即拉取 helper 版本与核心状态（主页展示）
+    app.fetch_helper_version();
+    app.fetch_core_status();
 
     tokio::spawn(listen_input_event(token.clone(), sender.clone()));
 
@@ -209,7 +214,11 @@ pub async fn start_clard() -> Result<()> {
                         app.apply_settings(settings);
                     }
                     ClardEvent::CoreStatusReady { state, pid, version } => {
-                        app.settings.apply_core_status(state, pid, version);
+                        app.settings.apply_core_status(state.clone(), pid, version.clone());
+                        app.home.apply_core_status(state, pid, version);
+                    }
+                    ClardEvent::HelperVersion(version) => {
+                        app.home.apply_helper_version(version);
                     }
                     ClardEvent::BackupsReady(backups) => {
                         app.settings.apply_backups(backups);

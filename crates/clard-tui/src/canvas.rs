@@ -53,7 +53,7 @@ impl Painter {
             draw_navigation(f, shell[1], app, theme);
 
             match app.current_page {
-                Page::Home => HomeLayout::draw(f, shell[2], theme),
+                Page::Home => HomeLayout::draw(f, shell[2], app, theme),
                 Page::Profiles => ProfilesLayout::draw(f, shell[2], &app.profiles, theme),
                 Page::Proxies => ProxyLayout::draw(f, shell[2], &app.proxies, theme),
                 Page::Connections => ConnectionsLayout::draw(f, shell[2], &app.connections, theme),
@@ -266,50 +266,118 @@ fn draw_footer(f: &mut Frame<'_>, area: Rect, app: &APP, theme: Theme) {
     );
 }
 
-/// 尚未实现的页面：渲染标题 + 计划能力清单（导航骨架，随各增量替换）。
-fn draw_placeholder(f: &mut Frame<'_>, area: Rect, page: Page, features: &[(&str, &str)], theme: Theme) {
-    let mut lines = vec![
-        Line::from(Span::styled(page.title(), theme.title_style())),
-        Line::from(""),
-        Line::from(Span::styled(
-            "Navigation skeleton — content lands in a later increment.",
-            theme.muted_style(),
-        )),
-        Line::from(""),
-    ];
-    for (label, desc) in features {
-        lines.push(Line::from(vec![
-            Span::styled(format!("  {label:<18}"), Style::default().fg(theme.primary)),
-            Span::styled(*desc, theme.muted_style()),
-        ]));
-    }
+struct HomeLayout;
 
+impl HomeLayout {
+    fn draw(f: &mut Frame<'_>, area: Rect, app: &APP, theme: Theme) {
+        let cols = Layout::default()
+            .direction(Direction::Horizontal)
+            .constraints([Constraint::Percentage(50), Constraint::Percentage(50)].as_ref())
+            .split(area);
+        let left = Layout::default()
+            .direction(Direction::Vertical)
+            .constraints([Constraint::Percentage(50), Constraint::Percentage(50)].as_ref())
+            .split(cols[0]);
+        let right = Layout::default()
+            .direction(Direction::Vertical)
+            .constraints([Constraint::Percentage(50), Constraint::Percentage(50)].as_ref())
+            .split(cols[1]);
+
+        draw_home_core(f, left[0], app, theme);
+        draw_home_profile(f, left[1], app, theme);
+        draw_home_traffic(f, right[0], app, theme);
+        draw_home_service(f, right[1], app, theme);
+    }
+}
+
+fn draw_home_core(f: &mut Frame<'_>, area: Rect, app: &APP, theme: Theme) {
+    let state_text = app.home.core_state.as_deref().unwrap_or("unknown");
+    let state_color = if state_text == "running" { theme.success } else { theme.muted };
+    let pid = app.home.core_pid.map(|p| p.to_string()).unwrap_or_else(|| "-".to_string());
+    let version = app.home.core_version.clone().unwrap_or_else(|| "-".to_string());
+    let lines = vec![
+        Line::from(vec![
+            Span::styled("State:", theme.title_style()),
+            Span::raw("  "),
+            Span::styled(state_text.to_string(), Style::default().fg(state_color)),
+        ]),
+        kv_line("PID", &pid, theme),
+        kv_line("Version", &version, theme),
+    ];
     f.render_widget(
         Paragraph::new(lines)
-            .block(panel_block(page.title(), true, theme))
+            .block(panel_block("Core", false, theme))
             .wrap(Wrap { trim: true }),
         area,
     );
 }
 
-struct HomeLayout;
+fn draw_home_profile(f: &mut Frame<'_>, area: Rect, app: &APP, theme: Theme) {
+    let (name, updated) = app
+        .profiles
+        .selected()
+        .filter(|p| Some(p.uid.as_str()) == app.profiles.current.as_deref())
+        .map(|p| {
+            let updated = p.updated_at.map(format_unix_time).unwrap_or_else(|| "-".to_string());
+            (p.name.clone(), updated)
+        })
+        .unwrap_or_else(|| ("(none)".to_string(), "-".to_string()));
+    let lines = vec![
+        kv_line("Profile", &name, theme),
+        kv_line("Updated", &updated, theme),
+    ];
+    f.render_widget(
+        Paragraph::new(lines)
+            .block(panel_block("Profile", false, theme))
+            .wrap(Wrap { trim: true }),
+        area,
+    );
+}
 
-impl HomeLayout {
-    fn draw(f: &mut Frame<'_>, area: Rect, theme: Theme) {
-        draw_placeholder(
-            f,
-            area,
-            Page::Home,
-            &[
-                ("service", "helper status (connected / not installed)"),
-                ("core", "core state, PID, version, restart count"),
-                ("tun", "TUN on/off, device clard0, table/rule indices"),
-                ("profile", "current profile, updated/next update"),
-                ("traffic", "up/down rate and totals, exit node"),
-            ],
-            theme,
-        );
-    }
+fn draw_home_traffic(f: &mut Frame<'_>, area: Rect, app: &APP, theme: Theme) {
+    let up = app.connections.traffic.as_ref().map(|t| format_rate(t.up)).unwrap_or_else(|| "-".to_string());
+    let down = app.connections.traffic.as_ref().map(|t| format_rate(t.down)).unwrap_or_else(|| "-".to_string());
+    let (up_total, down_total) = app
+        .connections
+        .connections_data
+        .as_ref()
+        .map(|d| (format_network_bytes(d.upload_total), format_network_bytes(d.download_total)))
+        .unwrap_or_else(|| ("-".to_string(), "-".to_string()));
+    let lines = vec![
+        kv_line("Upload/s", &up, theme),
+        kv_line("Download/s", &down, theme),
+        kv_line("Up total", &up_total, theme),
+        kv_line("Down total", &down_total, theme),
+    ];
+    f.render_widget(
+        Paragraph::new(lines)
+            .block(panel_block("Traffic", false, theme))
+            .wrap(Wrap { trim: true }),
+        area,
+    );
+}
+
+fn draw_home_service(f: &mut Frame<'_>, area: Rect, app: &APP, theme: Theme) {
+    let helper = app
+        .home
+        .helper_version
+        .clone()
+        .map(|v| format!("v{v}"))
+        .unwrap_or_else(|| "unreachable".to_string());
+    let lines = vec![
+        kv_line("Helper", &helper, theme),
+        Line::from(""),
+        Line::from(Span::styled(
+            "Use 2 Profiles to import/switch a subscription.",
+            theme.muted_style(),
+        )),
+    ];
+    f.render_widget(
+        Paragraph::new(lines)
+            .block(panel_block("Service", false, theme))
+            .wrap(Wrap { trim: true }),
+        area,
+    );
 }
 
 struct ProfilesLayout;
@@ -1353,7 +1421,8 @@ fn draw_help(f: &mut Frame<'_>, area: Rect, app: &APP, theme: Theme) {
     lines.extend(match app.current_page {
         Page::Home => vec![
             Line::from(Span::styled("Home", theme.title_style())),
-            Line::from("System overview: helper, core, TUN, profile and traffic."),
+            Line::from("Overview of helper, core, current profile and traffic."),
+            Line::from("2 opens Profiles to import/switch a subscription."),
         ],
         Page::Profiles => vec![
             Line::from(Span::styled("Profiles", theme.title_style())),
@@ -1455,7 +1524,10 @@ fn page_title_key(page: Page) -> &'static str {
 
 fn header_summary(app: &APP) -> String {
     match app.current_page {
-        Page::Home => "system overview".to_string(),
+        Page::Home => {
+            let state = app.home.core_state.as_deref().unwrap_or("unknown");
+            format!("core {state} · helper {}", app.home.helper_version.as_deref().unwrap_or("-"))
+        }
         Page::Profiles => "subscription profiles".to_string(),
         Page::Proxies => {
             let groups = app.proxies.groups.len();
@@ -1494,6 +1566,7 @@ fn footer_keys(app: &APP) -> Vec<(&'static str, &'static str)> {
     match app.current_page {
         Page::Home => {
             keys.push(("1-7", "page"));
+            keys.push(("2", "profiles"));
         }
         Page::Profiles => {
             keys.push(("↑↓/jk", "move"));
