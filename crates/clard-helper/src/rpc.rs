@@ -72,6 +72,14 @@ pub fn handle(
             Ok(()) => ("profile.switch", Response::Ok),
             Err(e) => ("profile.switch", Response::err(e.to_string())),
         },
+        Request::ProfileRename { uid, name } => match store.rename(&uid, &name) {
+            Ok(()) => ("profile.rename", Response::Ok),
+            Err(e) => ("profile.rename", Response::err(e.to_string())),
+        },
+        Request::ProfileMove { uid, up } => match store.move_item(&uid, up) {
+            Ok(()) => ("profile.move", Response::Ok),
+            Err(e) => ("profile.move", Response::err(e.to_string())),
+        },
         other => {
             let op = "rpc.unimplemented";
             (op, Response::err(format!("方法未实现: {other:?}")))

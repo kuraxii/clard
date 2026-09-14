@@ -387,7 +387,7 @@ fn draw_profile_detail(f: &mut Frame<'_>, area: Rect, state: &ProfilesState, the
             kv_line("Interval", &interval, theme),
             Line::from(""),
             Line::from(Span::styled(
-                "i import · u update · d delete · Enter switch",
+                "i import · u update · d delete · r rename · [/] reorder · Enter switch",
                 theme.muted_style(),
             )),
         ]
@@ -1160,7 +1160,8 @@ fn footer_keys(app: &APP) -> Vec<(&'static str, &'static str)> {
             keys.push(("↑↓/jk", "move"));
             keys.push(("i", "import"));
             keys.push(("u", "update"));
-            keys.push(("d", "delete"));
+            keys.push(("d/r", "del/rename"));
+            keys.push(("[/]", "reorder"));
             keys.push(("Enter", "switch"));
         }
         Page::Proxies => {

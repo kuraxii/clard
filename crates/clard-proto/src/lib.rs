@@ -49,12 +49,14 @@ pub enum Request {
     Hello,
     /// 全量状态：核心状态 + TUN 状态 + 核心版本
     Status,
-    /// 订阅配置：列表 / 导入（TUI 已下载并归一化）/ 取回内容 / 删除 / 切换
+    /// 订阅配置：列表 / 导入（TUI 已下载并归一化）/ 取回内容 / 删除 / 切换 / 改名 / 排序
     ProfileList,
     ProfileImport(ProfileImport),
     ProfileGet { uid: String },
     ProfileRemove { uid: String },
     ProfileSetCurrent { uid: String },
+    ProfileRename { uid: String, name: String },
+    ProfileMove { uid: String, up: bool },
     /// 投递运行时配置 bundle（TUI config_gen 生成，§5.5）
     ApplyConfig { yaml: String },
     /// 启停与重启核心（幂等）

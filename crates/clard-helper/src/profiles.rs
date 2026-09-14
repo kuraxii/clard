@@ -29,6 +29,8 @@ pub enum ProfilesError {
     Yaml(#[from] serde_yaml_ng::Error),
     #[error("配置不存在: {uid}")]
     NotFound { uid: String },
+    #[error("配置名为空")]
+    EmptyName,
 }
 
 /// 索引文件结构（doc/01 §7.1）
@@ -185,6 +187,36 @@ impl ProfilesStore {
         });
         self.save_index()?;
         Ok(ImportOutcome::Created { uid })
+    }
+
+    /// 改名（doc/05 §2 R2.5）。
+    pub fn rename(&mut self, uid: &str, name: &str) -> Result<(), ProfilesError> {
+        let name = name.trim();
+        if name.is_empty() {
+            return Err(ProfilesError::EmptyName);
+        }
+        let Some(item) = self.index.items.iter_mut().find(|p| p.uid == uid) else {
+            return Err(ProfilesError::NotFound { uid: uid.into() });
+        };
+        item.name = name.to_string();
+        self.save_index()
+    }
+
+    /// 上移/下移（doc/05 §2 R2.6）；到边界时无副作用。
+    pub fn move_item(&mut self, uid: &str, up: bool) -> Result<(), ProfilesError> {
+        let Some(idx) = self.index.items.iter().position(|p| p.uid == uid) else {
+            return Err(ProfilesError::NotFound { uid: uid.into() });
+        };
+        let target = if up {
+            idx.checked_sub(1)
+        } else {
+            (idx + 1 < self.index.items.len()).then_some(idx + 1)
+        };
+        let Some(target) = target else {
+            return Ok(());
+        };
+        self.index.items.swap(idx, target);
+        self.save_index()
     }
 
     /// 删除配置：移除索引条目并删除内容文件；若删的是当前配置则清空 `current`。
@@ -353,6 +385,39 @@ mod tests {
         assert!(matches!(store.set_current("nope"), Err(ProfilesError::NotFound { .. })));
         assert!(matches!(store.remove("nope"), Err(ProfilesError::NotFound { .. })));
         assert!(matches!(store.content("nope"), Err(ProfilesError::NotFound { .. })));
+    }
+
+    #[test]
+    fn rename_updates_name_and_rejects_empty() {
+        let (_dir, mut store) = store_in_tempdir();
+        let uid = match store.import(URL_A, Some("旧名"), 0, "a").unwrap() {
+            ImportOutcome::Created { uid } => uid,
+            other => panic!("{other:?}"),
+        };
+        store.rename(&uid, "新名").unwrap();
+        assert_eq!(store.get(&uid).unwrap().name, "新名");
+        assert!(matches!(store.rename(&uid, "  "), Err(ProfilesError::EmptyName)));
+    }
+
+    #[test]
+    fn move_item_swaps_order_and_bounds_are_noop() {
+        let (_dir, mut store) = store_in_tempdir();
+        let a = match store.import(URL_A, None, 0, "a").unwrap() {
+            ImportOutcome::Created { uid } => uid,
+            other => panic!("{other:?}"),
+        };
+        let b = match store.import(URL_B, None, 0, "b").unwrap() {
+            ImportOutcome::Created { uid } => uid,
+            other => panic!("{other:?}"),
+        };
+        assert_eq!(store.list()[0].uid, a);
+
+        store.move_item(&a, false).unwrap(); // a 下移 → [b, a]
+        assert_eq!(store.list()[0].uid, b);
+        assert_eq!(store.list()[1].uid, a);
+
+        store.move_item(&b, true).unwrap(); // b 已在顶，上移无副作用
+        assert_eq!(store.list()[0].uid, b);
     }
 
     #[test]

@@ -227,6 +227,36 @@ impl APP {
         });
     }
 
+    /// 改名（R2.5）。
+    pub fn rename_profile(&mut self, uid: String, name: String) {
+        let sender = self.event_sender.clone();
+        tokio::spawn(async move {
+            match rpc::call(&Request::ProfileRename { uid: uid.clone(), name }).await {
+                Ok(Response::Ok) => {
+                    let _ = sender.send(ClardEvent::Notify(format!("profile renamed: {uid}")));
+                }
+                Ok(other) => {
+                    let _ = sender.send(ClardEvent::Error(rpc::unexpected(other).to_string()));
+                }
+                Err(e) => {
+                    let _ = sender.send(ClardEvent::Error(e.to_string()));
+                }
+            }
+            send_profiles(&sender).await;
+        });
+    }
+
+    /// 上移/下移（R2.6）。
+    pub fn move_profile(&mut self, uid: String, up: bool) {
+        let sender = self.event_sender.clone();
+        tokio::spawn(async move {
+            if let Err(e) = rpc::call(&Request::ProfileMove { uid, up }).await {
+                let _ = sender.send(ClardEvent::Error(e.to_string()));
+            }
+            send_profiles(&sender).await;
+        });
+    }
+
     /// 切换当前配置（R2.2）：先标记 current；config_gen → ApplyConfig 热重载随
     /// helper 核心生命周期里程碑补全（README TODO）。
     pub fn set_current_profile(&mut self, uid: String) {
@@ -318,6 +348,12 @@ impl APP {
             }
             InputPurpose::FilterRules => {
                 self.rules.set_filter(text.trim().to_string());
+            }
+            InputPurpose::RenameProfile { uid } => {
+                let name = text.trim().to_string();
+                if !name.is_empty() {
+                    self.rename_profile(uid, name);
+                }
             }
         }
     }
@@ -676,6 +712,19 @@ impl APP {
         }
     }
 
+    fn open_rename_input(&mut self) {
+        let Some(p) = self.profiles.selected() else {
+            return;
+        };
+        let mut input = InputState::new(
+            "Rename profile",
+            InputPurpose::RenameProfile { uid: p.uid.clone() },
+        );
+        input.buffer = p.name.clone();
+        input.cursor = input.buffer.len();
+        self.input = Some(input);
+    }
+
     fn on_profiles_char(&mut self, c: char) {
         match c {
             'i' => self.open_import_input(),
@@ -689,6 +738,19 @@ impl APP {
                 if let Some(p) = self.profiles.selected() {
                     let (uid, name) = (p.uid.clone(), p.name.clone());
                     self.open_delete_confirm(uid, name);
+                }
+            }
+            'r' => self.open_rename_input(),
+            '[' => {
+                if let Some(p) = self.profiles.selected() {
+                    let uid = p.uid.clone();
+                    self.move_profile(uid, true);
+                }
+            }
+            ']' => {
+                if let Some(p) = self.profiles.selected() {
+                    let uid = p.uid.clone();
+                    self.move_profile(uid, false);
                 }
             }
             _ => {}

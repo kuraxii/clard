@@ -85,6 +85,8 @@ pub enum InputPurpose {
     FilterConnections,
     /// 规则页关键字过滤（doc/05 §5 R5.3）
     FilterRules,
+    /// 配置改名（doc/05 §2 R2.5）
+    RenameProfile { uid: String },
 }
 
 /// 确认弹窗状态。
