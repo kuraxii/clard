@@ -8,10 +8,13 @@
 //! `CLARD_CORE_SOCK` 覆盖（开发/测试）。
 
 use std::{
+    fs,
+    io::{self, Read, Seek, Write},
     path::{Path, PathBuf},
     time::Duration,
 };
 
+use sha2::{Digest, Sha256};
 use std::process::Stdio;
 use tokio::process::{Child, Command};
 
@@ -93,6 +96,7 @@ impl CoreManager {
     }
 
     /// 启动核心（幂等）：需先存在运行态配置；就绪探测成功才算启动成功。
+    /// 启动前校验二进制：存在、root 拥有、非 symlink、非 group/other 可写（§5.1）。
     pub async fn start(&mut self) -> Result<(), String> {
         if self.state() == "running" {
             return Ok(());
@@ -100,6 +104,7 @@ impl CoreManager {
         if !self.config_path.exists() {
             return Err("运行态配置不存在，请先应用配置".to_string());
         }
+        verify_core_binary(&self.core_bin)?;
         std::fs::create_dir_all(&self.runtime_dir).map_err(|e| e.to_string())?;
         let _ = std::fs::remove_file(&self.core_sock);
 
@@ -172,6 +177,25 @@ impl CoreManager {
         }
         Err("就绪探测超时".into())
     }
+}
+
+/// 校验核心二进制（§5.1）：存在、非 symlink、root 拥有、非 group/other 可写。
+fn verify_core_binary(bin: &Path) -> Result<(), String> {
+    let meta = std::fs::symlink_metadata(bin).map_err(|e| {
+        format!("核心二进制缺失（{}），请先在设置页「Core」安装核心: {e}", bin.display())
+    })?;
+    if meta.file_type().is_symlink() {
+        return Err(format!("核心二进制是符号链接，拒绝执行: {}", bin.display()));
+    }
+    use std::os::unix::fs::{MetadataExt, PermissionsExt};
+    if meta.uid() != 0 {
+        return Err(format!("核心二进制属主非 root: {}", bin.display()));
+    }
+    let mode = meta.permissions().mode();
+    if mode & 0o022 != 0 {
+        return Err(format!("核心二进制 group/other 可写（mode {mode:o}），拒绝执行: {}", bin.display()));
+    }
+    Ok(())
 }
 
 /// 就绪探测：`GET /version`（经 core.sock），返回核心版本。
@@ -257,10 +281,107 @@ pub(crate) async fn get_configs(sock: &Path) -> Result<serde_json::Value, String
     resp.json().await.map_err(|e| e.to_string())
 }
 
-fn atomic_write(path: &Path, data: &[u8]) -> std::io::Result<()> {
-    let tmp = path.with_extension("yaml.tmp");
-    std::fs::write(&tmp, data)?;
-    std::fs::rename(&tmp, path)?;
+/// 核心已安装 sha256 记录（R7.3 展示，InstallCore 后写入）。
+pub fn core_sha256_path(state: &Path) -> PathBuf {
+    state.join("core.sha256")
+}
+
+/// 核心已安装版本记录（核心未运行时 Status 回退展示）。
+pub fn core_version_path(state: &Path) -> PathBuf {
+    state.join("core.version")
+}
+
+/// 核心安装的目标路径组（测试可直接构造，避免 env 全局互扰）。
+#[derive(Debug, Clone)]
+pub struct InstallTargets {
+    pub inbox_root: PathBuf,
+    pub bin_path: PathBuf,
+}
+
+impl InstallTargets {
+    /// 生产路径：inbox=/run/clard/inbox、bin=CLARD_CORE_BIN 或 /var/clard/bin/mihomo。
+    pub fn production() -> Self {
+        Self {
+            inbox_root: crate::daemon::inbox_dir(),
+            bin_path: core_bin_path(),
+        }
+    }
+}
+
+/// 复核 inbox 文件哈希并原子替换核心二进制（doc/01 §5.1，R7.3）。
+///
+/// 安全要点：
+/// - inbox 路径必须位于 inbox 根目录下（防穿越）；
+/// - `O_NOFOLLOW` 打开（拒绝符号链接，防 TOCTOU/提权）；
+/// - 流式 sha256 复核，不匹配即删除 inbox 文件并拒绝；
+/// - copy（不信任 rename）到 `mihomo.tmp` → fsync → `rename` 原子替换 → chmod 0755。
+pub fn install_core(
+    state: &Path,
+    targets: &InstallTargets,
+    inbox_path: &Path,
+    expected_sha256: &str,
+) -> Result<(), String> {
+    if !inbox_path.starts_with(&targets.inbox_root) {
+        return Err(format!(
+            "inbox 路径越界（{} 不在 {} 下）",
+            inbox_path.display(),
+            targets.inbox_root.display()
+        ));
+    }
+
+    // O_NOFOLLOW 打开 + 流式 sha256
+    let f = nix::fcntl::open(
+        inbox_path,
+        nix::fcntl::OFlag::O_RDONLY | nix::fcntl::OFlag::O_NOFOLLOW,
+        nix::sys::stat::Mode::empty(),
+    )
+    .map_err(|e| format!("打开 inbox 文件失败: {e}"))?;
+    let mut f = fs::File::from(f);
+    let mut hasher = Sha256::new();
+    let mut buf = [0u8; 64 * 1024];
+    loop {
+        let n = f
+            .read(&mut buf)
+            .map_err(|e| format!("读取 inbox 文件失败: {e}"))?;
+        if n == 0 {
+            break;
+        }
+        hasher.update(&buf[..n]);
+    }
+    let actual = format!("{:x}", hasher.finalize());
+    let expected = expected_sha256.trim().to_ascii_lowercase();
+    if actual != expected {
+        let _ = fs::remove_file(inbox_path);
+        return Err(format!("校验和失败：期望 {expected}，实际 {actual}（已删除 inbox 文件）"));
+    }
+
+    // 原子替换：copy → tmp → fsync → rename → chmod 0755
+    let bin = &targets.bin_path;
+    let parent = bin.parent().ok_or("核心二进制路径无父目录")?;
+    fs::create_dir_all(parent).map_err(|e| e.to_string())?;
+    let tmp = parent.join("mihomo.tmp");
+    {
+        let mut out = fs::File::create(&tmp).map_err(|e| format!("写临时文件失败: {e}"))?;
+        f.seek(io::SeekFrom::Start(0)).map_err(|e| e.to_string())?;
+        io::copy(&mut f, &mut out).map_err(|e| format!("拷贝安装包失败: {e}"))?;
+        out.sync_all().map_err(|e| format!("fsync 失败: {e}"))?;
+    }
+    use std::os::unix::fs::PermissionsExt;
+    fs::set_permissions(&tmp, fs::Permissions::from_mode(0o755)).map_err(|e| e.to_string())?;
+    fs::rename(&tmp, &bin).map_err(|e| format!("原子替换失败: {e}"))?;
+
+    // 记录（供展示与下次安装对比）
+    atomic_write(&core_sha256_path(state), expected.as_bytes()).map_err(|e| e.to_string())?;
+
+    // 清理 inbox
+    let _ = fs::remove_file(inbox_path);
+    Ok(())
+}
+
+fn atomic_write(path: &Path, data: &[u8]) -> io::Result<()> {
+    let tmp = path.with_extension("tmp");
+    fs::write(&tmp, data)?;
+    fs::rename(&tmp, path)?;
     Ok(())
 }
 
@@ -342,5 +463,103 @@ mod tests {
         assert_eq!(method, "PUT");
         assert_eq!(path, "/configs");
         let _ = std::fs::remove_file(&path);
+    }
+
+    // ---- install_core（R7.3，§5.1）----
+
+    /// 准备 temp state + inbox + bin 路径（TempDir 随返回值存活，目录不被提前删除）。
+    fn install_env() -> (tempfile::TempDir, PathBuf, PathBuf, InstallTargets) {
+        let dir = tempfile::tempdir().unwrap();
+        let state = dir.path().join("state");
+        let inbox = dir.path().join("inbox");
+        std::fs::create_dir_all(&state).unwrap();
+        std::fs::create_dir_all(&inbox).unwrap();
+        let targets = InstallTargets {
+            inbox_root: inbox.clone(),
+            bin_path: dir.path().join("bin").join("mihomo"),
+        };
+        (dir, state, inbox, targets)
+    }
+
+    #[test]
+    fn install_core_replaces_binary_atomically_and_records_sha() {
+        let (_dir, state, inbox, targets) = install_env();
+        let payload = b"mihomo-v2.0.0".to_vec();
+        let sha = {
+            use sha2::{Digest, Sha256};
+            let mut h = Sha256::new();
+            h.update(&payload);
+            format!("{:x}", h.finalize())
+        };
+        let inbox_file = inbox.join("core.bin");
+        std::fs::write(&inbox_file, &payload).unwrap();
+
+        install_core(&state, &targets, &inbox_file, &sha).unwrap();
+
+        // 替换目标存在、内容一致、0755、root 拥有
+        assert_eq!(std::fs::read(&targets.bin_path).unwrap(), payload);
+        use std::os::unix::fs::{MetadataExt, PermissionsExt};
+        let meta = std::fs::metadata(&targets.bin_path).unwrap();
+        assert_eq!(meta.permissions().mode() & 0o777, 0o755);
+        assert_eq!(meta.uid(), 0);
+        // sha 记录
+        assert_eq!(std::fs::read_to_string(core_sha256_path(&state)).unwrap(), sha);
+        // inbox 已清理
+        assert!(!inbox_file.exists());
+    }
+
+    #[test]
+    fn install_core_sha_mismatch_rejects_and_removes_inbox() {
+        let (_dir, state, inbox, targets) = install_env();
+        let inbox_file = inbox.join("core.bin");
+        std::fs::write(&inbox_file, b"evil").unwrap();
+
+        let e = install_core(&state, &targets, &inbox_file, &"0".repeat(64)).unwrap_err();
+        assert!(e.contains("校验和失败"), "{e}");
+        assert!(!inbox_file.exists(), "哈希不符 → 删除 inbox 文件");
+    }
+
+    #[test]
+    fn install_core_rejects_path_traversal_outside_inbox() {
+        let (_dir, state, _inbox, targets) = install_env();
+        let outside = std::env::temp_dir().join(format!("clard-outside-inbox-{}.bin", std::process::id()));
+        std::fs::write(&outside, b"x").unwrap();
+        let e = install_core(&state, &targets, &outside, &"0".repeat(64)).unwrap_err();
+        assert!(e.contains("inbox 路径越界"), "{e}");
+        let _ = std::fs::remove_file(&outside);
+    }
+
+    #[test]
+    fn install_core_rejects_symlink_inbox() {
+        let (_dir, state, inbox, targets) = install_env();
+        let target = std::env::temp_dir().join(format!("clard-symlink-target-{}.bin", std::process::id()));
+        std::fs::write(&target, b"payload").unwrap();
+        let link = inbox.join("core.bin");
+        std::os::unix::fs::symlink(&target, &link).unwrap();
+
+        let e = install_core(&state, &targets, &link, &"0".repeat(64)).unwrap_err();
+        assert!(e.contains("打开 inbox 文件失败"), "O_NOFOLLOW 拒绝 symlink: {e}");
+        assert!(!std::fs::read_to_string(&target).map(|s| s.is_empty()).unwrap_or(true), "目标未被读取/影响");
+        let _ = std::fs::remove_file(&target);
+    }
+
+    #[test]
+    fn verify_core_binary_checks_presence_owner_and_mode() {
+        let dir = tempfile::tempdir().unwrap();
+        let bin = dir.path().join("mihomo");
+        // 缺失
+        assert!(verify_core_binary(&bin).unwrap_err().contains("核心二进制缺失"));
+        // 正常 0755
+        std::fs::write(&bin, b"ELF").unwrap();
+        use std::os::unix::fs::PermissionsExt;
+        std::fs::set_permissions(&bin, std::fs::Permissions::from_mode(0o755)).unwrap();
+        assert!(verify_core_binary(&bin).is_ok());
+        // group/other 可写拒绝
+        std::fs::set_permissions(&bin, std::fs::Permissions::from_mode(0o775)).unwrap();
+        assert!(verify_core_binary(&bin).unwrap_err().contains("group/other 可写"));
+        // symlink 拒绝
+        let link = dir.path().join("link");
+        std::os::unix::fs::symlink(&bin, &link).unwrap();
+        assert!(verify_core_binary(&link).unwrap_err().contains("符号链接"));
     }
 }

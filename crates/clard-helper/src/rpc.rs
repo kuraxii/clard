@@ -1,5 +1,7 @@
 //! RPC 请求分发：`clard-proto` 契约 → helper 领域操作（doc/01 §5.6/§7）。
 
+use std::path::Path;
+
 use clard_proto::{ProfileItem, Request, Response};
 
 use crate::audit::{Actor, Audit};
@@ -24,13 +26,27 @@ pub async fn handle(
         }),
         Request::Status => {
             let tun_active = crate::tun::tun_active(&crate::tun::Tools::system()).await;
+            let state = store.root();
+            // 版本：运行中取 GET /version；未运行回退安装记录（R7.3 展示）
+            let core_version = core
+                .version()
+                .map(str::to_string)
+                .or_else(|| {
+                    std::fs::read_to_string(crate::core::core_version_path(state))
+                        .ok()
+                        .map(|s| s.trim().to_string())
+                });
+            let core_sha256 = std::fs::read_to_string(crate::core::core_sha256_path(state))
+                .ok()
+                .map(|s| s.trim().to_string());
             (
                 "rpc.status",
                 Response::Status {
                     core_state: core.state().to_string(),
                     core_pid: core.pid(),
-                    core_version: core.version().map(str::to_string),
+                    core_version,
                     tun_active,
+                    core_sha256,
                 },
             )
         }
@@ -211,6 +227,32 @@ pub async fn handle(
         Request::CleanupTun => {
             let (clean, residuals) = crate::tun::cleanup_tun(&crate::tun::Tools::system()).await;
             ("cleanup.tun", Response::CleanupResult { clean, residuals })
+        }
+        Request::InstallCore {
+            inbox_path,
+            sha256,
+            version,
+        } => {
+            let state = store.root().to_path_buf();
+            let targets = crate::core::InstallTargets::production();
+            match crate::core::install_core(&state, &targets, Path::new(&inbox_path), &sha256) {
+                Ok(()) => {
+                    // 记录版本（核心未运行时 Status 回退展示）
+                    let _ = std::fs::write(crate::core::core_version_path(&state), version);
+                    // 替换成功 → 重启核心（短暂中断，R7.3）
+                    if core.state() == "running"
+                        && let Err(e) = core.restart().await
+                    {
+                        (
+                            "core.install",
+                            Response::err(format!("二进制已更新，但重启核心失败: {e}")),
+                        )
+                    } else {
+                        ("core.install", Response::Ok)
+                    }
+                }
+                Err(e) => ("core.install", Response::err(e)),
+            }
         }
         other => {
             let op = "rpc.unimplemented";

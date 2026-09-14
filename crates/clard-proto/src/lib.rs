@@ -20,7 +20,7 @@
 use serde::{Deserialize, Serialize};
 
 /// 当前协议版本。任何不兼容变更都必须递增并在 `Hello` 握手中核对。
-pub const PROTO_VERSION: u32 = 5;
+pub const PROTO_VERSION: u32 = 6;
 
 /// 协议层错误
 #[derive(Debug, thiserror::Error)]
@@ -248,6 +248,8 @@ pub enum Response {
         core_pid: Option<u32>,
         core_version: Option<String>,
         tun_active: bool,
+        /// 已安装核心的 sha256（R7.3 展示；helper 侧 `core.sha256` 记录）
+        core_sha256: Option<String>,
     },
     ProfileList {
         current: Option<String>,
@@ -326,7 +328,7 @@ mod tests {
 
     #[test]
     fn proto_version_is_current() {
-        assert_eq!(PROTO_VERSION, 5);
+        assert_eq!(PROTO_VERSION, 6);
     }
 
     #[test]

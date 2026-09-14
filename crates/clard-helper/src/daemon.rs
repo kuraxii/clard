@@ -35,6 +35,17 @@ pub fn socket_path() -> PathBuf {
     PathBuf::from("/run/clard/helper.sock")
 }
 
+/// inbox 中转目录（TUI → helper 的资产中转，0733+sticky；`CLARD_INBOX_DIR` 覆盖用于测试）。
+/// doc/01 §4/§5.5：TUI 写普通文件，helper `O_NOFOLLOW` 复核哈希后 copy（不信任 rename）。
+pub fn inbox_dir() -> PathBuf {
+    if let Ok(dir) = std::env::var("CLARD_INBOX_DIR") {
+        if !dir.is_empty() {
+            return PathBuf::from(dir);
+        }
+    }
+    PathBuf::from("/run/clard/inbox")
+}
+
 /// 常驻运行：flock → 建目录 → 绑定 socket（0666）→ accept 循环。
 pub async fn run() -> io::Result<()> {
     let state = state_dir();
@@ -60,6 +71,10 @@ pub async fn run() -> io::Result<()> {
     };
 
     std::fs::create_dir_all(&state)?;
+    // inbox 中转目录（0733 + sticky，TUI 普通用户可写；doc/01 §4/§5.5）
+    std::fs::create_dir_all(inbox_dir())?;
+    use std::os::unix::fs::PermissionsExt;
+    std::fs::set_permissions(inbox_dir(), std::fs::Permissions::from_mode(0o1733))?;
     let _ = std::fs::remove_file(&sock);
     let listener = UnixListener::bind(&sock)?;
     std::fs::set_permissions(&sock, std::fs::Permissions::from_mode(0o666))?;
