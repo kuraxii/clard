@@ -12,7 +12,7 @@ use clard_core::mihomo::models::{Connection, DelayHistory, Proxy as ProxyModel, 
 use crate::app::{
     APP, i18n,
     connections::{ConnUnit, ConnectionsSort, ConnectionsState},
-    logs::{LogsState, LogsTab},
+    logs::{AuditRow, LogsState, LogsTab},
     modal::{ConfirmState, InputState},
     page::Page,
     profiles::{HistoryView, ProfileBusy, ProfilesState},
@@ -580,10 +580,10 @@ fn draw_audit_table(f: &mut Frame<'_>, area: Rect, state: &LogsState, theme: The
     .style(Style::default().bg(theme.overlay));
 
     let rows = records.iter().map(|r| {
-        let result_style = if r.result == "ok" {
-            Style::default().fg(theme.success)
-        } else {
-            Style::default().fg(theme.error)
+        let result_style = match r.result.as_str() {
+            "ok" => Style::default().fg(theme.success),
+            "pending" => Style::default().fg(theme.muted),
+            _ => Style::default().fg(theme.error),
         };
         Row::new(vec![
             Cell::from(format_unix_time(r.ts)),
@@ -593,6 +593,15 @@ fn draw_audit_table(f: &mut Frame<'_>, area: Rect, state: &LogsState, theme: The
         ])
     });
 
+    let title = format!(
+        "Audit  f filter  o op  I {}  Enter detail  x export{}",
+        state.pair_mode_label(),
+        if state.op_filter.is_empty() {
+            String::new()
+        } else {
+            format!("  op=\"{}\"", state.op_filter)
+        }
+    );
     let table = Table::new(
         rows,
         [
@@ -603,12 +612,56 @@ fn draw_audit_table(f: &mut Frame<'_>, area: Rect, state: &LogsState, theme: The
         ],
     )
     .header(header)
-    .block(panel_block("Audit  f filter", true, theme))
+    .block(panel_block(title.as_str(), true, theme))
     .row_highlight_style(theme.selected_style())
     .highlight_symbol("▸ ");
 
     let mut table_state = state.table_state.clone();
     f.render_stateful_widget(table, area, &mut table_state);
+
+    // 展开详情（Enter）
+    if let Some(detail) = &state.audit_detail {
+        draw_audit_detail(f, area, detail, theme);
+    }
+}
+
+/// 审计行展开详情弹窗：actor、intent、net 前后快照、cfg_sha256、err。
+fn draw_audit_detail(f: &mut Frame<'_>, area: Rect, detail: &AuditRow, theme: Theme) {
+    let popup = centered_rect(72, 55, area);
+    f.render_widget(Clear, popup);
+    let mut lines = vec![
+        Line::from(Span::styled(format!("{}  ({})", detail.op, detail.op_id), theme.title_style())),
+        Line::from(""),
+        kv_line("Result", &detail.result, theme),
+        kv_line(
+            "Actor",
+            &format!("uid{} pid{}", detail.actor.uid, detail.actor.pid),
+            theme,
+        ),
+        kv_line("Intent", &detail.intent, theme),
+    ];
+    if let Some(e) = &detail.err {
+        lines.push(kv_line("Error", e, theme));
+    }
+    if let Some(cfg) = &detail.cfg_sha256 {
+        let short = if cfg.len() > 24 { &cfg[..24] } else { cfg };
+        lines.push(kv_line("cfg_sha256", short, theme));
+    }
+    lines.push(Line::from(""));
+    lines.push(Line::from(Span::styled("Net before", theme.title_style())));
+    lines.push(Line::from(
+        detail.net_before.clone().unwrap_or_else(|| "-".to_string()),
+    ));
+    lines.push(Line::from(Span::styled("Net after", theme.title_style())));
+    lines.push(Line::from(
+        detail.net_after.clone().unwrap_or_else(|| "-".to_string()),
+    ));
+    f.render_widget(
+        Paragraph::new(lines)
+            .block(panel_block("Audit detail  Enter/Esc close", true, theme))
+            .wrap(Wrap { trim: true }),
+        popup,
+    );
 }
 
 fn log_level_style(level: &str, theme: Theme) -> Style {

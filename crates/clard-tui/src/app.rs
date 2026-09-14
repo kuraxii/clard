@@ -15,7 +15,7 @@ use connections::ConnectionsState;
 use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
 use home::HomeState;
 use i18n::Lang;
-use logs::LogsState;
+use logs::{LogsState, LogsTab};
 use modal::{ConfirmPurpose, ConfirmState, InputPurpose, InputState};
 use page::Page;
 use profiles::{HistoryView, ProfileBusy, ProfilesState};
@@ -518,6 +518,21 @@ impl APP {
                     ..Default::default()
                 };
                 self.set_tun_setting(patch);
+            }
+            InputPurpose::FilterAuditOp => {
+                self.logs.set_op_filter(text.trim().to_string());
+            }
+            InputPurpose::ExportAudit => {
+                let rows = self.logs.visible_audit();
+                let path = expand_home(text.trim());
+                match export_audit(&path, &rows) {
+                    Ok(n) => {
+                        self.message = Some(format!("exported {n} audit rows to {path}"));
+                    }
+                    Err(e) => {
+                        self.message = Some(format!("export failed: {e}"));
+                    }
+                }
             }
         }
     }
@@ -1280,6 +1295,28 @@ impl APP {
             'f' => self.open_logs_filter(),
             // R6.1：核心日志级别过滤（全部 → info → warn → error → debug → 全部）
             'e' => self.logs.cycle_level_filter(),
+            // R6.3：审计按 op 过滤
+            'o' => {
+                let mut input = InputState::new(
+                    "Audit op filter (prefix, e.g. tun./core./backup.*)",
+                    InputPurpose::FilterAuditOp,
+                );
+                input.buffer = self.logs.op_filter.clone();
+                input.cursor = input.buffer.len();
+                self.input = Some(input);
+            }
+            // R6.3：intent/result 配对切换
+            'I' => self.logs.cycle_pair_mode(),
+            // R6.3：导出当前过滤后的审计
+            'x' => {
+                let mut input = InputState::new(
+                    "Export audit to file (default ~/clard-audit.json)",
+                    InputPurpose::ExportAudit,
+                );
+                input.buffer = "~/clard-audit.json".to_string();
+                input.cursor = input.buffer.len();
+                self.input = Some(input);
+            }
             _ => {}
         }
     }
@@ -1522,6 +1559,11 @@ impl APP {
             self.show_help = false;
             return;
         }
+        // 审计展开详情：Esc 收起（R6.3）
+        if self.logs.audit_detail.is_some() {
+            self.logs.audit_detail = None;
+            return;
+        }
 
         if self.current_page == Page::Home {
             // 主页时 Esc = 退出（doc/03 §4.2）
@@ -1548,6 +1590,10 @@ impl APP {
                 } else {
                     self.update_rule_provider();
                 }
+            }
+            // R6.3：审计行展开详情（Enter 切换展开/收起）
+            Page::Logs if self.logs.tab == LogsTab::Audit => {
+                self.logs.toggle_audit_detail();
             }
             _ => {}
         }
@@ -1805,6 +1851,34 @@ fn split_csv(text: &str) -> Vec<String> {
         .filter(|s| !s.is_empty())
         .map(str::to_string)
         .collect()
+}
+
+/// 审计导出（R6.3 `x`）：当前过滤/配对后的行 → JSON lines 文件。
+fn export_audit(path: &str, rows: &[logs::AuditRow]) -> std::io::Result<usize> {
+    use std::io::Write;
+    let path = expand_home(path);
+    let mut f = std::fs::File::create(&path)?;
+    for r in rows {
+        let line = serde_json::json!({
+            "op": r.op, "op_id": r.op_id, "ts": r.ts,
+            "actor": {"uid": r.actor.uid, "pid": r.actor.pid},
+            "result": r.result, "intent": r.intent,
+            "net_before": r.net_before, "net_after": r.net_after,
+            "cfg_sha256": r.cfg_sha256, "err": r.err,
+        });
+        writeln!(f, "{line}")?;
+    }
+    Ok(rows.len())
+}
+
+/// `~/` 展开为 HOME（避免为此引入 shellexpand 运行依赖）。
+fn expand_home(path: &str) -> String {
+    if let Some(rest) = path.strip_prefix("~/") {
+        if let Some(home) = std::env::var_os("HOME") {
+            return format!("{}/{}", home.to_string_lossy(), rest);
+        }
+    }
+    path.to_string()
 }
 
 /// 逗号分隔数字 → u32 列表（忽略非法项）。

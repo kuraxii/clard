@@ -2,8 +2,35 @@
 //!
 //! 数据经 IPC：`LogTail`（tui/core，字节游标分页）、`AuditQuery`（结构化审计记录）。
 
-use clard_proto::AuditRecord;
+use clard_proto::{AuditActor, AuditRecord};
 use ratatui::widgets::{ListState, TableState};
+
+/// 审计展示模式（R6.3 `I` 循环切换）。
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum PairMode {
+    /// 配对视图：intent+result 合成一行（默认）
+    #[default]
+    Paired,
+    /// 只看 intent 记录
+    Intent,
+    /// 只看 result 记录
+    Result,
+}
+
+/// 配对后的审计行（intent+result 合成；缺 result = pending）。
+#[derive(Debug, Clone)]
+pub struct AuditRow {
+    pub op: String,
+    pub op_id: String,
+    pub ts: i64,
+    pub actor: AuditActor,
+    pub result: String,
+    pub intent: String,
+    pub net_before: Option<String>,
+    pub net_after: Option<String>,
+    pub cfg_sha256: Option<String>,
+    pub err: Option<String>,
+}
 
 /// 日志页签。
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
@@ -57,6 +84,12 @@ pub struct LogsState {
     audit_cursor: u64,
     /// 关键字过滤（本地）。
     pub filter: String,
+    /// 审计按 op 过滤（`o` 输入；空 = 全部）。
+    pub op_filter: String,
+    /// 审计展示模式（`I` 循环）。
+    pub pair_mode: PairMode,
+    /// 审计行展开详情（Enter；None = 收起）。
+    pub audit_detail: Option<AuditRow>,
     /// 核心日志级别过滤（None = 全部；R6.1 `e` 循环切换）。
     pub level_filter: Option<String>,
     /// 行视图（App/Core）选中。
@@ -76,6 +109,9 @@ impl LogsState {
             core_cursor: 0,
             audit_cursor: 0,
             filter: String::new(),
+            op_filter: String::new(),
+            pair_mode: PairMode::Paired,
+            audit_detail: None,
             level_filter: None,
             lines_state: ListState::default(),
             table_state: TableState::default(),
@@ -98,6 +134,42 @@ impl LogsState {
 
     pub fn set_filter(&mut self, filter: String) {
         self.filter = filter;
+    }
+
+    /// `o` 审计按 op 过滤（支持前缀，如 `tun.`/`core.`）。
+    pub fn set_op_filter(&mut self, op: String) {
+        self.op_filter = op;
+    }
+
+    /// `I` 循环：配对 → intent → result → 配对。
+    pub fn cycle_pair_mode(&mut self) {
+        self.pair_mode = match self.pair_mode {
+            PairMode::Paired => PairMode::Intent,
+            PairMode::Intent => PairMode::Result,
+            PairMode::Result => PairMode::Paired,
+        };
+    }
+
+    /// 当前模式文案。
+    pub fn pair_mode_label(&self) -> &'static str {
+        match self.pair_mode {
+            PairMode::Paired => "paired",
+            PairMode::Intent => "intent",
+            PairMode::Result => "result",
+        }
+    }
+
+    /// 选中审计行的展开详情（Enter）。
+    pub fn toggle_audit_detail(&mut self) {
+        if self.audit_detail.is_some() {
+            self.audit_detail = None;
+            return;
+        }
+        if let Some(idx) = self.table_state.selected()
+            && let Some(row) = self.visible_audit().get(idx)
+        {
+            self.audit_detail = Some(row.clone());
+        }
     }
 
     /// `e` 级别过滤循环：全部 → info → warn → error → debug → 全部。
@@ -145,13 +217,36 @@ impl LogsState {
             .collect()
     }
 
-    /// 当前栏渲染用的审计记录（已按 op/关键字过滤）。
-    pub fn visible_audit(&self) -> Vec<&AuditRecord> {
+    /// 当前栏渲染用的审计行（已按 op/关键字/配对模式过滤）。
+    pub fn visible_audit(&self) -> Vec<AuditRow> {
+        let op_matches = |op: &str| {
+            self.op_filter.is_empty() || op.starts_with(self.op_filter.trim())
+        };
         let needle = self.filter.to_lowercase();
-        self.audit_records
+        let kw_matches = |rec: &AuditRecord| {
+            needle.is_empty()
+                || rec.op.to_lowercase().contains(&needle)
+                || rec.intent.to_lowercase().contains(&needle)
+                || rec.result.to_lowercase().contains(&needle)
+        };
+        let recs: Vec<&AuditRecord> = self
+            .audit_records
             .iter()
-            .filter(|r| needle.is_empty() || r.op.to_lowercase().contains(&needle))
-            .collect()
+            .filter(|r| op_matches(&r.op) && kw_matches(r))
+            .collect();
+        match self.pair_mode {
+            PairMode::Paired => pair_records(&recs),
+            PairMode::Intent => recs
+                .iter()
+                .filter(|r| r.phase == "intent")
+                .map(|r| row_from_rec(r, None))
+                .collect(),
+            PairMode::Result => recs
+                .iter()
+                .filter(|r| r.phase == "result")
+                .map(|r| row_from_rec(r, None))
+                .collect(),
+        }
     }
 
     pub fn on_down_key(&mut self) {
@@ -251,9 +346,108 @@ fn normalize_level(level: &str) -> String {
     }
 }
 
+/// intent/result 双记录按 op_id 配对成一行（缺 result = pending，缺 intent 用记录自身）。
+fn pair_records(recs: &[&AuditRecord]) -> Vec<AuditRow> {
+    use std::collections::BTreeMap;
+    let mut by_id: BTreeMap<&str, (Option<&AuditRecord>, Option<&AuditRecord>)> = BTreeMap::new();
+    for r in recs {
+        let e = by_id.entry(r.op_id.as_str()).or_default();
+        if r.phase == "intent" {
+            e.0 = Some(r);
+        } else {
+            e.1 = Some(r);
+        }
+    }
+    let mut out: Vec<AuditRow> = by_id
+        .values()
+        .map(|(intent, result)| {
+            let intent = *intent;
+            let result = *result;
+            row_from_rec(intent.unwrap_or_else(|| result.unwrap()), result)
+        })
+        .collect();
+    out.sort_by_key(|r| std::cmp::Reverse(r.ts));
+    out
+}
+
+/// 记录 → 展示行。
+fn row_from_rec(rec: &AuditRecord, result: Option<&AuditRecord>) -> AuditRow {
+    let result = result.unwrap_or(rec);
+    AuditRow {
+        op: rec.op.clone(),
+        op_id: rec.op_id.clone(),
+        ts: rec.ts,
+        actor: rec.actor.clone(),
+        result: result.result.clone(),
+        intent: rec.intent.clone(),
+        net_before: rec.net.clone(),
+        net_after: result.net.clone(),
+        cfg_sha256: result.cfg_sha256.clone(),
+        err: result.err.clone(),
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    fn rec(phase: &str, op_id: &str, op: &str, result: &str) -> AuditRecord {
+        AuditRecord {
+            ts: 1,
+            op: op.into(),
+            op_id: op_id.into(),
+            phase: phase.into(),
+            actor: clard_proto::AuditActor { uid: 0, pid: 1 },
+            result: result.into(),
+            intent: String::new(),
+            net: None,
+            cfg_sha256: None,
+            err: None,
+        }
+    }
+
+    #[test]
+    fn pair_records_joins_intent_and_result_by_op_id() {
+        let all = vec![
+            rec("intent", "A", "tun.enable", "pending"),
+            rec("result", "A", "tun.enable", "ok"),
+            rec("intent", "B", "core.start", "pending"),
+        ];
+        let recs: Vec<&AuditRecord> = all.iter().collect();
+        let rows = pair_records(&recs);
+        assert_eq!(rows.len(), 2);
+        let a = rows.iter().find(|r| r.op_id == "A").unwrap();
+        assert_eq!(a.result, "ok");
+        let b = rows.iter().find(|r| r.op_id == "B").unwrap();
+        assert_eq!(b.result, "pending", "缺 result 保持 pending");
+    }
+
+    #[test]
+    fn op_filter_and_pair_modes() {
+        let mut s = LogsState::new();
+        s.audit_records = vec![
+            rec("intent", "A", "tun.enable", "pending"),
+            rec("result", "A", "tun.enable", "ok"),
+            rec("intent", "B", "core.start", "pending"),
+            rec("result", "B", "core.start", "error"),
+        ];
+        // 默认配对：2 行
+        assert_eq!(s.visible_audit().len(), 2);
+        // o 按 op 前缀过滤
+        s.set_op_filter("tun.".into());
+        let rows = s.visible_audit();
+        assert_eq!(rows.len(), 1);
+        assert_eq!(rows[0].op, "tun.enable");
+        // I 循环模式
+        s.set_op_filter(String::new());
+        s.cycle_pair_mode();
+        assert_eq!(s.pair_mode, PairMode::Intent);
+        assert_eq!(s.visible_audit().len(), 2, "只看 intent");
+        s.cycle_pair_mode();
+        assert_eq!(s.visible_audit().len(), 2, "只看 result");
+        s.cycle_pair_mode();
+        assert_eq!(s.pair_mode, PairMode::Paired);
+    }
 
     #[test]
     fn parse_level_from_structured_and_bracket() {

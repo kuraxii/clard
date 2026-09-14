@@ -107,6 +107,10 @@ pub enum InputPurpose {
     EditExcludeInterface,
     /// 设置：exclude-dst-port（逗号分隔端口）
     EditExcludeDstPort,
+    /// 审计按 op 过滤（R6.3 `o`）
+    FilterAuditOp,
+    /// 审计导出路径（R6.3 `x`）
+    ExportAudit,
 }
 
 /// 确认弹窗状态。
