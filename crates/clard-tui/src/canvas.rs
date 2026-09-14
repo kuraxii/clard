@@ -7,7 +7,7 @@ use ratatui::{
     widgets::{Block, BorderType, Borders, Cell, Clear, List, ListItem, Paragraph, Row, Table, Tabs, Wrap},
 };
 
-use clard_core::mihomo::models::{Connection, DelayHistory, Proxy as ProxyModel, ProxyType};
+use clard_core::mihomo::models::{Connection, DelayHistory, Proxy as ProxyModel, ProxyType, RuleBehavior};
 
 use crate::app::{
     APP,
@@ -16,6 +16,7 @@ use crate::app::{
     page::Page,
     profiles::{ProfileBusy, ProfilesState},
     proxy::{ProxyFocus, ProxyState},
+    rules::{RulesState, RulesTab},
 };
 
 #[derive(Debug, Default)]
@@ -56,7 +57,7 @@ impl Painter {
                 Page::Connections => ConnectionsLayout::draw(f, shell[2], &app.connections, theme),
                 Page::Logs => LogsLayout::draw(f, shell[2], theme),
                 Page::Settings => SettingsLayout::draw(f, shell[2], theme),
-                Page::Rules => RulesLayout::draw(f, shell[2], theme),
+                Page::Rules => RulesLayout::draw(f, shell[2], &app.rules, theme),
             }
 
             draw_footer(f, shell[3], app, theme);
@@ -449,19 +450,127 @@ impl SettingsLayout {
 struct RulesLayout;
 
 impl RulesLayout {
-    fn draw(f: &mut Frame<'_>, area: Rect, theme: Theme) {
-        draw_placeholder(
-            f,
-            area,
-            Page::Rules,
-            &[
-                ("list", "rules with index/type/payload/proxy/hits"),
-                ("Enter", "enable / disable a rule"),
-                ("f", "search filter"),
-                ("Tab", "rule providers view"),
-            ],
-            theme,
-        );
+    fn draw(f: &mut Frame<'_>, area: Rect, state: &RulesState, theme: Theme) {
+        let rows = Layout::default()
+            .direction(Direction::Vertical)
+            .constraints([Constraint::Length(3), Constraint::Min(0)].as_ref())
+            .split(area);
+
+        draw_rules_tabs(f, rows[0], state, theme);
+        match state.tab {
+            RulesTab::Rules => draw_rules_table(f, rows[1], state, theme),
+            RulesTab::Providers => draw_rule_providers_table(f, rows[1], state, theme),
+        }
+    }
+}
+
+fn draw_rules_tabs(f: &mut Frame<'_>, area: Rect, state: &RulesState, theme: Theme) {
+    let selected = match state.tab {
+        RulesTab::Rules => 0,
+        RulesTab::Providers => 1,
+    };
+    let titles = vec![" Rules ", " Rule Providers "];
+    let tabs = Tabs::new(titles)
+        .block(panel_block("Rules", false, theme))
+        .select(selected)
+        .style(Style::default().fg(theme.muted))
+        .highlight_style(Style::default().fg(theme.primary).add_modifier(Modifier::BOLD));
+    f.render_widget(tabs, area);
+}
+
+fn draw_rules_table(f: &mut Frame<'_>, area: Rect, state: &RulesState, theme: Theme) {
+    let header = Row::new(
+        ["#", "Type", "Payload", "Proxy", "Hits", "State"]
+            .into_iter()
+            .map(|h| Cell::from(h).style(Style::default().fg(theme.emphasis).add_modifier(Modifier::BOLD))),
+    )
+    .height(1)
+    .bottom_margin(1)
+    .style(Style::default().bg(theme.overlay));
+
+    let rows = state.rules.iter().map(|rule| {
+        let hits = rule
+            .extra
+            .as_ref()
+            .map(|e| e.hit_count.to_string())
+            .unwrap_or_else(|| "-".to_string());
+        let (state_text, state_style) = match rule.extra.as_ref().map(|e| e.disabled) {
+            Some(true) => ("disabled", Style::default().fg(theme.muted)),
+            Some(false) => ("enabled", Style::default().fg(theme.success)),
+            None => ("-", theme.muted_style()),
+        };
+        Row::new(vec![
+            Cell::from(rule.index.to_string()),
+            Cell::from(rule.rule_type.clone()),
+            Cell::from(rule.payload.clone()),
+            Cell::from(rule.proxy.clone()),
+            Cell::from(hits),
+            Cell::from(state_text).style(state_style),
+        ])
+    });
+
+    let table = Table::new(
+        rows,
+        [
+            Constraint::Length(5),
+            Constraint::Percentage(16),
+            Constraint::Percentage(30),
+            Constraint::Percentage(16),
+            Constraint::Length(8),
+            Constraint::Length(10),
+        ],
+    )
+    .header(header)
+    .block(panel_block("Rules  Enter toggle  f filter", true, theme))
+    .row_highlight_style(theme.selected_style())
+    .highlight_symbol("▸ ");
+
+    let mut table_state = state.rules_state.clone();
+    f.render_stateful_widget(table, area, &mut table_state);
+}
+
+fn draw_rule_providers_table(f: &mut Frame<'_>, area: Rect, state: &RulesState, theme: Theme) {
+    let header = Row::new(
+        ["Name", "Behavior", "Entries", "Updated"]
+            .into_iter()
+            .map(|h| Cell::from(h).style(Style::default().fg(theme.emphasis).add_modifier(Modifier::BOLD))),
+    )
+    .height(1)
+    .bottom_margin(1)
+    .style(Style::default().bg(theme.overlay));
+
+    let rows = state.providers.iter().map(|(name, provider)| {
+        Row::new(vec![
+            Cell::from(name.clone()),
+            Cell::from(rule_behavior_name(&provider.behavior)),
+            Cell::from(provider.rule_count.to_string()),
+            Cell::from(empty_as_dash(&provider.updated_at).to_string()),
+        ])
+    });
+
+    let table = Table::new(
+        rows,
+        [
+            Constraint::Percentage(34),
+            Constraint::Percentage(20),
+            Constraint::Length(8),
+            Constraint::Percentage(38),
+        ],
+    )
+    .header(header)
+    .block(panel_block("Rule Providers  u update", true, theme))
+    .row_highlight_style(theme.selected_style())
+    .highlight_symbol("▸ ");
+
+    let mut table_state = state.providers_state.clone();
+    f.render_stateful_widget(table, area, &mut table_state);
+}
+
+fn rule_behavior_name(behavior: &RuleBehavior) -> &'static str {
+    match behavior {
+        RuleBehavior::Domain => "Domain",
+        RuleBehavior::IpCidr => "IP-CIDR",
+        RuleBehavior::Classical => "Classical",
     }
 }
 
@@ -950,7 +1059,9 @@ fn draw_help(f: &mut Frame<'_>, area: Rect, app: &APP, theme: Theme) {
         ],
         Page::Rules => vec![
             Line::from(Span::styled("Rules", theme.title_style())),
-            Line::from("View, enable/disable, filter rules and rule providers."),
+            Line::from("Enter enables/disables the selected rule (hot apply)."),
+            Line::from("f filters by type/payload/proxy; Tab shows rule providers."),
+            Line::from("In providers view u updates the selected provider."),
         ],
     });
 
@@ -1033,7 +1144,9 @@ fn header_summary(app: &APP) -> String {
         }
         Page::Logs => "app · core · audit".to_string(),
         Page::Settings => "general · tun · core · service · backup".to_string(),
-        Page::Rules => "rules · providers".to_string(),
+        Page::Rules => {
+            format!("{} rules · {} providers", app.rules.rules.len(), app.rules.providers.len())
+        }
     }
 }
 
@@ -1076,6 +1189,9 @@ fn footer_keys(app: &APP) -> Vec<(&'static str, &'static str)> {
         }
         Page::Rules => {
             keys.push(("↑↓/jk", "move"));
+            keys.push(("Tab", "providers"));
+            keys.push(("Enter", "toggle"));
+            keys.push(("f", "filter"));
         }
     }
 

@@ -83,6 +83,8 @@ pub enum InputPurpose {
     ImportProfileUrl,
     /// 连接页关键字过滤（doc/05 §4 R4.4）
     FilterConnections,
+    /// 规则页关键字过滤（doc/05 §5 R5.3）
+    FilterRules,
 }
 
 /// 确认弹窗状态。

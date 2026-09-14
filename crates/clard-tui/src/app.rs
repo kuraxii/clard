@@ -18,7 +18,7 @@ use modal::{ConfirmPurpose, ConfirmState, InputPurpose, InputState};
 use page::Page;
 use profiles::{ProfileBusy, ProfilesState};
 use proxy::{ProxyFocus, ProxyState};
-use rules::RulesState;
+use rules::{RulesState, RulesTab};
 use settings::SettingsState;
 use tokio::sync::mpsc::UnboundedSender;
 
@@ -136,6 +136,10 @@ impl APP {
             Page::Connections => {
                 self.fetch_connections();
                 self.subscribe_traffic();
+            }
+            Page::Rules => {
+                self.fetch_rules();
+                self.fetch_rule_providers();
             }
             _ => {}
         }
@@ -312,6 +316,9 @@ impl APP {
             InputPurpose::FilterConnections => {
                 self.connections.set_filter(text.trim().to_string());
             }
+            InputPurpose::FilterRules => {
+                self.rules.set_filter(text.trim().to_string());
+            }
         }
     }
 
@@ -319,6 +326,100 @@ impl APP {
         match purpose {
             ConfirmPurpose::DeleteProfile { uid } => self.remove_profile(uid),
             ConfirmPurpose::CloseAllConnections => self.close_all_connections(),
+        }
+    }
+
+    // ---- 规则（Rules）----
+
+    pub fn fetch_rules(&self) {
+        let backend = self.backend.clone();
+        let sender = self.event_sender.clone();
+        tokio::spawn(async move {
+            match backend.get_rules().await {
+                Ok(rules) => {
+                    let _ = sender.send(ClardEvent::RulesUpdated(rules.rules));
+                }
+                Err(e) => {
+                    let _ = sender.send(ClardEvent::Error(format!("Fetch rules error: {e}")));
+                }
+            }
+        });
+    }
+
+    pub fn fetch_rule_providers(&self) {
+        let backend = self.backend.clone();
+        let sender = self.event_sender.clone();
+        tokio::spawn(async move {
+            match backend.get_rule_providers().await {
+                Ok(providers) => {
+                    let _ = sender.send(ClardEvent::RuleProvidersUpdated(providers.providers));
+                }
+                Err(e) => {
+                    let _ = sender.send(ClardEvent::Error(format!("Fetch rule providers error: {e}")));
+                }
+            }
+        });
+    }
+
+    /// 启用/禁用当前规则（R5.2，`PATCH /rules/disable`，热生效）。
+    fn toggle_rule(&mut self) {
+        let Some(rule) = self.rules.selected_rule() else {
+            return;
+        };
+        let index = rule.index;
+        let new_disabled = !rule.extra.as_ref().is_some_and(|e| e.disabled);
+        let backend = self.backend.clone();
+        let sender = self.event_sender.clone();
+        tokio::spawn(async move {
+            match backend.disable_rule(index, new_disabled).await {
+                Ok(()) => {
+                    let state = if new_disabled { "disabled" } else { "enabled" };
+                    let _ = sender.send(ClardEvent::Notify(format!("rule {index}: {state}")));
+                    if let Ok(rules) = backend.get_rules().await {
+                        let _ = sender.send(ClardEvent::RulesUpdated(rules.rules));
+                    }
+                }
+                Err(e) => {
+                    let _ = sender.send(ClardEvent::Error(format!("Toggle rule error: {e}")));
+                }
+            }
+        });
+    }
+
+    /// 更新选中的规则集（R5.4，`PUT /providers/rules/:name`）。
+    fn update_rule_provider(&mut self) {
+        let Some(name) = self.rules.selected_provider_name() else {
+            return;
+        };
+        let backend = self.backend.clone();
+        let sender = self.event_sender.clone();
+        tokio::spawn(async move {
+            match backend.update_rule_provider(&name).await {
+                Ok(()) => {
+                    let _ = sender.send(ClardEvent::Notify(format!("rule provider updated: {name}")));
+                    if let Ok(providers) = backend.get_rule_providers().await {
+                        let _ = sender.send(ClardEvent::RuleProvidersUpdated(providers.providers));
+                    }
+                }
+                Err(e) => {
+                    let _ = sender.send(ClardEvent::Error(format!("Update rule provider error: {e}")));
+                }
+            }
+        });
+    }
+
+    fn open_rules_filter(&mut self) {
+        let mut input = InputState::new("Filter rules", InputPurpose::FilterRules);
+        input.buffer = self.rules.filter.clone();
+        input.cursor = input.buffer.len();
+        self.input = Some(input);
+    }
+
+    fn on_rules_char(&mut self, c: char) {
+        match c {
+            'f' => self.open_rules_filter(),
+            'u' if self.rules.tab == RulesTab::Providers => self.update_rule_provider(),
+            _ => {}
         }
     }
 
@@ -486,6 +587,7 @@ impl APP {
             Page::Profiles => self.profiles.on_up_key(),
             Page::Proxies => self.proxies.on_up_key(),
             Page::Connections => self.connections.on_up_key(),
+            Page::Rules => self.rules.on_up_key(),
             _ => {}
         }
     }
@@ -495,6 +597,7 @@ impl APP {
             Page::Profiles => self.profiles.on_down_key(),
             Page::Proxies => self.proxies.on_down_key(),
             Page::Connections => self.connections.on_down_key(),
+            Page::Rules => self.rules.on_down_key(),
             _ => {}
         }
     }
@@ -524,13 +627,17 @@ impl APP {
     pub fn on_delete_key(&mut self) {}
 
     pub fn on_tab_key(&mut self) {
-        if self.current_page == Page::Proxies {
-            let state = &mut self.proxies;
-            if state.focus == ProxyFocus::Groups {
-                state.on_right_key();
-            } else {
-                state.on_left_key();
+        match self.current_page {
+            Page::Proxies => {
+                let state = &mut self.proxies;
+                if state.focus == ProxyFocus::Groups {
+                    state.on_right_key();
+                } else {
+                    state.on_left_key();
+                }
             }
+            Page::Rules => self.rules.toggle_tab(),
+            _ => {}
         }
     }
 
@@ -558,6 +665,13 @@ impl APP {
                 }
             }
             Page::Proxies => self.select_proxy_node(),
+            Page::Rules => {
+                if self.rules.tab == RulesTab::Rules {
+                    self.toggle_rule();
+                } else {
+                    self.update_rule_provider();
+                }
+            }
             _ => {}
         }
     }
@@ -641,6 +755,7 @@ impl APP {
             Page::Profiles => self.on_profiles_char(char),
             Page::Proxies => self.on_proxies_char(char),
             Page::Connections => self.on_connections_char(char),
+            Page::Rules => self.on_rules_char(char),
             _ => {}
         }
     }

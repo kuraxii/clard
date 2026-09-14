@@ -46,9 +46,9 @@ Clard 是 Linux 上的完整代理管理工具：系统级常驻服务 `clard-he
 
 ### 规则
 
-- [ ] 规则列表查看（`GET /rules`）
-- [ ] 规则启用/禁用（`PATCH /rules/disable`）
-- [ ] 搜索过滤 / 规则集视图（`/providers/rules`）
+- [x] 规则列表查看（`GET /rules`）
+- [x] 规则启用/禁用（`PATCH /rules/disable`）
+- [x] 搜索过滤 / 规则集视图（`/providers/rules`）
 
 ### 日志与审计
 

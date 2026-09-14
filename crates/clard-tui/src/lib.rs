@@ -187,6 +187,12 @@ pub async fn start_clard() -> Result<()> {
                     ClardEvent::ProfilesUpdated { current, items } => {
                         app.apply_profiles(current, items);
                     }
+                    ClardEvent::RulesUpdated(rules) => {
+                        app.rules.update_rules(rules);
+                    }
+                    ClardEvent::RuleProvidersUpdated(providers) => {
+                        app.rules.update_providers(providers);
+                    }
                     ClardEvent::Notify(msg) => {
                         app.message = Some(msg);
                     }

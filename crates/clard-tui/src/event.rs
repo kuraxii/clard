@@ -20,6 +20,8 @@ pub enum ClardEvent {
         current: Option<String>,
         items: Vec<clard_proto::ProfileItem>,
     },
+    RulesUpdated(Vec<clard_core::mihomo::models::Rule>),
+    RuleProvidersUpdated(std::collections::HashMap<String, clard_core::mihomo::models::RuleProvider>),
     /// 成功/信息消息（页脚消息条）
     Notify(String),
     Error(String),

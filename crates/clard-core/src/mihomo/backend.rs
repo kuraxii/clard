@@ -10,6 +10,7 @@ use super::{
     error::{IpcError, Result},
     models::{
         BackendVersion, BaseConfig, Connections, CoreUpdaterChannel, Groups, Proxy, ResponseError, RuleProviders,
+        Rules,
     },
     websocket::{WebSocketMessage, WsControl, connect_stream},
 };
@@ -332,6 +333,36 @@ impl Backend {
 
         let delay_res = res.json::<DelayResp>().await?;
         Ok(delay_res.delay)
+    }
+
+    /// 获取生效规则列表（doc/04 `GET /rules`）。
+    pub async fn get_rules(&self) -> Result<Rules> {
+        let req = self.build_request(Method::GET, "/rules")?;
+        let res = req.send().await?;
+        if !res.status().is_success() {
+            let err_msg = res.json::<ResponseError>().await.map_or_else(
+                |msg| format!("get rules failed: {msg}"),
+                |err| err.message.to_string(),
+            );
+            return Err(IpcError::ResponseError(err_msg));
+        }
+        Ok(res.json::<Rules>().await?)
+    }
+
+    /// 按索引启用/禁用单条规则（doc/04 `PATCH /rules/disable`，热生效）。
+    pub async fn disable_rule(&self, index: usize, disabled: bool) -> Result<()> {
+        let mut body = serde_json::Map::new();
+        body.insert(index.to_string(), serde_json::Value::Bool(disabled));
+        let req = self.build_request(Method::PATCH, "/rules/disable")?.json(&body);
+        let res = req.send().await?;
+        if !res.status().is_success() {
+            let err_msg = res.json::<ResponseError>().await.map_or_else(
+                |msg| format!("disable rule [{index}] failed: {msg}"),
+                |err| err.message.to_string(),
+            );
+            return Err(IpcError::ResponseError(err_msg));
+        }
+        Ok(())
     }
 
     /// 获取所有规则提供者信息
@@ -1048,6 +1079,38 @@ mod tests {
         let query = req.query.unwrap_or_default();
         assert!(query.contains("timeout=5000"));
         assert!(query.contains("url=http%3A%2F%2Fx"));
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn get_rules_parses_list() -> Result<()> {
+        let body = r#"{"rules":[{"index":0,"type":"DOMAIN","payload":"google.com","proxy":"Proxy","size":-1,"extra":{"disabled":false,"hitCount":5,"hitAt":"2024-01-01T00:00:00Z","missCount":2,"missAt":"2024-01-01T00:00:00Z"}}]}"#;
+        let (addr, handle) = spawn_mock_server("200 OK", body).await?;
+        let backend = backend_tcp(addr)?;
+        let result = backend.get_rules().await;
+
+        assert!(result.is_ok());
+        let rules = result?;
+        assert_eq!(rules.rules.len(), 1);
+        let rule = &rules.rules[0];
+        assert_eq!((rule.index, rule.rule_type.as_str(), rule.proxy.as_str()), (0, "DOMAIN", "Proxy"));
+        assert_eq!(rule.extra.as_ref().map(|e| e.hit_count), Some(5));
+
+        let req = wait_request(handle).await;
+        assert_method_path(&req, "GET", "/rules");
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn disable_rule_patches_index() -> Result<()> {
+        let (backend, handle) = mock_backend_ok().await?;
+        let result = backend.disable_rule(3, true).await;
+        assert!(result.is_ok());
+
+        let req = wait_request(handle).await;
+        assert_method_path(&req, "PATCH", "/rules/disable");
+        let body: Value = serde_json::from_str(&req.body)?;
+        assert_eq!(body["3"], true);
         Ok(())
     }
 }

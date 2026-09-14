@@ -243,6 +243,39 @@ pub struct RuleProviders {
     pub providers: HashMap<String, RuleProvider>,
 }
 
+/// `GET /rules` 的响应：生效规则列表（doc/04 §5）。
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct Rules {
+    pub rules: Vec<Rule>,
+}
+
+/// 单条生效规则（doc/04 §5）。
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct Rule {
+    pub index: usize,
+    #[serde(rename = "type")]
+    pub rule_type: String,
+    pub payload: String,
+    pub proxy: String,
+    pub size: i64,
+    /// 命中统计/禁用状态；仅 RuleWrapper 包装的规则存在。
+    #[serde(skip_serializing_if = "Option::is_none", default)]
+    pub extra: Option<RuleExtra>,
+}
+
+/// 规则命中统计与禁用状态。
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct RuleExtra {
+    pub disabled: bool,
+    pub hit_count: u64,
+    #[serde(default)]
+    pub hit_at: Option<String>,
+    pub miss_count: u64,
+    #[serde(default)]
+    pub miss_at: Option<String>,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub enum RuleBehavior {
     Domain,
