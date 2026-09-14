@@ -500,4 +500,12 @@ mod tests {
         // 本机编译架构必须被支持（x86_64→amd64 / aarch64→arm64）
         assert!(asset_arch().is_ok());
     }
+
+    #[tokio::test]
+    #[ignore = "需要外网（GitHub API）；手动验证真实 release 兼容性"]
+    async fn fetch_latest_release_live() {
+        let info = fetch_latest_release(&client(), GITHUB_API_URL).await.unwrap();
+        assert!(info.tag.starts_with('v'));
+        assert!(info.asset_url.contains(&info.tag));
+    }
 }
