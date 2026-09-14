@@ -67,6 +67,12 @@ pub struct TunOptions {
     pub strict_route: bool,
     pub auto_redirect: bool,
     pub route_exclude_address: Vec<String>,
+    /// 该本地用户不被接管（§6.7）
+    pub exclude_uid: Vec<u32>,
+    /// 该网卡不参与（§6.7）
+    pub exclude_interface: Vec<String>,
+    /// 该目的端口不参与（§6.7）
+    pub exclude_dst_port: Vec<u16>,
 }
 
 impl Default for TunOptions {
@@ -85,6 +91,9 @@ impl Default for TunOptions {
                 .iter()
                 .map(|s| s.to_string())
                 .collect(),
+            exclude_uid: Vec::new(),
+            exclude_interface: Vec::new(),
+            exclude_dst_port: Vec::new(),
         }
     }
 }
@@ -126,6 +135,15 @@ pub fn inject(doc: &mut Mapping, options: &ConfigGenOptions) {
             kv(&mut t, "strict-route", tun.strict_route);
             kv(&mut t, "auto-redirect", tun.auto_redirect);
             kv(&mut t, "route-exclude-address", Value::Sequence(strings(&tun.route_exclude_address)));
+            if !tun.exclude_uid.is_empty() {
+                kv(&mut t, "exclude-uid", Value::Sequence(tun.exclude_uid.iter().map(|v| Value::Number((*v).into())).collect()));
+            }
+            if !tun.exclude_interface.is_empty() {
+                kv(&mut t, "exclude-interface", Value::Sequence(strings(&tun.exclude_interface)));
+            }
+            if !tun.exclude_dst_port.is_empty() {
+                kv(&mut t, "exclude-dst-port", Value::Sequence(tun.exclude_dst_port.iter().map(|v| Value::Number((*v).into())).collect()));
+            }
             doc.insert(Value::String("tun".into()), Value::Mapping(t));
         }
         None => {

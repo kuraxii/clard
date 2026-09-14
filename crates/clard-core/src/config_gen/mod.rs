@@ -138,9 +138,30 @@ mod tests {
         let exclude = get(tun, "route-exclude-address").unwrap().as_sequence().unwrap();
         assert!(exclude.iter().any(|v| v.as_str() == Some("10.0.0.0/8")));
         assert!(exclude.iter().any(|v| v.as_str() == Some("::1/128")));
+        assert!(get(tun, "exclude-uid").is_none(), "空列表不注入");
         let dns = get(&m, "dns").unwrap().as_mapping().unwrap();
         assert_eq!(get(dns, "enable").unwrap().as_bool(), Some(true));
         assert_eq!(get(dns, "enhanced-mode").unwrap().as_str(), Some("fake-ip"));
+    }
+
+    #[test]
+    fn generate_tun_injects_exclude_fields() {
+        let mut options = opts();
+        let mut tun = options.tun.clone().unwrap();
+        tun.exclude_uid = vec![1000, 1001];
+        tun.exclude_interface = vec!["eth1".into()];
+        tun.exclude_dst_port = vec![5353];
+        options.tun = Some(tun);
+        let out = generate("proxies: []\n", None, &options).unwrap();
+        let m = as_mapping(&out);
+        let tun = get(&m, "tun").unwrap().as_mapping().unwrap();
+        let uid = get(tun, "exclude-uid").unwrap().as_sequence().unwrap();
+        assert_eq!(uid.len(), 2);
+        assert_eq!(uid[0].as_i64(), Some(1000));
+        let iface = get(tun, "exclude-interface").unwrap().as_sequence().unwrap();
+        assert_eq!(iface[0].as_str(), Some("eth1"));
+        let port = get(tun, "exclude-dst-port").unwrap().as_sequence().unwrap();
+        assert_eq!(port[0].as_i64(), Some(5353));
     }
 
     #[test]
