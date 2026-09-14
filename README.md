@@ -59,7 +59,7 @@ Clard 是 Linux 上的完整代理管理工具：系统级常驻服务 `clard-he
 ### 设置
 
 - [x] 通用（混合端口 7890 仅回环、自动更新间隔、语言、主题）
-- [ ] TUN 与旁路（热重载 + 读回校验）——最后做，开始前停下确认
+- [x] TUN 与旁路（热重载 + 读回校验）：开关（helper 托管注入 + `PATCH /configs` 热更 + 回读校验 + 失败回退）、stack、dns-hijack、route-exclude、exclude-uid/interface/dst-port、strict-route/auto-redirect（二次确认 + 风险提示）、紧急恢复直连（cleanup-tun，幂等）；能力探测/冲突检测；启动自检残留清理；配置生成注入设置
 - [x] 核心（版本 / 启停 / 重启；检查更新/升级待 helper InstallCore 里程碑）
 - [x] 后台服务（安装 / 卸载命令展示；偏执模式随 TUN）
 - [x] 关于（版本 / 路径一览）
