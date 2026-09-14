@@ -69,7 +69,9 @@ install -d -m 0700 %{_localstatedir}/clard/lib \
 # 兜底：部分环境（容器/最小化 systemd）file-trigger 不生效导致 enable 缺失，
 # 显式 enable + start（幂等，失败不阻塞事务）
 systemctl enable clard-helper.service >/dev/null 2>&1 || :
-systemctl start clard-helper.service >/dev/null 2>&1 || :
+# try-restart：安装时启动；升级时旧服务在跑则重启为新二进制
+# （systemctl start 对已 active 服务是 no-op，会导致升级后 helper 仍是旧版本）
+systemctl try-restart clard-helper.service >/dev/null 2>&1 || :
 
 %preun
 %systemd_preun clard-helper.service
