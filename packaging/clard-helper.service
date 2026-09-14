@@ -1,0 +1,25 @@
+# Clard proxy helper: owns mihomo core, TUN and all data (root).
+# 安装/卸载由 RPM 包管理（packaging/clard.spec 的 %post/%preun）承担；
+# ExecStopPost 保证任何退出路径（含 SIGKILL/崩溃）都执行 cleanup-tun（fail-open，doc/01 §6.4）。
+[Unit]
+Description=Clard proxy helper (owns mihomo core and TUN)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+ExecStart=/usr/libexec/clard/clard-helper run
+ExecStopPost=/usr/libexec/clard/clard-helper cleanup-tun
+Restart=always
+RestartSec=2
+ProtectSystem=strict
+ReadWritePaths=/run/clard /var/clard
+ProtectHome=yes
+PrivateTmp=yes
+NoNewPrivileges=yes
+RestrictSUIDSGID=yes
+CapabilityBoundingSet=CAP_NET_ADMIN CAP_NET_RAW CAP_NET_BIND_SERVICE CAP_CHOWN CAP_FOWNER CAP_SETUID CAP_SETGID CAP_DAC_OVERRIDE
+# ProtectKernelTunables 保持默认：一期不依赖 sysctl；若将来启用 auto-redirect 需重新评估。
+
+[Install]
+WantedBy=multi-user.target
