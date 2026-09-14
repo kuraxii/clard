@@ -27,6 +27,7 @@ mod profiles;
 mod rpc;
 mod settings;
 mod tun;
+mod watchdog;
 
 use clap::{Parser, Subcommand};
 

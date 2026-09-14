@@ -11,7 +11,7 @@ use std::{
     fs,
     io::{self, Read, Seek},
     path::{Path, PathBuf},
-    time::Duration,
+    time::{Duration, Instant},
 };
 
 use sha2::{Digest, Sha256};
@@ -48,6 +48,10 @@ pub struct CoreManager {
     child: Option<Child>,
     pid: Option<u32>,
     version: Option<String>,
+    /// 用户是否期望核心运行（watchdog 据此自动重启；StopCore 清除）
+    want_running: bool,
+    /// 崩溃时刻（退避计算，窗口 600s）
+    crash_times: Vec<Instant>,
 }
 
 impl CoreManager {
@@ -61,7 +65,36 @@ impl CoreManager {
             child: None,
             pid: None,
             version: None,
+            want_running: false,
+            crash_times: Vec::new(),
         }
+    }
+
+    /// 用户是否期望核心运行（watchdog 自动重启依据）。
+    pub fn is_want_running(&self) -> bool {
+        self.want_running
+    }
+
+    /// 设置期望运行（watchdog 超限后清除，停止自动重启）。
+    pub fn set_want_running(&mut self, want: bool) {
+        self.want_running = want;
+    }
+
+    /// 核心崩溃退避（§5.4）：窗口 600s 内崩溃 ≥10 次返回 None（watchdog 超限 fail-open）。
+    /// 否则记录本次崩溃并返回退避时长（2^崩溃次数 秒，上限 30s）。
+    pub fn crash_backoff(&mut self) -> Option<Duration> {
+        const WINDOW: Duration = Duration::from_secs(600);
+        const MAX_RESTARTS: usize = 10;
+        const MAX_BACKOFF: u64 = 30;
+        let now = Instant::now();
+        self.crash_times.retain(|t| now.duration_since(*t) < WINDOW);
+        if self.crash_times.len() >= MAX_RESTARTS {
+            return None;
+        }
+        let n = self.crash_times.len();
+        self.crash_times.push(now);
+        let secs = (1u64 << n.min(5)).min(MAX_BACKOFF);
+        Some(Duration::from_secs(secs))
     }
 
     /// 当前状态：`running` / `stopped`（顺带回收已退出子进程）。
@@ -105,6 +138,7 @@ impl CoreManager {
             return Err("运行态配置不存在，请先应用配置".to_string());
         }
         verify_core_binary(&self.core_bin)?;
+        self.want_running = true;
         fs::create_dir_all(&self.runtime_dir).map_err(|e| e.to_string())?;
         let _ = fs::remove_file(&self.core_sock);
 
@@ -164,6 +198,7 @@ impl CoreManager {
         }
         self.pid = None;
         self.version = None;
+        self.want_running = false;
         let _ = fs::remove_file(&self.core_sock);
         Ok(())
     }
@@ -577,5 +612,18 @@ mod tests {
         let link = dir.path().join("link");
         std::os::unix::fs::symlink(&bin, &link).unwrap();
         assert!(verify_core_binary(&link).unwrap_err().contains("符号链接"));
+    }
+
+    #[test]
+    fn crash_backoff_counts_within_window_then_limits() {
+        let dir = tempfile::tempdir().unwrap();
+        let mut cm = CoreManager::new(dir.path());
+        // 窗口 600s 内前 10 次崩溃 → Some（max_restarts=10，各自退避重启），退避 ≤ 30s
+        for _ in 0..10 {
+            let d = cm.crash_backoff().unwrap();
+            assert!(d.as_secs() <= 30);
+        }
+        // 第 11 次 → 超限（watchdog fail-open，§5.4）
+        assert!(cm.crash_backoff().is_none());
     }
 }

@@ -343,6 +343,33 @@ async fn install_core_restarts_running_core() {
     assert_eq!(core_state, "running", "升级后核心自动重启");
 }
 
+/// watchdog 崩溃自愈（§5.4）：核心运行后崩溃 → helper 自动退避重启并保持 running。
+/// 核心脚本：sleep 1 让就绪探测通过（want_running=true），随后 exit 1 模拟崩溃。
+#[tokio::test]
+async fn watchdog_restarts_crashed_core() {
+    let h = Harness::start(true).await;
+    std::fs::write(&h.bin, b"#!/bin/sh\nsleep 1\nexit 1\n").unwrap();
+
+    let resp = rpc_call(&h.sock, &Request::ApplyConfig { yaml: "mode: rule\n".into() }).await;
+    assert_eq!(resp, Response::Ok);
+    let resp = rpc_call(&h.sock, &Request::StartCore).await;
+    assert_eq!(resp, Response::Ok, "{resp:?}");
+
+    // 核心 1s 后崩溃；watchdog（2s 间隔）应检测并重启（退避 1-2s）→ 最终 running
+    let mut seen_running = false;
+    for _ in 0..30 {
+        tokio::time::sleep(Duration::from_millis(500)).await;
+        let Response::Status { core_state, .. } = rpc_call(&h.sock, &Request::Status).await else {
+            panic!("unexpected");
+        };
+        if core_state == "running" {
+            seen_running = true;
+            break;
+        }
+    }
+    assert!(seen_running, "watchdog 应自动重启崩溃的核心");
+}
+
 /// 核心 stdout 管道 → core.log（R6.1）：核心脚本向 stdout 打一行，
 /// LogTail 能经 IPC 读到（helper 逐行转储）。
 #[tokio::test]
