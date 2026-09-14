@@ -122,6 +122,37 @@ use clard_core::mihomo::backend::Backend;
 const DEFAULT_UNIX_SOCKET: &str = "/tmp/verge/verge-mihomo.sock";
 const DEFAULT_TCP_ADDR: &str = "127.0.0.1:9090";
 
+/// 事件订阅（§5.6）：连接 → 全量同步 → 转发事件；断开后退避重连。
+/// 每次连接建立发 `Subscribed` 触发 Status 全量；收到状态类事件也触发刷新。
+async fn subscribe_events(sender: mpsc::UnboundedSender<ClardEvent>) {
+    use clard_proto::Event;
+    use tokio::sync::mpsc;
+    loop {
+        let (ev_tx, mut ev_rx) = mpsc::unbounded_channel::<Event>();
+        let mut conn = tokio::spawn(async move {
+            let _ = rpc::subscribe(ev_tx).await;
+        });
+        // 连接建立（或失败）→ 全量同步
+        let _ = sender.send(ClardEvent::Subscribed);
+        loop {
+            tokio::select! {
+                Some(ev) = ev_rx.recv() => {
+                    let mapped = match ev {
+                        Event::CoreStatusChanged | Event::TunChanged => ClardEvent::Subscribed,
+                        Event::Degraded => ClardEvent::Notify(
+                            "⚠ DEGRADED: TUN failed open, direct connection restored — check settings".to_string()
+                        ),
+                        _ => continue,
+                    };
+                    let _ = sender.send(mapped);
+                }
+                _ = &mut conn => break, // 连接断开 → 重连
+            }
+        }
+        tokio::time::sleep(Duration::from_secs(3)).await;
+    }
+}
+
 fn default_backend() -> Result<Backend> {
     let backend = if Path::new(DEFAULT_UNIX_SOCKET).exists() {
         Backend::builder().set_unix_socket(DEFAULT_UNIX_SOCKET).build()?
@@ -148,6 +179,8 @@ pub async fn start_clard() -> Result<()> {
     app.fetch_core_status();
 
     tokio::spawn(listen_input_event(token.clone(), sender.clone()));
+    // §5.6 事件订阅：helper 状态变化实时推送（断线自动重连）
+    tokio::spawn(subscribe_events(sender.clone()));
 
     let mut painter = Painter;
 
@@ -230,6 +263,10 @@ pub async fn start_clard() -> Result<()> {
                     }
                     ClardEvent::HelperVersion(version) => {
                         app.home.apply_helper_version(version);
+                    }
+                    // §5.6 事件订阅：连接建立（重连成功）→ Status 全量同步
+                    ClardEvent::Subscribed => {
+                        app.fetch_core_status();
                     }
                     ClardEvent::BackupsReady(backups) => {
                         app.settings.apply_backups(backups);

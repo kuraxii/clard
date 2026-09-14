@@ -53,6 +53,29 @@ pub fn expect_ok(resp: Response) -> Result<(), RpcError> {
     }
 }
 
+/// 事件订阅长连接（§5.6）：发 `Subscribe` 后循环转发 helper 事件到 `sender`。
+/// 连接断开/helper 重启时返回（调用方负责退避重连 + Status 全量同步）。
+pub async fn subscribe(
+    sender: tokio::sync::mpsc::UnboundedSender<clard_proto::Event>,
+) -> Result<(), RpcError> {
+    let mut stream = tokio::net::UnixStream::connect(socket_path()).await?;
+    let buf = serde_json::to_vec(&Request::Subscribe).map_err(|e| RpcError::Encode(e.to_string()))?;
+    stream.write_all(&(buf.len() as u32).to_be_bytes()).await?;
+    stream.write_all(&buf).await?;
+    loop {
+        let mut len_buf = [0u8; 4];
+        stream.read_exact(&mut len_buf).await?;
+        let len = u32::from_be_bytes(len_buf) as usize;
+        let mut buf = vec![0u8; len];
+        stream.read_exact(&mut buf).await?;
+        let ev: clard_proto::Event =
+            serde_json::from_slice(&buf).map_err(|e| RpcError::Decode(e.to_string()))?;
+        if sender.send(ev).is_err() {
+            return Ok(()); // 接收端关闭
+        }
+    }
+}
+
 /// 响应变体与预期不符（`call` 已把 `Response::Error` 转为 `RpcError::Helper`）。
 pub fn unexpected(resp: Response) -> RpcError {
     RpcError::Helper(format!("响应类型不匹配: {resp:?}"))
