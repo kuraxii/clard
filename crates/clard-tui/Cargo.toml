@@ -9,10 +9,6 @@ rust-version.workspace = true
 name = "clard"
 path = "src/main.rs"
 
-[[example]]
-name = "key_event_test"
-path = "examples/key_event_test.rs"
-
 [dependencies]
 clard-core = { path = "../clard-core" }
 clard-proto = { path = "../clard-proto" }
