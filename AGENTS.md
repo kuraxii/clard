@@ -14,5 +14,6 @@
   - （已弃用）sysproxy-rs：https://github.com/clash-verge-rev/sysproxy-rs ，仅 doc/01 附录 A 留档，不再使用。
 - TUI 改动遵循 `.pi/skills/tui-design/SKILL.md` 与 `doc/03-ui设计.md` 的布局 / 配色 / 键位约定。
 - 测试驱动：**先写功能边界的单元测试，再实现**；单元测试通过后再组装/集成（跨组件）；每个逻辑单元与测试一并提交，回归必须全绿。
+- 按 TODO 推进：实现以 `README.md` 的「需求 TODO」为准，逐项完成并勾选；新增/调整需求先改 `doc/05-需求文档.md` 与 README TODO，再实现。
 - 提交：分阶段，每个可独立运行/回滚的逻辑单元立即 `git commit`。
 - 提交信息：Conventional Commits，`<type>: <中文简述>`；type 取值 feat/fix/refactor/docs/style/chore/build。
