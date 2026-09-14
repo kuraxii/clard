@@ -12,6 +12,7 @@ use std::{
     time::{SystemTime, UNIX_EPOCH},
 };
 
+use clard_proto::ProfileVersion;
 use rand::Rng;
 use serde::{Deserialize, Serialize};
 use thiserror::Error;
@@ -20,6 +21,8 @@ use thiserror::Error;
 pub const PROFILES_FILE: &str = "profiles.yaml";
 /// 订阅内容子目录
 pub const PROFILES_SUBDIR: &str = "profiles";
+/// 每配置保留的历史版本数（doc/05 §2 R2.9）
+pub const MAX_BACKUPS: u32 = 3;
 
 #[derive(Debug, Error)]
 pub enum ProfilesError {
@@ -31,6 +34,8 @@ pub enum ProfilesError {
     NotFound { uid: String },
     #[error("配置名为空")]
     EmptyName,
+    #[error("版本不存在: {version}")]
+    BackupNotFound { version: u32 },
 }
 
 /// 索引文件结构（doc/01 §7.1）
@@ -161,6 +166,8 @@ impl ProfilesStore {
                 let item = &self.index.items[idx];
                 (item.uid.clone(), item.file.clone())
             };
+            // 覆盖前先把旧内容轮转为备份（R2.9）
+            self.rotate_backups(&self.root.join(&file))?;
             write_file(&self.root.join(file), yaml)?;
             let item = &mut self.index.items[idx];
             if let Some(name) = name {
@@ -232,12 +239,87 @@ impl ProfilesStore {
         self.save_index()
     }
 
+    /// 列出配置的历史版本（1=最近，最多 `MAX_BACKUPS` 份）。
+    pub fn history(&self, uid: &str) -> Result<Vec<ProfileVersion>, ProfilesError> {
+        let path = self
+            .content_path(uid)
+            .ok_or_else(|| ProfilesError::NotFound { uid: uid.into() })?;
+        let mut versions = Vec::new();
+        for n in 1..=MAX_BACKUPS {
+            let backup = backup_path(&path, n);
+            if backup.exists() {
+                let updated_at = backup
+                    .metadata()
+                    .ok()
+                    .and_then(|m| m.modified().ok())
+                    .map(modified_to_unix);
+                versions.push(ProfileVersion { version: n, updated_at });
+            }
+        }
+        Ok(versions)
+    }
+
+    /// 恢复指定历史版本：内容写回主文件并更新索引 `updated_at`（R2.9）。
+    pub fn restore(&mut self, uid: &str, version: u32) -> Result<(), ProfilesError> {
+        if version == 0 || version > MAX_BACKUPS {
+            return Err(ProfilesError::BackupNotFound { version });
+        }
+        let Some(item) = self.index.items.iter().find(|p| p.uid == uid) else {
+            return Err(ProfilesError::NotFound { uid: uid.into() });
+        };
+        let path = self.root.join(&item.file);
+        let backup = backup_path(&path, version);
+        if !backup.exists() {
+            return Err(ProfilesError::BackupNotFound { version });
+        }
+        let content = std::fs::read_to_string(&backup)?;
+        // 恢复前同样轮转，保证恢复动作本身可逆
+        self.rotate_backups(&path)?;
+        write_file(&path, &content)?;
+        let item = self
+            .index
+            .items
+            .iter_mut()
+            .find(|p| p.uid == uid)
+            .expect("uid 已校验存在");
+        item.updated_at = Some(now_unix());
+        self.save_index()
+    }
+
+    /// 轮转备份：`bak.2→bak.3`、`bak.1→bak.2`、当前内容 → `bak.1`（最多 3 份）。
+    fn rotate_backups(&self, path: &Path) -> Result<(), ProfilesError> {
+        let newest = backup_path(path, MAX_BACKUPS);
+        let _ = std::fs::remove_file(&newest);
+        for n in (1..MAX_BACKUPS).rev() {
+            let src = backup_path(path, n);
+            let dst = backup_path(path, n + 1);
+            if src.exists() {
+                std::fs::rename(&src, &dst)?;
+            }
+        }
+        if path.exists() {
+            std::fs::copy(path, backup_path(path, 1))?;
+        }
+        Ok(())
+    }
+
     fn save_index(&self) -> Result<(), ProfilesError> {
         std::fs::create_dir_all(&self.root)?;
         let path = self.root.join(PROFILES_FILE);
         let text = serde_yaml_ng::to_string(&self.index)?;
         atomic_write(&path, text.as_bytes())
     }
+}
+
+/// 历史版本文件路径：`<主文件>.yaml.bak.<n>`。
+fn backup_path(path: &Path, n: u32) -> PathBuf {
+    path.with_extension(format!("yaml.bak.{n}"))
+}
+
+fn modified_to_unix(t: SystemTime) -> i64 {
+    t.duration_since(UNIX_EPOCH)
+        .map(|d| d.as_secs() as i64)
+        .unwrap_or(0)
 }
 
 fn write_file(path: &Path, content: &str) -> Result<(), ProfilesError> {
@@ -397,6 +479,48 @@ mod tests {
         store.rename(&uid, "新名").unwrap();
         assert_eq!(store.get(&uid).unwrap().name, "新名");
         assert!(matches!(store.rename(&uid, "  "), Err(ProfilesError::EmptyName)));
+    }
+
+    #[test]
+    fn history_and_restore_keep_three_versions() {
+        let (_dir, mut store) = store_in_tempdir();
+        let uid = match store.import(URL_A, Some("订阅"), 0, "v1").unwrap() {
+            ImportOutcome::Created { uid } => uid,
+            other => panic!("{other:?}"),
+        };
+        assert!(store.history(&uid).unwrap().is_empty());
+
+        store.import(URL_A, None, 0, "v2").unwrap(); // v1 → bak.1
+        assert_eq!(store.history(&uid).unwrap().len(), 1);
+
+        store.import(URL_A, None, 0, "v3").unwrap(); // bak.1=v2, bak.2=v1
+        assert_eq!(store.history(&uid).unwrap().len(), 2);
+        assert_eq!(store.content(&uid).unwrap(), "v3");
+
+        store.restore(&uid, 1).unwrap(); // bak.1 = v2
+        assert_eq!(store.content(&uid).unwrap(), "v2");
+
+        for v in ["v4", "v5", "v6"] {
+            store.import(URL_A, None, 0, v).unwrap();
+        }
+        assert_eq!(store.history(&uid).unwrap().len(), 3, "最多保留 3 份");
+    }
+
+    #[test]
+    fn restore_unknown_version_errors() {
+        let (_dir, mut store) = store_in_tempdir();
+        let uid = match store.import(URL_A, None, 0, "v1").unwrap() {
+            ImportOutcome::Created { uid } => uid,
+            other => panic!("{other:?}"),
+        };
+        assert!(matches!(
+            store.restore(&uid, 1),
+            Err(ProfilesError::BackupNotFound { version: 1 })
+        ));
+        assert!(matches!(
+            store.restore(&uid, 99),
+            Err(ProfilesError::BackupNotFound { version: 99 })
+        ));
     }
 
     #[test]

@@ -16,7 +16,7 @@ use home::HomeState;
 use logs::LogsState;
 use modal::{ConfirmPurpose, ConfirmState, InputPurpose, InputState};
 use page::Page;
-use profiles::{ProfileBusy, ProfilesState};
+use profiles::{HistoryView, ProfileBusy, ProfilesState};
 use proxy::{ProxyFocus, ProxyState};
 use rules::{RulesState, RulesTab};
 use settings::SettingsState;
@@ -45,6 +45,8 @@ pub struct APP {
     pub input: Option<InputState>,
     /// 确认弹窗（危险操作二次确认）
     pub confirm: Option<ConfirmState>,
+    /// 配置历史版本视图（`h` 打开）
+    pub history: Option<HistoryView>,
     pub event_sender: UnboundedSender<ClardEvent>,
     pub backend: Arc<Backend>,
     pub message: Option<String>,
@@ -65,6 +67,7 @@ impl APP {
             rules: RulesState::default(),
             input: None,
             confirm: None,
+            history: None,
             event_sender: sender,
             backend,
             message: None,
@@ -255,6 +258,76 @@ impl APP {
             }
             send_profiles(&sender).await;
         });
+    }
+
+    /// 打开历史版本视图（R2.9）。
+    pub fn open_history(&mut self) {
+        let Some(uid) = self.profiles.selected().map(|p| p.uid.clone()) else {
+            return;
+        };
+        let sender = self.event_sender.clone();
+        tokio::spawn(async move {
+            match rpc::call(&Request::ProfileHistory { uid: uid.clone() }).await {
+                Ok(Response::ProfileHistory { versions }) => {
+                    let _ = sender.send(ClardEvent::ProfileHistoryReady { uid, versions });
+                }
+                Ok(other) => {
+                    let _ = sender.send(ClardEvent::Error(rpc::unexpected(other).to_string()));
+                }
+                Err(e) => {
+                    let _ = sender.send(ClardEvent::Error(e.to_string()));
+                }
+            }
+        });
+    }
+
+    /// 恢复指定历史版本（R2.9）。
+    pub fn restore_profile(&mut self, uid: String, version: u32) {
+        self.history = None;
+        let sender = self.event_sender.clone();
+        tokio::spawn(async move {
+            match rpc::call(&Request::ProfileRestore { uid, version }).await {
+                Ok(Response::Ok) => {
+                    let _ = sender.send(ClardEvent::Notify("profile restored".to_string()));
+                }
+                Ok(other) => {
+                    let _ = sender.send(ClardEvent::Error(rpc::unexpected(other).to_string()));
+                }
+                Err(e) => {
+                    let _ = sender.send(ClardEvent::Error(e.to_string()));
+                }
+            }
+            send_profiles(&sender).await;
+        });
+    }
+
+    /// 历史视图按键（Enter 恢复 / Esc 关闭 / ↑↓ 移动）。
+    pub fn on_history_key(&mut self, event: KeyEvent) {
+        if !event.modifiers.is_empty() {
+            return;
+        }
+        match event.code {
+            KeyCode::Esc => self.history = None,
+            KeyCode::Up | KeyCode::Char('k') => {
+                if let Some(h) = &mut self.history {
+                    h.on_up_key();
+                }
+            }
+            KeyCode::Down | KeyCode::Char('j') => {
+                if let Some(h) = &mut self.history {
+                    h.on_down_key();
+                }
+            }
+            KeyCode::Enter => {
+                if let Some(h) = &self.history
+                    && let Some(v) = h.selected()
+                {
+                    let (uid, version) = (h.uid.clone(), v.version);
+                    self.restore_profile(uid, version);
+                }
+            }
+            _ => {}
+        }
     }
 
     /// 切换当前配置（R2.2）：先标记 current；config_gen → ApplyConfig 热重载随
@@ -741,6 +814,7 @@ impl APP {
                 }
             }
             'r' => self.open_rename_input(),
+            'h' => self.open_history(),
             '[' => {
                 if let Some(p) = self.profiles.selected() {
                     let uid = p.uid.clone();

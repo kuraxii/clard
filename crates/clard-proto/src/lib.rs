@@ -57,6 +57,8 @@ pub enum Request {
     ProfileSetCurrent { uid: String },
     ProfileRename { uid: String, name: String },
     ProfileMove { uid: String, up: bool },
+    ProfileHistory { uid: String },
+    ProfileRestore { uid: String, version: u32 },
     /// 投递运行时配置 bundle（TUI config_gen 生成，§5.5）
     ApplyConfig { yaml: String },
     /// 启停与重启核心（幂等）
@@ -81,6 +83,13 @@ pub enum Request {
         sha256: String,
         version: String,
     },
+}
+
+/// 配置历史版本条目（doc/05 §2 R2.9）。
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ProfileVersion {
+    pub version: u32,
+    pub updated_at: Option<i64>,
 }
 
 /// 订阅导入请求：yaml 为 TUI 下载订阅后经 config_gen 归一化的内容（doc/01 §7.1）
@@ -117,6 +126,9 @@ pub enum Response {
     ProfileContent {
         item: ProfileItem,
         yaml: String,
+    },
+    ProfileHistory {
+        versions: Vec<ProfileVersion>,
     },
     /// 无额外载荷的成功
     Ok,

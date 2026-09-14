@@ -14,7 +14,7 @@ use crate::app::{
     connections::{ConnectionsSort, ConnectionsState},
     modal::{ConfirmState, InputState},
     page::Page,
-    profiles::{ProfileBusy, ProfilesState},
+    profiles::{HistoryView, ProfileBusy, ProfilesState},
     proxy::{ProxyFocus, ProxyState},
     rules::{RulesState, RulesTab},
 };
@@ -67,6 +67,9 @@ impl Painter {
             }
             if let Some(confirm) = &app.confirm {
                 draw_confirm_modal(f, area, confirm, theme);
+            }
+            if let Some(history) = &app.history {
+                draw_history_modal(f, area, history, theme);
             }
             if app.show_help {
                 draw_help(f, area, app, theme);
@@ -387,7 +390,7 @@ fn draw_profile_detail(f: &mut Frame<'_>, area: Rect, state: &ProfilesState, the
             kv_line("Interval", &interval, theme),
             Line::from(""),
             Line::from(Span::styled(
-                "i import · u update · d delete · r rename · [/] reorder · Enter switch",
+                "i import · u update · d delete · r rename · [/] reorder · h history · Enter switch",
                 theme.muted_style(),
             )),
         ]
@@ -971,6 +974,46 @@ fn draw_input_modal(f: &mut Frame<'_>, area: Rect, input: &InputState, theme: Th
     );
 }
 
+fn draw_history_modal(f: &mut Frame<'_>, area: Rect, history: &HistoryView, theme: Theme) {
+    let popup = centered_rect(56, 60, area);
+    f.render_widget(Clear, popup);
+
+    let items: Vec<ListItem<'_>> = history
+        .versions
+        .iter()
+        .map(|v| {
+            let updated = v.updated_at.map(format_unix_time).unwrap_or_else(|| "-".to_string());
+            ListItem::new(Line::from(vec![
+                Span::styled(format!("v{}", v.version), theme.title_style()),
+                Span::raw("  "),
+                Span::styled(updated, theme.muted_style()),
+            ]))
+        })
+        .collect();
+
+    let hint = if items.is_empty() {
+        vec![Line::from(Span::styled("(no history)", theme.muted_style()))]
+    } else {
+        Vec::new()
+    };
+
+    let list = List::new(items)
+        .block(panel_block("History  Enter restore  Esc close", true, theme))
+        .highlight_style(theme.selected_style())
+        .highlight_symbol("▸ ");
+
+    let mut list_state = history.list_state.clone();
+    f.render_stateful_widget(list, popup, &mut list_state);
+
+    if !hint.is_empty() {
+        let hint_area = popup.inner(Margin {
+            horizontal: 2,
+            vertical: 1,
+        });
+        f.render_widget(Paragraph::new(hint), hint_area);
+    }
+}
+
 fn draw_confirm_modal(f: &mut Frame<'_>, area: Rect, confirm: &ConfirmState, theme: Theme) {
     let popup = centered_rect(60, 26, area);
     f.render_widget(Clear, popup);
@@ -1158,10 +1201,10 @@ fn footer_keys(app: &APP) -> Vec<(&'static str, &'static str)> {
         }
         Page::Profiles => {
             keys.push(("↑↓/jk", "move"));
-            keys.push(("i", "import"));
-            keys.push(("u", "update"));
+            keys.push(("i/u", "import/upd"));
             keys.push(("d/r", "del/rename"));
             keys.push(("[/]", "reorder"));
+            keys.push(("h", "history"));
             keys.push(("Enter", "switch"));
         }
         Page::Proxies => {

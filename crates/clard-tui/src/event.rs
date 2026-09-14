@@ -20,6 +20,10 @@ pub enum ClardEvent {
         current: Option<String>,
         items: Vec<clard_proto::ProfileItem>,
     },
+    ProfileHistoryReady {
+        uid: String,
+        versions: Vec<clard_proto::ProfileVersion>,
+    },
     RulesUpdated(Vec<clard_core::mihomo::models::Rule>),
     RuleProvidersUpdated(std::collections::HashMap<String, clard_core::mihomo::models::RuleProvider>),
     /// 成功/信息消息（页脚消息条）
@@ -49,6 +53,10 @@ pub fn handle_key_event(event: KeyEvent, app: &mut APP, sender: mpsc::UnboundedS
     }
     if app.input.is_some() {
         app.on_input_key(event);
+        return;
+    }
+    if app.history.is_some() {
+        app.on_history_key(event);
         return;
     }
 

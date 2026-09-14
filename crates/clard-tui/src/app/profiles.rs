@@ -3,7 +3,7 @@
 //! helper 侧已实现 `ProfileList/Import/Get/Remove/SetCurrent`（README「已完成」）；
 //! 本模块维护 TUI 侧列表/选中/行内忙碌状态，切换页面后保留（doc/03 §1 原则 3）。
 
-use clard_proto::ProfileItem;
+use clard_proto::{ProfileItem, ProfileVersion};
 use ratatui::widgets::ListState;
 
 /// 行内操作类型（spinner 展示用）。
@@ -85,6 +85,54 @@ impl ProfilesState {
 impl Default for ProfilesState {
     fn default() -> Self {
         Self::new()
+    }
+}
+
+/// 配置历史版本视图（`h` 打开，Enter 恢复，Esc 关闭，doc/03 §5.2）。
+#[derive(Debug)]
+pub struct HistoryView {
+    pub uid: String,
+    pub versions: Vec<ProfileVersion>,
+    pub list_state: ListState,
+}
+
+impl HistoryView {
+    pub fn new(uid: String, versions: Vec<ProfileVersion>) -> Self {
+        let mut view = Self {
+            uid,
+            versions,
+            list_state: ListState::default(),
+        };
+        if !view.versions.is_empty() {
+            view.list_state.select(Some(0));
+        }
+        view
+    }
+
+    pub fn selected(&self) -> Option<&ProfileVersion> {
+        self.list_state.selected().and_then(|i| self.versions.get(i))
+    }
+
+    pub fn on_down_key(&mut self) {
+        if self.versions.is_empty() {
+            return;
+        }
+        let i = match self.list_state.selected() {
+            Some(i) if i + 1 < self.versions.len() => i + 1,
+            _ => 0,
+        };
+        self.list_state.select(Some(i));
+    }
+
+    pub fn on_up_key(&mut self) {
+        if self.versions.is_empty() {
+            return;
+        }
+        let i = match self.list_state.selected() {
+            Some(0) | None => self.versions.len() - 1,
+            Some(i) => i - 1,
+        };
+        self.list_state.select(Some(i));
     }
 }
 

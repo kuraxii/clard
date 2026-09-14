@@ -187,6 +187,9 @@ pub async fn start_clard() -> Result<()> {
                     ClardEvent::ProfilesUpdated { current, items } => {
                         app.apply_profiles(current, items);
                     }
+                    ClardEvent::ProfileHistoryReady { uid, versions } => {
+                        app.history = Some(app::profiles::HistoryView::new(uid, versions));
+                    }
                     ClardEvent::RulesUpdated(rules) => {
                         app.rules.update_rules(rules);
                     }
