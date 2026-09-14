@@ -54,7 +54,7 @@ Clard 是 Linux 上的完整代理管理工具：系统级常驻服务 `clard-he
 ### 日志与审计
 
 - [x] TUI 日志页三栏（应用/核心/审计）与过滤
-- [ ] 审计完整规格（intent+result、net 快照、cfg_sha256、按 op 过滤）；导出
+- [x] 审计完整规格（intent+result 双记录、net 前后快照、cfg_sha256；`o` 按 op 过滤、`I` 配对、`Enter` 展开、`x` 导出）
 - [x] 核心日志接入（stdout 管道写 core.log；`e` 级别过滤）
 - [x] 日志轮转（audit/core 10MB×5、tui 1MB×5）
 
@@ -77,7 +77,7 @@ Clard 是 Linux 上的完整代理管理工具：系统级常驻服务 `clard-he
 
 - [x] 核心日志接入（R6.1）：核心 stdout/stderr 管道 → core.log；日志页核心栏 `e` 级别过滤
 - [x] 日志轮转（doc/01 §10）：audit.log 10MB×5、core.log 10MB×5、tui.log 1MB×5
-- [ ] 审计完整规格（R6.3）：intent+result 双记录、net 前后快照、cfg_sha256；日志页审计栏 `o` 按 op 过滤、`Enter` 展开详情、`x` 导出、`I` 配对切换
+- [x] 审计完整规格（R6.3）：intent+result 双记录、net 前后快照、cfg_sha256；日志页审计栏 `o` 按 op 过滤、`Enter` 展开详情、`x` 导出、`I` 配对切换
 
 ### P2 崩溃安全（doc/01 §5.4/§6.5，核心承诺）
 
