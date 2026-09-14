@@ -23,7 +23,7 @@ Clard 是 Linux 上的完整代理管理工具：系统级常驻服务 `clard-he
 ### 订阅配置
 
 - [x] URL 导入与覆盖更新（CLI ✓，TUI ✓）
-- [ ] 切换当前配置（事务：config_gen → ApplyConfig 热重载 → 恢复记忆节点）
+- [x] 切换当前配置（事务：config_gen → ApplyConfig 热重载 → 启动核心；记忆节点恢复随核心生命周期后续）
 - [x] 手动更新订阅（CLI ✓，TUI ✓）
 - [x] 删除配置（CLI ✓，TUI ✓）
 - [x] 改名 / 排序（上移下移）

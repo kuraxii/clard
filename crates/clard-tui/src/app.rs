@@ -23,7 +23,7 @@ use settings::SettingsState;
 use tokio::sync::mpsc::UnboundedSender;
 
 use clard_core::{
-    config_gen::subscription_to_yaml,
+    config_gen::{self, subscription_to_yaml, ConfigGenOptions},
     mihomo::{backend::Backend, models::Traffic, websocket::get_websocket_url},
     profiles::HttpFetcher,
 };
@@ -330,20 +330,19 @@ impl APP {
         }
     }
 
-    /// 切换当前配置（R2.2）：先标记 current；config_gen → ApplyConfig 热重载随
-    /// helper 核心生命周期里程碑补全（README TODO）。
+    /// 切换当前配置（R2.2，事务）：标记 current → 取回原始 yaml → config_gen 生成
+    /// 运行态配置 → ApplyConfig 落盘+热重载 → 核心未运行则启动；任一步失败回滚 current。
     pub fn set_current_profile(&mut self, uid: String) {
+        let previous = self.profiles.current.clone();
+        self.message = Some(format!("switching to {uid}…"));
         let sender = self.event_sender.clone();
         tokio::spawn(async move {
-            match rpc::call(&Request::ProfileSetCurrent { uid: uid.clone() }).await {
-                Ok(Response::Ok) => {
-                    let _ = sender.send(ClardEvent::Notify(format!("current profile: {uid}")));
-                }
-                Ok(other) => {
-                    let _ = sender.send(ClardEvent::Error(rpc::unexpected(other).to_string()));
+            match switch_profile_flow(&uid, previous).await {
+                Ok(msg) => {
+                    let _ = sender.send(ClardEvent::Notify(msg));
                 }
                 Err(e) => {
-                    let _ = sender.send(ClardEvent::Error(e.to_string()));
+                    let _ = sender.send(ClardEvent::Error(e));
                 }
             }
             send_profiles(&sender).await;
@@ -910,6 +909,50 @@ async fn send_profiles(sender: &UnboundedSender<ClardEvent>) {
             let _ = sender.send(ClardEvent::Error(format!("profile list failed: {e}")));
         }
     }
+}
+
+/// 切换配置事务（R2.2）：标记 current → 取回原始 yaml → config_gen → ApplyConfig → 启动核心。
+/// 任一步失败回滚 current 到 previous。
+async fn switch_profile_flow(uid: &str, previous: Option<String>) -> Result<String, String> {
+    rpc::call(&Request::ProfileSetCurrent {
+        uid: uid.to_string(),
+    })
+    .await
+    .map_err(|e| format!("标记 current 失败: {e}"))?;
+
+    let result: Result<String, String> = async {
+        let yaml = match rpc::call(&Request::ProfileGet {
+            uid: uid.to_string(),
+        })
+        .await
+        {
+            Ok(Response::ProfileContent { yaml, .. }) => yaml,
+            Ok(other) => return Err(rpc::unexpected(other).to_string()),
+            Err(e) => return Err(e.to_string()),
+        };
+        let runtime = config_gen::generate(&yaml, None, &ConfigGenOptions::default())
+            .map_err(|e| format!("生成运行态配置失败: {e}"))?;
+        rpc::call(&Request::ApplyConfig { yaml: runtime })
+            .await
+            .map_err(|e| format!("应用配置失败: {e}"))?;
+        // 核心未运行则启动
+        if let Ok(Response::Status { core_state, .. }) = rpc::call(&Request::Status).await {
+            if core_state != "running" {
+                rpc::call(&Request::StartCore)
+                    .await
+                    .map_err(|e| format!("启动核心失败: {e}"))?;
+            }
+        }
+        Ok(format!("switched to {uid}"))
+    }
+    .await;
+
+    if result.is_err()
+        && let Some(prev) = previous
+    {
+        let _ = rpc::call(&Request::ProfileSetCurrent { uid: prev }).await;
+    }
+    result
 }
 
 /// 下载 → 归一化 → 提交 helper（R2.1/R2.3 共用）。

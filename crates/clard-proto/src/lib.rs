@@ -20,7 +20,7 @@
 use serde::{Deserialize, Serialize};
 
 /// 当前协议版本。任何不兼容变更都必须递增并在 `Hello` 握手中核对。
-pub const PROTO_VERSION: u32 = 3;
+pub const PROTO_VERSION: u32 = 4;
 
 /// 协议层错误
 #[derive(Debug, thiserror::Error)]
@@ -168,9 +168,10 @@ pub enum Response {
         helper_version: String,
         proto_version: u32,
     },
-    /// Status 的完整字段随核心生命周期里程碑补全
     Status {
         core_state: String,
+        core_pid: Option<u32>,
+        core_version: Option<String>,
         tun_active: bool,
     },
     ProfileList {
@@ -226,7 +227,7 @@ mod tests {
 
     #[test]
     fn proto_version_is_current() {
-        assert_eq!(PROTO_VERSION, 3);
+        assert_eq!(PROTO_VERSION, 4);
     }
 
     #[test]

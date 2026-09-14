@@ -19,6 +19,7 @@
 
 mod audit;
 mod autoupdate;
+mod core;
 mod daemon;
 mod profiles;
 mod rpc;

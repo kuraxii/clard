@@ -3,14 +3,17 @@
 use clard_proto::{ProfileItem, Request, Response};
 
 use crate::audit::{Actor, Audit};
+use crate::core::CoreManager;
 use crate::profiles::{ImportOutcome, ProfilesError, ProfilesStore};
 use crate::settings::SettingsStore;
 
 /// 处理一个请求。`actor` 来自 `SO_PEERCRED`，随结果写审计。
-pub fn handle(
+/// 核心相关操作异步执行（spawn/就绪探测/热重载）。
+pub async fn handle(
     req: Request,
     store: &mut ProfilesStore,
     settings: &mut SettingsStore,
+    core: &mut CoreManager,
     audit: &Audit,
     actor: &Actor,
 ) -> Response {
@@ -22,10 +25,28 @@ pub fn handle(
         Request::Status => (
             "rpc.status",
             Response::Status {
-                core_state: "not-managed-yet".into(),
+                core_state: core.state().to_string(),
+                core_pid: core.pid(),
+                core_version: core.version().map(str::to_string),
                 tun_active: false,
             },
         ),
+        Request::StartCore => match core.start().await {
+            Ok(()) => ("core.start", Response::Ok),
+            Err(e) => ("core.start", Response::err(e)),
+        },
+        Request::StopCore => match core.stop().await {
+            Ok(()) => ("core.stop", Response::Ok),
+            Err(e) => ("core.stop", Response::err(e)),
+        },
+        Request::RestartCore => match core.restart().await {
+            Ok(()) => ("core.restart", Response::Ok),
+            Err(e) => ("core.restart", Response::err(e)),
+        },
+        Request::ApplyConfig { yaml } => match core.apply_config(&yaml).await {
+            Ok(()) => ("config.apply", Response::Ok),
+            Err(e) => ("config.apply", Response::err(e)),
+        },
         Request::SettingsGet => {
             let settings = settings.get().clone();
             ("settings.get", Response::Settings { settings })
