@@ -65,7 +65,7 @@ Clard 是 Linux 上的完整代理管理工具：系统级常驻服务 `clard-he
 - [x] 核心（版本/checksum 展示、启停/重启、`c` 检查更新、`i` 升级——自动获取 GitHub 最新 release，helper 复核 + 原子替换 + 重启）；RPM 随包携带最新 mihomo 安装即用，升级为可选
 - [x] 后台服务（RPM 安装/卸载命令展示；安装即 systemd enable --now，packaging/clard.spec）
 - [x] 关于（版本 / 路径一览）
-- [ ] 日志与审计配置（R7.5：核心日志级别、应用/审计日志大小份数、双写；设置页 Logs 页签）
+- [x] 日志与审计配置（R7.5：核心日志级别、应用/审计日志大小份数、双写；设置页 Logs 页签）
 
 ### 备份与恢复
 
@@ -88,5 +88,5 @@ Clard 是 Linux 上的完整代理管理工具：系统级常驻服务 `clard-he
 ### P3 可选加固 / 体验
 
 - [ ] 偏执模式（R7.4，可选加固默认关）：开关 TUN 前 `pkexec`/polkit `auth_admin_keep` 授权
-- [ ] 记忆节点恢复：切换配置后记住当前选中节点（随核心生命周期）
-- [ ] 日志与审计配置（R7.5）：设置页 Logs 页签（核心日志级别、应用/审计日志大小份数、双写）
+- [x] 记忆节点恢复：切换配置后记住当前选中节点（ProfileMemorize 存 selected，切换后 PUT /proxies/:name 恢复，doc/05 R2.2）
+- [x] 日志与审计配置（R7.5）：设置页 Logs 页签（/etc/clard/helper.toml，展示 + Enter 显示 sudo 编辑命令；核心日志级别注入 config_gen；双写可关）
