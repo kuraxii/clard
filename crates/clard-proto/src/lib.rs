@@ -20,7 +20,7 @@
 use serde::{Deserialize, Serialize};
 
 /// 当前协议版本。任何不兼容变更都必须递增并在 `Hello` 握手中核对。
-pub const PROTO_VERSION: u32 = 2;
+pub const PROTO_VERSION: u32 = 3;
 
 /// 协议层错误
 #[derive(Debug, thiserror::Error)]
@@ -37,8 +37,17 @@ pub struct ProfileItem {
     pub url: String,
     /// 最近更新时间（unix 秒）
     pub updated_at: Option<i64>,
-    /// 定时更新间隔（秒，0=关闭；定时器一期不实现）
+    /// 定时更新间隔（秒，0=关闭）
     pub interval: u64,
+    /// 订阅流量/到期（`subscription-userinfo`，doc/05 §2 R2.7）
+    #[serde(default)]
+    pub upload: u64,
+    #[serde(default)]
+    pub download: u64,
+    #[serde(default)]
+    pub total: u64,
+    #[serde(default)]
+    pub expire: Option<i64>,
 }
 
 /// TUI → helper 的请求（对应 doc/01 §5.6）
@@ -92,6 +101,15 @@ pub struct ProfileVersion {
     pub updated_at: Option<i64>,
 }
 
+/// 订阅流量/到期信息（`subscription-userinfo`）。
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct SubscriptionInfo {
+    pub upload: u64,
+    pub download: u64,
+    pub total: u64,
+    pub expire: Option<i64>,
+}
+
 /// 订阅导入请求：yaml 为 TUI 下载订阅后经 config_gen 归一化的内容（doc/01 §7.1）
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct ProfileImport {
@@ -99,6 +117,9 @@ pub struct ProfileImport {
     pub url: String,
     pub interval: u64,
     pub yaml: String,
+    /// 订阅流量/到期（可选，`subscription-userinfo`）。
+    #[serde(default)]
+    pub info: Option<SubscriptionInfo>,
 }
 
 /// helper → TUI 的响应
@@ -164,7 +185,7 @@ mod tests {
 
     #[test]
     fn proto_version_is_current() {
-        assert_eq!(PROTO_VERSION, 2);
+        assert_eq!(PROTO_VERSION, 3);
     }
 
     #[test]
@@ -174,6 +195,7 @@ mod tests {
             url: "https://example.com/sub".into(),
             interval: 0,
             yaml: "proxies: []".into(),
+            info: None,
         });
         let json = serde_json::to_vec(&req).unwrap();
         let back: Request = serde_json::from_slice(&json).unwrap();

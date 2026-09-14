@@ -34,6 +34,10 @@ pub fn handle(
                     url: p.url.clone(),
                     updated_at: p.updated_at,
                     interval: p.interval,
+                    upload: p.upload,
+                    download: p.download,
+                    total: p.total,
+                    expire: p.expire,
                 })
                 .collect();
             (
@@ -45,7 +49,7 @@ pub fn handle(
             )
         }
         Request::ProfileImport(import) => {
-            match store.import(&import.url, import.name.as_deref(), import.interval, &import.yaml) {
+            match store.import(&import.url, import.name.as_deref(), import.interval, &import.yaml, import.info) {
                 Ok(ImportOutcome::Created { uid }) => (
                     "profile.import",
                     Response::ProfileImported { uid, updated: false },
@@ -111,6 +115,10 @@ fn get_item_and_content(
         url: p.url.clone(),
         updated_at: p.updated_at,
         interval: p.interval,
+        upload: p.upload,
+        download: p.download,
+        total: p.total,
+        expire: p.expire,
     };
     let yaml = store.content(uid)?;
     Ok((item, yaml))

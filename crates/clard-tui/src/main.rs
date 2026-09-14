@@ -57,6 +57,7 @@ async fn run_profiles_cmd(cmd: ProfilesSub) -> Result<()> {
                 url,
                 interval,
                 yaml,
+                info: None,
             }))
             .await?;
             match resp {
@@ -102,6 +103,7 @@ async fn run_profiles_cmd(cmd: ProfilesSub) -> Result<()> {
                 url,
                 interval,
                 yaml: new_yaml,
+                info: None,
             }))
             .await?;
             match resp {

@@ -12,7 +12,7 @@ use std::{
     time::{SystemTime, UNIX_EPOCH},
 };
 
-use clard_proto::ProfileVersion;
+use clard_proto::{ProfileVersion, SubscriptionInfo};
 use rand::Rng;
 use serde::{Deserialize, Serialize};
 use thiserror::Error;
@@ -63,6 +63,15 @@ pub struct Profile {
     pub updated_at: Option<i64>,
     /// 定时更新间隔（秒），0=关闭
     pub interval: u64,
+    /// 订阅流量/到期（`subscription-userinfo`，doc/05 §2 R2.7）
+    #[serde(default)]
+    pub upload: u64,
+    #[serde(default)]
+    pub download: u64,
+    #[serde(default)]
+    pub total: u64,
+    #[serde(default)]
+    pub expire: Option<i64>,
     /// 节点选择记忆（doc/01 §7.1）；本期恒为空，切换事务里程碑填充
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub selected: Vec<NodeSelection>,
@@ -159,6 +168,7 @@ impl ProfilesStore {
         name: Option<&str>,
         interval: u64,
         yaml: &str,
+        info: Option<SubscriptionInfo>,
     ) -> Result<ImportOutcome, ProfilesError> {
         let now = now_unix();
         if let Some(idx) = self.index.items.iter().position(|p| p.url == url) {
@@ -175,6 +185,12 @@ impl ProfilesStore {
             }
             item.interval = interval;
             item.updated_at = Some(now);
+            if let Some(info) = info {
+                item.upload = info.upload;
+                item.download = info.download;
+                item.total = info.total;
+                item.expire = info.expire;
+            }
             self.save_index()?;
             return Ok(ImportOutcome::Updated { uid });
         }
@@ -182,6 +198,9 @@ impl ProfilesStore {
         let file = PathBuf::from(PROFILES_SUBDIR).join(format!("{uid}.yaml"));
         write_file(&self.root.join(&file), yaml)?;
         let name = name.map(str::to_string).unwrap_or_else(|| default_name(url));
+        let (upload, download, total, expire) = info.map_or((0, 0, 0, None), |i| {
+            (i.upload, i.download, i.total, i.expire)
+        });
         self.index.items.push(Profile {
             uid: uid.clone(),
             name,
@@ -190,6 +209,10 @@ impl ProfilesStore {
             file,
             updated_at: Some(now),
             interval,
+            upload,
+            download,
+            total,
+            expire,
             selected: Vec::new(),
         });
         self.save_index()?;
@@ -398,7 +421,7 @@ mod tests {
     #[test]
     fn import_creates_profile_and_file() {
         let (_dir, mut store) = store_in_tempdir();
-        let outcome = store.import(URL_A, None, 0, "proxies: []\n").unwrap();
+        let outcome = store.import(URL_A, None, 0, "proxies: []\n", None).unwrap();
         let uid = match outcome {
             ImportOutcome::Created { uid } => uid,
             other => panic!("expected Created, got {other:?}"),
@@ -413,11 +436,11 @@ mod tests {
     #[test]
     fn import_same_url_overwrites_instead_of_duplicate() {
         let (_dir, mut store) = store_in_tempdir();
-        let first_uid = match store.import(URL_A, Some("订阅A"), 0, "v1").unwrap() {
+        let first_uid = match store.import(URL_A, Some("订阅A"), 0, "v1", None).unwrap() {
             ImportOutcome::Created { uid } => uid,
             other => panic!("{other:?}"),
         };
-        let second = store.import(URL_A, Some("改名"), 3600, "v2").unwrap();
+        let second = store.import(URL_A, Some("改名"), 3600, "v2", None).unwrap();
         assert_eq!(second, ImportOutcome::Updated { uid: first_uid.clone() });
         assert_eq!(store.list().len(), 1, "同 URL 不得重复");
         let p = store.get(&first_uid).unwrap();
@@ -429,15 +452,15 @@ mod tests {
     #[test]
     fn import_different_urls_create_multiple() {
         let (_dir, mut store) = store_in_tempdir();
-        store.import(URL_A, None, 0, "a").unwrap();
-        store.import(URL_B, None, 0, "b").unwrap();
+        store.import(URL_A, None, 0, "a", None).unwrap();
+        store.import(URL_B, None, 0, "b", None).unwrap();
         assert_eq!(store.list().len(), 2);
     }
 
     #[test]
     fn remove_deletes_entry_and_file() {
         let (_dir, mut store) = store_in_tempdir();
-        let uid = match store.import(URL_A, None, 0, "a").unwrap() {
+        let uid = match store.import(URL_A, None, 0, "a", None).unwrap() {
             ImportOutcome::Created { uid } => uid,
             other => panic!("{other:?}"),
         };
@@ -451,7 +474,7 @@ mod tests {
     #[test]
     fn set_current_and_remove_current_clears() {
         let (_dir, mut store) = store_in_tempdir();
-        let uid = match store.import(URL_A, None, 0, "a").unwrap() {
+        let uid = match store.import(URL_A, None, 0, "a", None).unwrap() {
             ImportOutcome::Created { uid } => uid,
             other => panic!("{other:?}"),
         };
@@ -472,7 +495,7 @@ mod tests {
     #[test]
     fn rename_updates_name_and_rejects_empty() {
         let (_dir, mut store) = store_in_tempdir();
-        let uid = match store.import(URL_A, Some("旧名"), 0, "a").unwrap() {
+        let uid = match store.import(URL_A, Some("旧名"), 0, "a", None).unwrap() {
             ImportOutcome::Created { uid } => uid,
             other => panic!("{other:?}"),
         };
@@ -484,16 +507,16 @@ mod tests {
     #[test]
     fn history_and_restore_keep_three_versions() {
         let (_dir, mut store) = store_in_tempdir();
-        let uid = match store.import(URL_A, Some("订阅"), 0, "v1").unwrap() {
+        let uid = match store.import(URL_A, Some("订阅"), 0, "v1", None).unwrap() {
             ImportOutcome::Created { uid } => uid,
             other => panic!("{other:?}"),
         };
         assert!(store.history(&uid).unwrap().is_empty());
 
-        store.import(URL_A, None, 0, "v2").unwrap(); // v1 → bak.1
+        store.import(URL_A, None, 0, "v2", None).unwrap(); // v1 → bak.1
         assert_eq!(store.history(&uid).unwrap().len(), 1);
 
-        store.import(URL_A, None, 0, "v3").unwrap(); // bak.1=v2, bak.2=v1
+        store.import(URL_A, None, 0, "v3", None).unwrap(); // bak.1=v2, bak.2=v1
         assert_eq!(store.history(&uid).unwrap().len(), 2);
         assert_eq!(store.content(&uid).unwrap(), "v3");
 
@@ -501,7 +524,7 @@ mod tests {
         assert_eq!(store.content(&uid).unwrap(), "v2");
 
         for v in ["v4", "v5", "v6"] {
-            store.import(URL_A, None, 0, v).unwrap();
+            store.import(URL_A, None, 0, v, None).unwrap();
         }
         assert_eq!(store.history(&uid).unwrap().len(), 3, "最多保留 3 份");
     }
@@ -509,7 +532,7 @@ mod tests {
     #[test]
     fn restore_unknown_version_errors() {
         let (_dir, mut store) = store_in_tempdir();
-        let uid = match store.import(URL_A, None, 0, "v1").unwrap() {
+        let uid = match store.import(URL_A, None, 0, "v1", None).unwrap() {
             ImportOutcome::Created { uid } => uid,
             other => panic!("{other:?}"),
         };
@@ -526,11 +549,11 @@ mod tests {
     #[test]
     fn move_item_swaps_order_and_bounds_are_noop() {
         let (_dir, mut store) = store_in_tempdir();
-        let a = match store.import(URL_A, None, 0, "a").unwrap() {
+        let a = match store.import(URL_A, None, 0, "a", None).unwrap() {
             ImportOutcome::Created { uid } => uid,
             other => panic!("{other:?}"),
         };
-        let b = match store.import(URL_B, None, 0, "b").unwrap() {
+        let b = match store.import(URL_B, None, 0, "b", None).unwrap() {
             ImportOutcome::Created { uid } => uid,
             other => panic!("{other:?}"),
         };
@@ -549,7 +572,7 @@ mod tests {
         let dir = tempdir().unwrap();
         {
             let mut store = ProfilesStore::open(dir.path()).unwrap();
-            store.import(URL_A, Some("订阅A"), 3600, "a").unwrap();
+            store.import(URL_A, Some("订阅A"), 3600, "a", None).unwrap();
             let uid = store.list()[0].uid.clone();
             store.set_current(&uid).unwrap();
         }

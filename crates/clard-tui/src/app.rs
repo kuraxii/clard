@@ -25,7 +25,7 @@ use tokio::sync::mpsc::UnboundedSender;
 use clard_core::{
     config_gen::subscription_to_yaml,
     mihomo::{backend::Backend, models::Traffic, websocket::get_websocket_url},
-    profiles::{HttpFetcher, SubscriptionFetcher},
+    profiles::HttpFetcher,
 };
 use clard_proto::{ProfileImport, ProfileItem, Request, Response};
 
@@ -914,16 +914,23 @@ async fn send_profiles(sender: &UnboundedSender<ClardEvent>) {
 
 /// 下载 → 归一化 → 提交 helper（R2.1/R2.3 共用）。
 async fn import_profile_flow(url: String) -> Result<String, String> {
-    let raw = HttpFetcher::new(reqwest::Client::new())
-        .fetch(&url)
+    let (raw, info) = HttpFetcher::new(reqwest::Client::new())
+        .fetch_with_info(&url)
         .await
         .map_err(|e| format!("download failed: {e}"))?;
     let yaml = subscription_to_yaml(&raw).map_err(|e| format!("parse failed: {e}"))?;
+    let info = clard_proto::SubscriptionInfo {
+        upload: info.upload,
+        download: info.download,
+        total: info.total,
+        expire: info.expire,
+    };
     let resp = rpc::call(&Request::ProfileImport(ProfileImport {
         name: None,
         url,
         interval: 0,
         yaml,
+        info: Some(info),
     }))
     .await
     .map_err(|e| e.to_string())?;
@@ -946,16 +953,23 @@ async fn update_profile_flow(uid: String) -> Result<String, String> {
         Ok(other) => return Err(rpc::unexpected(other).to_string()),
         Err(e) => return Err(e.to_string()),
     };
-    let raw = HttpFetcher::new(reqwest::Client::new())
-        .fetch(&url)
+    let (raw, info) = HttpFetcher::new(reqwest::Client::new())
+        .fetch_with_info(&url)
         .await
         .map_err(|e| format!("download failed: {e}"))?;
     let yaml = subscription_to_yaml(&raw).map_err(|e| format!("parse failed: {e}"))?;
+    let info = clard_proto::SubscriptionInfo {
+        upload: info.upload,
+        download: info.download,
+        total: info.total,
+        expire: info.expire,
+    };
     let resp = rpc::call(&Request::ProfileImport(ProfileImport {
         name: None,
         url,
         interval,
         yaml,
+        info: Some(info),
     }))
     .await
     .map_err(|e| e.to_string())?;

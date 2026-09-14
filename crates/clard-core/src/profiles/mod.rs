@@ -5,4 +5,4 @@
 
 pub mod download;
 
-pub use download::{DownloadError, HttpFetcher, SubscriptionFetcher};
+pub use download::{DownloadError, HttpFetcher, SubscriptionFetcher, SubscriptionInfo};

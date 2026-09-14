@@ -27,7 +27,7 @@ Clard 是 Linux 上的完整代理管理工具：系统级常驻服务 `clard-he
 - [x] 手动更新订阅（CLI ✓，TUI ✓）
 - [x] 删除配置（CLI ✓，TUI ✓）
 - [x] 改名 / 排序（上移下移）
-- [ ] 订阅信息展示（流量/到期，`subscription-userinfo`）
+- [x] 订阅信息展示（流量/到期，`subscription-userinfo`）
 - [ ] 自动更新（helper 全局定时，默认 6 小时，可编辑）
 - [x] 版本回滚（保留 3 份）
 

@@ -381,11 +381,23 @@ fn draw_profile_detail(f: &mut Frame<'_>, area: Rect, state: &ProfilesState, the
         } else {
             format!("{}s", p.interval)
         };
+        let traffic = if p.total > 0 {
+            format!(
+                "{} / {}",
+                format_network_bytes(p.upload + p.download),
+                format_network_bytes(p.total)
+            )
+        } else {
+            "-".to_string()
+        };
+        let expire = p.expire.map(format_unix_time).unwrap_or_else(|| "-".to_string());
         vec![
             kv_line("Name", &p.name, theme),
             kv_line("UID", &p.uid, theme),
             kv_line("Type", "remote", theme),
             kv_line("URL", &p.url, theme),
+            kv_line("Traffic", &traffic, theme),
+            kv_line("Expire", &expire, theme),
             kv_line("Updated", &updated, theme),
             kv_line("Interval", &interval, theme),
             Line::from(""),

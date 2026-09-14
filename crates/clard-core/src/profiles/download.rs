@@ -29,6 +29,15 @@ pub trait SubscriptionFetcher: Send + Sync {
     fn fetch(&self, url: &str) -> impl Future<Output = Result<String, DownloadError>> + Send;
 }
 
+/// 订阅流量/到期信息（响应头 `subscription-userinfo`，doc/05 §2 R2.7）。
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct SubscriptionInfo {
+    pub upload: u64,
+    pub download: u64,
+    pub total: u64,
+    pub expire: Option<i64>,
+}
+
 /// 默认 HTTP(S) 抓取器。
 pub struct HttpFetcher {
     client: reqwest::Client,
@@ -50,6 +59,16 @@ impl HttpFetcher {
 
 impl SubscriptionFetcher for HttpFetcher {
     async fn fetch(&self, url: &str) -> Result<String, DownloadError> {
+        self.fetch_with_info(url).await.map(|(body, _)| body)
+    }
+}
+
+impl HttpFetcher {
+    /// 下载并同时解析 `subscription-userinfo` 响应头（R2.7）。
+    pub async fn fetch_with_info(
+        &self,
+        url: &str,
+    ) -> Result<(String, SubscriptionInfo), DownloadError> {
         let resp = self
             .client
             .get(url)
@@ -60,6 +79,12 @@ impl SubscriptionFetcher for HttpFetcher {
         if !resp.status().is_success() {
             return Err(DownloadError::HttpStatus(resp.status().as_u16()));
         }
+        let info = resp
+            .headers()
+            .get("subscription-userinfo")
+            .and_then(|v| v.to_str().ok())
+            .map(parse_subscription_userinfo)
+            .unwrap_or_default();
         let bytes = resp
             .bytes()
             .await
@@ -70,8 +95,28 @@ impl SubscriptionFetcher for HttpFetcher {
         if bytes.len() as u64 > self.max_bytes {
             return Err(DownloadError::TooLarge(self.max_bytes));
         }
-        String::from_utf8(bytes.to_vec()).map_err(|_| DownloadError::InvalidUtf8)
+        let body = String::from_utf8(bytes.to_vec()).map_err(|_| DownloadError::InvalidUtf8)?;
+        Ok((body, info))
     }
+}
+
+/// 解析 `subscription-userinfo`：`upload=…; download=…; total=…; expire=…`。
+fn parse_subscription_userinfo(header: &str) -> SubscriptionInfo {
+    let mut info = SubscriptionInfo::default();
+    for pair in header.split(';') {
+        let Some((k, v)) = pair.trim().split_once('=') else {
+            continue;
+        };
+        let v = v.trim();
+        match k.trim() {
+            "upload" => info.upload = v.parse().unwrap_or(0),
+            "download" => info.download = v.parse().unwrap_or(0),
+            "total" => info.total = v.parse().unwrap_or(0),
+            "expire" => info.expire = v.parse().ok().filter(|n| *n > 0),
+            _ => {}
+        }
+    }
+    info
 }
 
 #[cfg(test)]
@@ -158,5 +203,23 @@ mod tests {
     async fn fetch_malformed_url_errors_without_network() {
         let err = fetcher().fetch("not a url").await.unwrap_err();
         assert!(matches!(err, DownloadError::Request(_)), "got {err:?}");
+    }
+
+    #[test]
+    fn parse_subscription_userinfo_extracts_fields() {
+        let info = parse_subscription_userinfo(
+            "upload=100; download=200; total=300; expire=1700000000",
+        );
+        assert_eq!(info.upload, 100);
+        assert_eq!(info.download, 200);
+        assert_eq!(info.total, 300);
+        assert_eq!(info.expire, Some(1_700_000_000));
+    }
+
+    #[test]
+    fn parse_subscription_userinfo_missing_and_zero_expire() {
+        let info = parse_subscription_userinfo("upload=1; download=2; total=3; expire=0");
+        assert_eq!(info.expire, None);
+        assert_eq!(parse_subscription_userinfo("garbage"), SubscriptionInfo::default());
     }
 }

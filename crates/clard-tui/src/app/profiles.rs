@@ -147,6 +147,10 @@ mod tests {
             url: format!("https://example.com/{uid}"),
             updated_at: None,
             interval: 0,
+            upload: 0,
+            download: 0,
+            total: 0,
+            expire: None,
         }
     }
 
