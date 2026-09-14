@@ -18,9 +18,11 @@
 )]
 
 mod audit;
+mod autoupdate;
 mod daemon;
 mod profiles;
 mod rpc;
+mod settings;
 
 use clap::{Parser, Subcommand};
 

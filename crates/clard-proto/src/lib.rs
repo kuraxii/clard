@@ -58,6 +58,9 @@ pub enum Request {
     Hello,
     /// 全量状态：核心状态 + TUN 状态 + 核心版本
     Status,
+    /// 系统级设置读写（clard.toml，doc/01 §7）：混合端口 / 自动更新间隔 / 语言 / 主题
+    SettingsGet,
+    SettingsSet(SettingsPatch),
     /// 订阅配置：列表 / 导入（TUI 已下载并归一化）/ 取回内容 / 删除 / 切换 / 改名 / 排序
     ProfileList,
     ProfileImport(ProfileImport),
@@ -92,6 +95,41 @@ pub enum Request {
         sha256: String,
         version: String,
     },
+}
+
+/// 系统级设置（`/var/lib/clard/clard.toml`，doc/05 §7 R7.1）。
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(default)]
+pub struct Settings {
+    /// 自动更新间隔（小时），0=关闭，默认 6
+    pub auto_update_interval_hours: u64,
+    /// 语言：en / zh（默认英语，doc/05 §1 R1.3）
+    pub language: String,
+    /// 主题：dark / light
+    pub theme: String,
+    /// 混合端口（默认 7890，仅绑 127.0.0.1）
+    pub mixed_port: u16,
+}
+
+impl Default for Settings {
+    fn default() -> Self {
+        Self {
+            auto_update_interval_hours: 6,
+            language: "en".into(),
+            theme: "dark".into(),
+            mixed_port: 7890,
+        }
+    }
+}
+
+/// 设置补丁（只传变更字段）。
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(default)]
+pub struct SettingsPatch {
+    pub auto_update_interval_hours: Option<u64>,
+    pub language: Option<String>,
+    pub theme: Option<String>,
+    pub mixed_port: Option<u16>,
 }
 
 /// 配置历史版本条目（doc/05 §2 R2.9）。
@@ -150,6 +188,9 @@ pub enum Response {
     },
     ProfileHistory {
         versions: Vec<ProfileVersion>,
+    },
+    Settings {
+        settings: Settings,
     },
     /// 无额外载荷的成功
     Ok,

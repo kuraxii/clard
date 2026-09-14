@@ -219,6 +219,31 @@ impl ProfilesStore {
         Ok(ImportOutcome::Created { uid })
     }
 
+    /// 自动更新单条 remote 订阅（R2.8）：内容原样覆盖落盘、刷新流量/到期与 `updated_at`，
+    /// 保留 uid/名称/间隔。返回是否命中（按 URL 定位）。
+    pub fn auto_update(
+        &mut self,
+        url: &str,
+        yaml: &str,
+        info: Option<SubscriptionInfo>,
+    ) -> Result<bool, ProfilesError> {
+        let Some(idx) = self.index.items.iter().position(|p| p.url == url) else {
+            return Ok(false);
+        };
+        let file = self.index.items[idx].file.clone();
+        write_file(&self.root.join(file), yaml)?;
+        let item = &mut self.index.items[idx];
+        item.updated_at = Some(now_unix());
+        if let Some(info) = info {
+            item.upload = info.upload;
+            item.download = info.download;
+            item.total = info.total;
+            item.expire = info.expire;
+        }
+        self.save_index()?;
+        Ok(true)
+    }
+
     /// 改名（doc/05 §2 R2.5）。
     pub fn rename(&mut self, uid: &str, name: &str) -> Result<(), ProfilesError> {
         let name = name.trim();
@@ -544,6 +569,29 @@ mod tests {
             store.restore(&uid, 99),
             Err(ProfilesError::BackupNotFound { version: 99 })
         ));
+    }
+
+    #[test]
+    fn auto_update_overwrites_and_preserves_identity() {
+        let (_dir, mut store) = store_in_tempdir();
+        let uid = match store.import(URL_A, Some("订阅A"), 3600, "old", None).unwrap() {
+            ImportOutcome::Created { uid } => uid,
+            other => panic!("{other:?}"),
+        };
+        let info = SubscriptionInfo {
+            upload: 1,
+            download: 2,
+            total: 3,
+            expire: Some(9),
+        };
+        assert!(store.auto_update(URL_A, "new", Some(info)).unwrap());
+        let p = store.get(&uid).unwrap();
+        assert_eq!(p.name, "订阅A", "保留名称");
+        assert_eq!(p.interval, 3600, "保留间隔");
+        assert_eq!((p.upload, p.download, p.total), (1, 2, 3));
+        assert_eq!(store.content(&uid).unwrap(), "new");
+
+        assert!(!store.auto_update("https://example.com/unknown", "x", None).unwrap());
     }
 
     #[test]

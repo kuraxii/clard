@@ -20,6 +20,16 @@ pub struct Actor {
     pub pid: i32,
 }
 
+impl Actor {
+    /// 系统自身触发的操作（如自动更新定时器）使用的占位身份。
+    pub fn system() -> Self {
+        Self {
+            uid: u32::MAX,
+            pid: -1,
+        }
+    }
+}
+
 /// 审计写入器
 pub struct Audit {
     log_path: PathBuf,

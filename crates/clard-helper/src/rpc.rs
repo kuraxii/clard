@@ -4,11 +4,13 @@ use clard_proto::{ProfileItem, Request, Response};
 
 use crate::audit::{Actor, Audit};
 use crate::profiles::{ImportOutcome, ProfilesError, ProfilesStore};
+use crate::settings::SettingsStore;
 
 /// 处理一个请求。`actor` 来自 `SO_PEERCRED`，随结果写审计。
 pub fn handle(
     req: Request,
     store: &mut ProfilesStore,
+    settings: &mut SettingsStore,
     audit: &Audit,
     actor: &Actor,
 ) -> Response {
@@ -24,6 +26,14 @@ pub fn handle(
                 tun_active: false,
             },
         ),
+        Request::SettingsGet => {
+            let settings = settings.get().clone();
+            ("settings.get", Response::Settings { settings })
+        }
+        Request::SettingsSet(patch) => match settings.patch(&patch) {
+            Ok(()) => ("settings.set", Response::Ok),
+            Err(e) => ("settings.set", Response::err(e.to_string())),
+        },
         Request::ProfileList => {
             let items = store
                 .list()

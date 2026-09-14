@@ -19,8 +19,10 @@ use tokio::{
 };
 
 use crate::audit::{Actor, Audit};
+use crate::autoupdate;
 use crate::profiles::{ProfilesStore, state_dir};
 use crate::rpc;
+use crate::settings::SettingsStore;
 
 /// RPC socket 路径：`CLARD_SOCKET` 覆盖，默认 `/run/clard/helper.sock`。
 pub fn socket_path() -> PathBuf {
@@ -68,15 +70,25 @@ pub async fn run() -> io::Result<()> {
             io::Error::other(format!("打开配置索引失败: {e}"))
         })?,
     ));
+    let settings = Arc::new(Mutex::new(
+        SettingsStore::open(&state).map_err(|e| {
+            io::Error::other(format!("打开设置失败: {e}"))
+        })?,
+    ));
+
+    // 订阅自动更新定时器（R2.8；0=关，见 clard.toml）
+    autoupdate::spawn(store.clone(), settings.clone(), audit.clone());
 
     loop {
         let (stream, _) = listener.accept().await?;
         let actor = peer_cred(&stream);
         let audit = audit.clone();
         let store = store.clone();
+        let settings = settings.clone();
         tokio::spawn(async move {
             let mut store = store.lock().await;
-            if let Err(e) = serve_connection(stream, &mut store, &audit, actor).await {
+            let mut settings = settings.lock().await;
+            if let Err(e) = serve_connection(stream, &mut store, &mut settings, &audit, actor).await {
                 tracing::warn!("连接处理失败: {e}");
             }
         });
@@ -87,6 +99,7 @@ pub async fn run() -> io::Result<()> {
 async fn serve_connection(
     mut stream: UnixStream,
     store: &mut ProfilesStore,
+    settings: &mut SettingsStore,
     audit: &Audit,
     actor: Actor,
 ) -> io::Result<()> {
@@ -94,7 +107,7 @@ async fn serve_connection(
         let Some(req) = read_frame(&mut stream).await? else {
             return Ok(()); // EOF
         };
-        let resp = rpc::handle(req, store, audit, &actor);
+        let resp = rpc::handle(req, store, settings, audit, &actor);
         write_frame(&mut stream, &resp).await?;
     }
 }
