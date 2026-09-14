@@ -19,3 +19,4 @@ pub mod config;
 pub mod config_gen;
 pub mod mihomo;
 pub mod profiles;
+pub mod upgrade;
