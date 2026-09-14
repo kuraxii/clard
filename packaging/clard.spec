@@ -56,8 +56,10 @@ install -d -m 0700 %{_localstatedir}/clard/lib \
                  %{_localstatedir}/clard/backups \
                  %{_localstatedir}/clard/bin
 %systemd_post clard-helper.service
-# 常驻后台代理是产品形态：安装后立即启用（失败不阻塞事务，如 chroot）
-systemctl start clard-helper.service || :
+# 兜底：部分环境（容器/最小化 systemd）file-trigger 不生效导致 enable 缺失，
+# 显式 enable + start（幂等，失败不阻塞事务）
+systemctl enable clard-helper.service >/dev/null 2>&1 || :
+systemctl start clard-helper.service >/dev/null 2>&1 || :
 
 %preun
 %systemd_preun clard-helper.service
