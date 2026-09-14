@@ -839,14 +839,14 @@ fn draw_settings_service(f: &mut Frame<'_>, area: Rect, state: &SettingsState, t
             theme,
         ),
         Line::from(""),
-        Line::from(Span::styled("Install (one-time, pkexec):", theme.title_style())),
+        Line::from(Span::styled("Install (one-time, root):", theme.title_style())),
         Line::from(Span::styled(
-            "  pkexec /usr/libexec/clard/clard-helper install",
+            "  sudo dnf install ./clard-*.rpm",
             Style::default().fg(theme.primary),
         )),
-        Line::from(Span::styled("Uninstall:", theme.title_style())),
+        Line::from(Span::styled("Uninstall (keeps /var/clard data):", theme.title_style())),
         Line::from(Span::styled(
-            "  sudo /usr/libexec/clard/clard-helper uninstall",
+            "  sudo dnf remove clard",
             Style::default().fg(theme.primary),
         )),
         Line::from(""),
