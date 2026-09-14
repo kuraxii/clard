@@ -404,13 +404,12 @@ pub async fn set_tun(
         return Ok(TunApply { hot_reloaded: false, verified: false });
     }
 
-    // 热更（PATCH tun 块；TUN 开启时一并注入 dns 块——否则 dns-hijack 劫持 53 后
-    // 无上游 nameserver，fake-ip 无法解析真实域名，表现为「开 TUN 后全断网」）
-    let mut body = serde_json::json!({ "tun": yaml_to_json(&block) });
-    if let Some(d) = &dns_block {
-        body["dns"] = yaml_to_json(d);
-    }
-    if let Err(e) = crate::core::patch_configs(core_sock, &body).await {
+    // 热更：PUT /configs 内联完整配置（new_yaml 已含 tun 块 + TUN 开启时注入的 dns 块，
+    // 否则 dns-hijack 劫持 53 后无上游 nameserver，fake-ip 无法解析真实域名=开 TUN 断网）。
+    // 注意：mihomo 的 PATCH /configs 语义是「用 payload/path 整体重载」，并非字段级合并
+    // （payload 为空回落磁盘默认配置、缺失字段取默认值），字段级 PATCH 会被忽略/破坏——
+    // 故 TUN 开关一律走 PUT 内联完整 yaml（doc/04 §3 勘误）。
+    if let Err(e) = crate::core::reload_config(core_sock, &new_yaml).await {
         rollback(runtime_yaml, core_sock, &original).await;
         return Err(format!("TUN 热更失败: {e}"));
     }
@@ -480,36 +479,6 @@ fn write_yaml_atomic(path: &Path, yaml: &str) -> std::io::Result<()> {
     std::fs::write(&tmp, yaml)?;
     std::fs::rename(&tmp, path)?;
     Ok(())
-}
-
-/// YAML mapping → JSON（mihomo PATCH 请求体用 JSON）。
-fn yaml_to_json(mapping: &Mapping) -> serde_json::Value {
-    fn conv(v: &Value) -> serde_json::Value {
-        match v {
-            Value::Null => serde_json::Value::Null,
-            Value::Bool(b) => serde_json::Value::Bool(*b),
-            Value::Number(n) => {
-                if let Some(i) = n.as_i64() {
-                    serde_json::Value::Number(i.into())
-                } else {
-                    serde_json::Value::Number(n.as_f64().map(serde_json::Number::from_f64).flatten().unwrap_or(0.into()))
-                }
-            }
-            Value::String(s) => serde_json::Value::String(s.clone()),
-            Value::Sequence(seq) => serde_json::Value::Array(seq.iter().map(conv).collect()),
-            Value::Mapping(m) => {
-                let mut map = serde_json::Map::new();
-                for (k, v) in m {
-                    if let Some(key) = k.as_str() {
-                        map.insert(key.to_string(), conv(v));
-                    }
-                }
-                serde_json::Value::Object(map)
-            }
-            Value::Tagged(t) => conv(&t.value),
-        }
-    }
-    conv(&Value::Mapping(mapping.clone()))
 }
 
 #[cfg(test)]
