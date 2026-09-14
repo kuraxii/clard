@@ -143,11 +143,13 @@ pub fn tun_off_block() -> Mapping {
     t
 }
 
-/// 上游 DNS（对齐 clash-verge，抗封锁且本环境可达）：
-/// - `system`：读系统 resolv.conf（mihomo 内建，doc/04）；
-/// - DoH（走 443）与国内裸 DNS 兜底，替代裸 8.8.8.8/1.1.1.1（被墙时悬挂）。
-const DNS_DEFAULT_NAMESERVER: &[&str] = &["system", "223.5.5.5", "119.29.29.29"];
-const DNS_NAMESERVER: &[&str] = &["system", "https://dns.alidns.com/dns-query", "223.5.5.5"];
+/// 上游 DNS（本环境实测结论）：
+/// - **不用 `system` 上游**：本机 resolv.conf → systemd-resolved → 网关，而网关返回宿主 fake-ip
+///   （宿主劫持出网 UDP 53，`dig @223.5.5.5` 亦返回 fake-ip）→ mihomo 解析全得 fake-ip → TUN 黑洞。
+/// - **用 DoT（`tls://` 走 853 TCP）**：宿主只劫持 UDP 53，TCP 出网正常（实测 223.5.5.5:853 通）；
+///   IP 直连无需引导解析域名，default-nameserver 的 IP 仅作兜底。
+const DNS_DEFAULT_NAMESERVER: &[&str] = &["223.5.5.5", "119.29.29.29"];
+const DNS_NAMESERVER: &[&str] = &["tls://223.5.5.5", "tls://1.12.12.12"];
 
 /// TUN 开启时配套的 DNS 块（§6.3 + 上游 nameserver）。
 /// `mode` 取 `fake-ip` / `redir-host`（settings.tun_dns_mode，helper 侧已归一化）。
@@ -554,9 +556,9 @@ mod tests {
         assert_eq!(get(&d, "enhanced-mode").unwrap().as_str(), Some("fake-ip"));
         assert_eq!(get(&d, "fake-ip-range").unwrap().as_str(), Some("198.18.0.1/16"));
         let ns = get(&d, "nameserver").unwrap().as_sequence().unwrap();
-        assert_eq!(ns[0].as_str(), Some("system"), "system 上游（读系统 resolv.conf）");
+        assert_eq!(ns[0].as_str(), Some("tls://223.5.5.5"), "DoT 上游（853 TCP 逃逸 UDP 53 劫持）");
         let dn = get(&d, "default-nameserver").unwrap().as_sequence().unwrap();
-        assert_eq!(dn[0].as_str(), Some("system"));
+        assert_eq!(dn[0].as_str(), Some("223.5.5.5"));
     }
 
     #[test]
@@ -564,7 +566,7 @@ mod tests {
         let d = build_dns_block("redir-host");
         assert_eq!(get(&d, "enhanced-mode").unwrap().as_str(), Some("redir-host"));
         assert_eq!(get(&d, "fake-ip-range"), None, "redir-host 不注入 fake-ip-range");
-        assert_eq!(get(&d, "nameserver").unwrap().as_sequence().unwrap().len(), 3);
+        assert_eq!(get(&d, "nameserver").unwrap().as_sequence().unwrap().len(), 2);
     }
 
     #[test]
@@ -617,7 +619,7 @@ mod tests {
         assert_eq!(get(dns, "enable").unwrap().as_bool(), Some(true));
         assert_eq!(get(dns, "enhanced-mode").unwrap().as_str(), Some("fake-ip"));
         let ns = get(dns, "nameserver").unwrap().as_sequence().unwrap();
-        assert_eq!(ns[0].as_str(), Some("system"), "system 上游（读系统 resolv.conf）");
+        assert_eq!(ns[0].as_str(), Some("tls://223.5.5.5"), "DoT 上游（853 TCP 逃逸 UDP 53 劫持）");
         // 其他顶层字段不受影响
         assert_eq!(as_mapping(&doc).get(&Value::String("mode".into())).unwrap().as_str(), Some("rule"));
 

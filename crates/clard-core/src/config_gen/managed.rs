@@ -136,7 +136,7 @@ pub fn inject(doc: &mut Mapping, options: &ConfigGenOptions) {
             dns.insert(
                 Value::String("default-nameserver".into()),
                 Value::Sequence(
-                    ["system", "223.5.5.5", "119.29.29.29"]
+                    ["223.5.5.5", "119.29.29.29"]
                         .iter()
                         .map(|s| Value::String((*s).to_string()))
                         .collect(),
@@ -145,7 +145,7 @@ pub fn inject(doc: &mut Mapping, options: &ConfigGenOptions) {
             dns.insert(
                 Value::String("nameserver".into()),
                 Value::Sequence(
-                    ["system", "https://dns.alidns.com/dns-query", "223.5.5.5"]
+                    ["tls://223.5.5.5", "tls://1.12.12.12"]
                         .iter()
                         .map(|s| Value::String((*s).to_string()))
                         .collect(),

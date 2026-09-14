@@ -144,9 +144,9 @@ mod tests {
         assert_eq!(get(dns, "enhanced-mode").unwrap().as_str(), Some("fake-ip"));
         assert_eq!(get(dns, "fake-ip-range").unwrap().as_str(), Some("198.18.0.1/16"));
         let ns = get(dns, "nameserver").unwrap().as_sequence().unwrap();
-        assert_eq!(ns[0].as_str(), Some("system"), "TUN 下必须有上游 nameserver（劫持 53 后解析依赖）");
+        assert_eq!(ns[0].as_str(), Some("tls://223.5.5.5"), "TUN 下必须有上游 nameserver（劫持 53 后解析依赖）");
         let dn = get(dns, "default-nameserver").unwrap().as_sequence().unwrap();
-        assert_eq!(dn[0].as_str(), Some("system"));
+        assert_eq!(dn[0].as_str(), Some("223.5.5.5"));
     }
 
     #[test]
