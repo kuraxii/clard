@@ -6,7 +6,6 @@
 
 use std::{
     io,
-    os::unix::fs::PermissionsExt,
     path::PathBuf,
     sync::Arc,
 };

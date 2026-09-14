@@ -9,7 +9,7 @@
 
 use std::{
     fs,
-    io::{self, Read, Seek, Write},
+    io::{self, Read, Seek},
     path::{Path, PathBuf},
     time::Duration,
 };
@@ -105,8 +105,8 @@ impl CoreManager {
             return Err("运行态配置不存在，请先应用配置".to_string());
         }
         verify_core_binary(&self.core_bin)?;
-        std::fs::create_dir_all(&self.runtime_dir).map_err(|e| e.to_string())?;
-        let _ = std::fs::remove_file(&self.core_sock);
+        fs::create_dir_all(&self.runtime_dir).map_err(|e| e.to_string())?;
+        let _ = fs::remove_file(&self.core_sock);
 
         let child = Command::new(&self.core_bin)
             .arg("-d")
@@ -148,7 +148,7 @@ impl CoreManager {
         }
         self.pid = None;
         self.version = None;
-        let _ = std::fs::remove_file(&self.core_sock);
+        let _ = fs::remove_file(&self.core_sock);
         Ok(())
     }
 
@@ -160,7 +160,7 @@ impl CoreManager {
     /// 投递运行态配置：落盘 `/var/clard/lib/runtime/config.yaml`（原子），
     /// 核心运行中则 `PUT /configs?force=true`（内联 payload）热重载。
     pub async fn apply_config(&mut self, yaml: &str) -> Result<(), String> {
-        std::fs::create_dir_all(&self.runtime_dir).map_err(|e| e.to_string())?;
+        fs::create_dir_all(&self.runtime_dir).map_err(|e| e.to_string())?;
         atomic_write(&self.config_path, yaml.as_bytes()).map_err(|e| e.to_string())?;
         if self.state() == "running" {
             reload_config(&self.core_sock, yaml).await?;
@@ -181,7 +181,7 @@ impl CoreManager {
 
 /// 校验核心二进制（§5.1）：存在、非 symlink、root 拥有、非 group/other 可写。
 fn verify_core_binary(bin: &Path) -> Result<(), String> {
-    let meta = std::fs::symlink_metadata(bin).map_err(|e| {
+    let meta = fs::symlink_metadata(bin).map_err(|e| {
         format!("核心二进制缺失（{}），请先在设置页「Core」安装核心: {e}", bin.display())
     })?;
     if meta.file_type().is_symlink() {
@@ -398,7 +398,7 @@ mod tests {
         status: &str,
         body: &str,
     ) -> tokio::task::JoinHandle<(String, String, String)> {
-        let _ = std::fs::remove_file(&path);
+        let _ = fs::remove_file(&path);
         let listener = UnixListener::bind(&path).unwrap();
         let status = status.to_string();
         let body = body.to_string();
@@ -443,7 +443,7 @@ mod tests {
         let v = probe_version(&path).await.unwrap();
         assert_eq!(v, "1.19.2");
         let _ = handle.await.unwrap();
-        let _ = std::fs::remove_file(&path);
+        let _ = fs::remove_file(&path);
     }
 
     #[tokio::test]
@@ -451,7 +451,7 @@ mod tests {
         let path = mock_sock("probe500");
         let _handle = spawn_mock(path.clone(), "500 Internal Server Error", r#"{"message":"x"}"#).await;
         assert!(probe_version(&path).await.is_err());
-        let _ = std::fs::remove_file(&path);
+        let _ = fs::remove_file(&path);
     }
 
     #[tokio::test]
@@ -462,7 +462,7 @@ mod tests {
         let (method, path, _query) = handle.await.unwrap();
         assert_eq!(method, "PUT");
         assert_eq!(path, "/configs");
-        let _ = std::fs::remove_file(&path);
+        let _ = fs::remove_file(&path);
     }
 
     // ---- install_core（R7.3，§5.1）----
@@ -472,8 +472,8 @@ mod tests {
         let dir = tempfile::tempdir().unwrap();
         let state = dir.path().join("state");
         let inbox = dir.path().join("inbox");
-        std::fs::create_dir_all(&state).unwrap();
-        std::fs::create_dir_all(&inbox).unwrap();
+        fs::create_dir_all(&state).unwrap();
+        fs::create_dir_all(&inbox).unwrap();
         let targets = InstallTargets {
             inbox_root: inbox.clone(),
             bin_path: dir.path().join("bin").join("mihomo"),
@@ -499,7 +499,7 @@ mod tests {
         // 替换目标存在、内容一致、0755、root 拥有
         assert_eq!(std::fs::read(&targets.bin_path).unwrap(), payload);
         use std::os::unix::fs::{MetadataExt, PermissionsExt};
-        let meta = std::fs::metadata(&targets.bin_path).unwrap();
+        let meta = fs::metadata(&targets.bin_path).unwrap();
         assert_eq!(meta.permissions().mode() & 0o777, 0o755);
         assert_eq!(meta.uid(), 0);
         // sha 记录
@@ -526,7 +526,7 @@ mod tests {
         std::fs::write(&outside, b"x").unwrap();
         let e = install_core(&state, &targets, &outside, &"0".repeat(64)).unwrap_err();
         assert!(e.contains("inbox 路径越界"), "{e}");
-        let _ = std::fs::remove_file(&outside);
+        let _ = fs::remove_file(&outside);
     }
 
     #[test]
@@ -540,7 +540,7 @@ mod tests {
         let e = install_core(&state, &targets, &link, &"0".repeat(64)).unwrap_err();
         assert!(e.contains("打开 inbox 文件失败"), "O_NOFOLLOW 拒绝 symlink: {e}");
         assert!(!std::fs::read_to_string(&target).map(|s| s.is_empty()).unwrap_or(true), "目标未被读取/影响");
-        let _ = std::fs::remove_file(&target);
+        let _ = fs::remove_file(&target);
     }
 
     #[test]
@@ -552,10 +552,10 @@ mod tests {
         // 正常 0755
         std::fs::write(&bin, b"ELF").unwrap();
         use std::os::unix::fs::PermissionsExt;
-        std::fs::set_permissions(&bin, std::fs::Permissions::from_mode(0o755)).unwrap();
+        fs::set_permissions(&bin, std::fs::Permissions::from_mode(0o755)).unwrap();
         assert!(verify_core_binary(&bin).is_ok());
         // group/other 可写拒绝
-        std::fs::set_permissions(&bin, std::fs::Permissions::from_mode(0o775)).unwrap();
+        fs::set_permissions(&bin, std::fs::Permissions::from_mode(0o775)).unwrap();
         assert!(verify_core_binary(&bin).unwrap_err().contains("group/other 可写"));
         // symlink 拒绝
         let link = dir.path().join("link");

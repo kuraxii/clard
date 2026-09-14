@@ -805,6 +805,17 @@ fn draw_settings_core(f: &mut Frame<'_>, area: Rect, state: &SettingsState, them
     };
     let pid = state.core_pid.map(|p| p.to_string()).unwrap_or_else(|| "-".to_string());
     let version = state.core_version.clone().unwrap_or_else(|| "-".to_string());
+    let sha = state
+        .core_sha256
+        .clone()
+        .map(|s| {
+            if s.len() > 16 {
+                format!("{}…", &s[..16])
+            } else {
+                s
+            }
+        })
+        .unwrap_or_else(|| "-".to_string());
     let state_span = Span::styled(state_text.to_string(), Style::default().fg(state_color));
     let mut lines = vec![
         Line::from(vec![
@@ -813,6 +824,7 @@ fn draw_settings_core(f: &mut Frame<'_>, area: Rect, state: &SettingsState, them
         ]),
         kv_line("PID", &pid, theme),
         kv_line("Version", &version, theme),
+        kv_line("SHA256", &sha, theme),
         Line::from(""),
     ];
     lines.push(Line::from(vec![
@@ -822,6 +834,12 @@ fn draw_settings_core(f: &mut Frame<'_>, area: Rect, state: &SettingsState, them
         Span::raw(" stop (confirm)  "),
         key_span("r", theme),
         Span::raw(" restart"),
+    ]));
+    lines.push(Line::from(vec![
+        key_span("c", theme),
+        Span::raw(" check  "),
+        key_span("i", theme),
+        Span::raw(" upgrade (URL)"),
     ]));
     f.render_widget(
         Paragraph::new(lines)

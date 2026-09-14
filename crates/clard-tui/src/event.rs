@@ -36,6 +36,8 @@ pub enum ClardEvent {
         version: Option<String>,
         /// TUN 是否在工作（doc/01 §6.5 判据：网卡 UP + 规则 + 路由）
         tun_active: bool,
+        /// 已安装核心的 sha256（R7.3）
+        core_sha256: Option<String>,
     },
     BackupsReady(Vec<clard_proto::BackupItem>),
     HelperVersion(String),

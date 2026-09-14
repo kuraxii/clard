@@ -107,6 +107,8 @@ pub enum InputPurpose {
     EditExcludeInterface,
     /// 设置：exclude-dst-port（逗号分隔端口）
     EditExcludeDstPort,
+    /// 核心升级：mihomo 二进制下载 URL（doc/05 §7 R7.3）
+    InstallCoreUrl,
 }
 
 /// 确认弹窗状态。

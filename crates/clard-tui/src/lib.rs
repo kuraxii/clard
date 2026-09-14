@@ -218,9 +218,14 @@ pub async fn start_clard() -> Result<()> {
                         pid,
                         version,
                         tun_active,
+                        core_sha256,
                     } => {
-                        app.settings
-                            .apply_core_status(state.clone(), pid, version.clone());
+                        app.settings.apply_core_status(
+                            state.clone(),
+                            pid,
+                            version.clone(),
+                            core_sha256,
+                        );
                         app.home.apply_core_status(state, pid, version, tun_active);
                     }
                     ClardEvent::HelperVersion(version) => {

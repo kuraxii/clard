@@ -519,6 +519,12 @@ impl APP {
                 };
                 self.set_tun_setting(patch);
             }
+            InputPurpose::InstallCoreUrl => {
+                let url = text.trim().to_string();
+                if !url.is_empty() {
+                    self.install_core(url);
+                }
+            }
         }
     }
 
@@ -671,6 +677,7 @@ impl APP {
                 core_pid,
                 core_version,
                 tun_active,
+                core_sha256,
             }) = rpc::call(&Request::Status).await
             {
                 let _ = sender.send(ClardEvent::CoreStatusReady {
@@ -678,6 +685,7 @@ impl APP {
                     pid: core_pid,
                     version: core_version,
                     tun_active,
+                    core_sha256,
                 });
             }
         });
@@ -862,6 +870,23 @@ impl APP {
         });
     }
 
+    /// 升级核心（R7.3）：下载（.sha256sum 自动校验）→ 写 inbox → helper 复核+原子替换+重启。
+    pub fn install_core(&mut self, url: String) {
+        self.message = Some("downloading core…".to_string());
+        let sender = self.event_sender.clone();
+        tokio::spawn(async move {
+            match install_core_flow(url).await {
+                Ok(msg) => {
+                    let _ = sender.send(ClardEvent::Notify(msg));
+                }
+                Err(e) => {
+                    let _ = sender.send(ClardEvent::Error(e));
+                }
+            }
+            send_core_status(&sender).await;
+        });
+    }
+
     pub fn create_backup(&mut self) {
         let sender = self.event_sender.clone();
         tokio::spawn(async move {
@@ -940,6 +965,29 @@ impl APP {
                     ));
                 }
                 'r' => self.restart_core(),
+                'c' => {
+                    // 检查更新：展示当前版本/checksum，提示输入新版 URL（R7.3）
+                    let v = self
+                        .settings
+                        .core_version
+                        .clone()
+                        .unwrap_or_else(|| "-".to_string());
+                    let sha = self
+                        .settings
+                        .core_sha256
+                        .clone()
+                        .unwrap_or_else(|| "-".to_string());
+                    let short = if sha.len() > 16 { &sha[..16] } else { &sha };
+                    self.message = Some(format!(
+                        "core: v{v}  sha256 {short}…  press i and paste the new release URL"
+                    ));
+                }
+                'i' => {
+                    self.input = Some(InputState::new(
+                        "Core download URL (e.g. …/mihomo-linux-amd64-v1.19.2.gz)",
+                        InputPurpose::InstallCoreUrl,
+                    ));
+                }
                 _ => {}
             },
             SettingsTab::Backup => match c {
@@ -1640,6 +1688,7 @@ async fn send_core_status(sender: &UnboundedSender<ClardEvent>) {
         core_pid,
         core_version,
         tun_active,
+        core_sha256,
     }) = rpc::call(&Request::Status).await
     {
         let _ = sender.send(ClardEvent::CoreStatusReady {
@@ -1647,6 +1696,7 @@ async fn send_core_status(sender: &UnboundedSender<ClardEvent>) {
             pid: core_pid,
             version: core_version,
             tun_active,
+            core_sha256,
         });
     }
 }
@@ -1764,6 +1814,50 @@ fn split_csv_u32(text: &str) -> Vec<u32> {
 /// 逗号分隔数字 → u16 列表（忽略非法项）。
 fn split_csv_u16(text: &str) -> Vec<u16> {
     split_csv(text).iter().filter_map(|s| s.parse().ok()).collect()
+}
+
+/// 升级核心（R7.3）：下载（gzip 解压 + `<url>.sha256sum` 校验）→ 写 inbox →
+/// IPC InstallCore（helper 复核 + 原子替换 + 重启）。失败无副作用（inbox 由 helper 清理）。
+async fn install_core_flow(url: String) -> Result<String, String> {
+    use std::time::{SystemTime, UNIX_EPOCH};
+
+    let client = reqwest::Client::new();
+    let (bytes, sha) = clard_core::upgrade::download_and_verify(&client, &url)
+        .await
+        .map_err(|e| format!("下载/校验失败: {e}"))?;
+    let version = version_from_url(&url);
+
+    // 写 inbox（/run/clard/inbox 0733+sticky，任意本地用户可写；doc/01 §4）
+    let dir = "/run/clard/inbox";
+    std::fs::create_dir_all(dir).map_err(|e| format!("创建 inbox 失败: {e}"))?;
+    let nanos = SystemTime::now().duration_since(UNIX_EPOCH).map(|d| d.as_nanos()).unwrap_or(0);
+    let inbox_path = format!("{dir}/clard-core-{}-{nanos}.bin", std::process::id());
+    std::fs::write(&inbox_path, &bytes).map_err(|e| format!("写入 inbox 失败: {e}"))?;
+
+    match rpc::call(&Request::InstallCore {
+        inbox_path,
+        sha256: sha,
+        version: version.clone(),
+    })
+    .await
+    {
+        Ok(Response::Ok) => Ok(format!("core upgraded & restarted (v{version})")),
+        Ok(other) => Err(rpc::unexpected(other).to_string()),
+        Err(e) => Err(e.to_string()),
+    }
+}
+
+/// 从 mihomo release URL 提取版本（如 `…/mihomo-linux-amd64-v1.19.2.gz` → `v1.19.2`）。
+fn version_from_url(url: &str) -> String {
+    let file = url.rsplit('/').next().unwrap_or(url);
+    file.split('-')
+        .find(|seg| {
+            seg.len() > 1
+                && seg.starts_with('v')
+                && seg[1..].chars().all(|c| c.is_ascii_digit() || c == '.')
+        })
+        .unwrap_or_default()
+        .to_string()
 }
 
 /// 下载 → 归一化 → 提交 helper（R2.1/R2.3 共用）。

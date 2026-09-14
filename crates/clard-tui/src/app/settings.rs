@@ -104,6 +104,8 @@ pub struct SettingsState {
     pub core_state: Option<String>,
     pub core_pid: Option<u32>,
     pub core_version: Option<String>,
+    /// 已安装核心的 sha256（R7.3）
+    pub core_sha256: Option<String>,
     pub helper_version: Option<String>,
     pub backups: Vec<BackupItem>,
     pub list_state: ListState,
@@ -118,6 +120,7 @@ impl SettingsState {
             core_state: None,
             core_pid: None,
             core_version: None,
+            core_sha256: None,
             helper_version: None,
             backups: Vec::new(),
             list_state: ListState::default(),
@@ -129,10 +132,17 @@ impl SettingsState {
         self.settings = Some(settings);
     }
 
-    pub fn apply_core_status(&mut self, state: String, pid: Option<u32>, version: Option<String>) {
+    pub fn apply_core_status(
+        &mut self,
+        state: String,
+        pid: Option<u32>,
+        version: Option<String>,
+        core_sha256: Option<String>,
+    ) {
         self.core_state = Some(state);
         self.core_pid = pid;
         self.core_version = version;
+        self.core_sha256 = core_sha256;
     }
 
     pub fn apply_backups(&mut self, backups: Vec<BackupItem>) {
