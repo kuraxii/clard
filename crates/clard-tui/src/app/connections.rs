@@ -8,6 +8,14 @@ pub enum ConnectionsSort {
     Download,
 }
 
+/// 流量单位（R4.3 `c` 切换）：自动二进制单位 ⇄ 固定 KB。
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum ConnUnit {
+    #[default]
+    Auto,
+    Kb,
+}
+
 /// 连接页状态：`all` 为全量数据，`connections` 为过滤+排序后的渲染视图。
 #[derive(Debug)]
 pub struct ConnectionsState {
@@ -17,6 +25,7 @@ pub struct ConnectionsState {
     pub connections: Vec<Connection>,
     pub filter: String,
     pub sort: ConnectionsSort,
+    pub unit: ConnUnit,
     pub traffic: Option<Traffic>,
     pub upload_history: Vec<u64>,
     pub download_history: Vec<u64>,
@@ -31,6 +40,7 @@ impl ConnectionsState {
             connections: Vec::new(),
             filter: String::new(),
             sort: ConnectionsSort::Download,
+            unit: ConnUnit::Auto,
             traffic: None,
             upload_history: Vec::new(),
             download_history: Vec::new(),
@@ -59,6 +69,14 @@ impl ConnectionsState {
     pub fn set_filter(&mut self, filter: String) {
         self.filter = filter;
         self.refresh_view();
+    }
+
+    /// 切换流量单位（R4.3）。
+    pub fn toggle_unit(&mut self) {
+        self.unit = match self.unit {
+            ConnUnit::Auto => ConnUnit::Kb,
+            ConnUnit::Kb => ConnUnit::Auto,
+        };
     }
 
     pub fn on_down_key(&mut self) {
@@ -162,7 +180,7 @@ fn connection_matches(conn: &Connection, needle: &str) -> bool {
 
 #[cfg(test)]
 mod tests {
-    use super::ConnectionsState;
+    use super::{ConnUnit, ConnectionsState};
     use clard_core::mihomo::models::Connections;
 
     fn sample_connections() -> Connections {
@@ -212,6 +230,16 @@ mod tests {
         state.set_filter("8.8.8.8".to_string());
         assert_eq!(state.connections.len(), 1);
         assert_eq!(state.connections[0].id, "b");
+    }
+
+    #[test]
+    fn unit_toggle_cycles_auto_and_kb() {
+        let mut state = ConnectionsState::new();
+        assert_eq!(state.unit, ConnUnit::Auto);
+        state.toggle_unit();
+        assert_eq!(state.unit, ConnUnit::Kb);
+        state.toggle_unit();
+        assert_eq!(state.unit, ConnUnit::Auto);
     }
 
     #[test]

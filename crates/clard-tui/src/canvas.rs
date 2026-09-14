@@ -11,7 +11,7 @@ use clard_core::mihomo::models::{Connection, DelayHistory, Proxy as ProxyModel, 
 
 use crate::app::{
     APP,
-    connections::{ConnectionsSort, ConnectionsState},
+    connections::{ConnUnit, ConnectionsSort, ConnectionsState},
     modal::{ConfirmState, InputState},
     page::Page,
     profiles::{HistoryView, ProfileBusy, ProfilesState},
@@ -887,6 +887,10 @@ fn draw_connections_table(f: &mut Frame<'_>, area: Rect, state: &ConnectionsStat
     .bottom_margin(1)
     .style(Style::default().bg(theme.overlay));
 
+    let format_bytes = |bytes: u64| match state.unit {
+        ConnUnit::Auto => format_network_bytes(bytes),
+        ConnUnit::Kb => format!("{} KB", bytes / 1024),
+    };
     let rows = state.connections.iter().map(|connection| {
         let host = connection_host(connection);
         let process = empty_as_dash(&connection.metadata.process);
@@ -895,8 +899,8 @@ fn draw_connections_table(f: &mut Frame<'_>, area: Rect, state: &ConnectionsStat
             Cell::from(host),
             Cell::from(process.to_string()),
             Cell::from(network_name(connection)),
-            Cell::from(format_network_bytes(connection.upload)),
-            Cell::from(format_network_bytes(connection.download)),
+            Cell::from(format_bytes(connection.upload)),
+            Cell::from(format_bytes(connection.download)),
             Cell::from(empty_as_dash(&connection.rule).to_string()),
             Cell::from(chain),
         ])
@@ -1230,12 +1234,14 @@ fn footer_keys(app: &APP) -> Vec<(&'static str, &'static str)> {
             keys.push(("Enter", "select"));
             keys.push(("t/T", "test"));
             keys.push(("d", "clear"));
+            keys.push(("f/s", "filter/sort"));
         }
         Page::Connections => {
             keys.push(("↑↓/jk", "move"));
             keys.push(("u/d", "sort"));
             keys.push(("x/X", "close"));
             keys.push(("f", "filter"));
+            keys.push(("c", "unit"));
         }
         Page::Logs => {
             keys.push(("Tab", "source"));

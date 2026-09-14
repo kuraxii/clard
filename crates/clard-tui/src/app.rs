@@ -427,6 +427,9 @@ impl APP {
                     self.rename_profile(uid, name);
                 }
             }
+            InputPurpose::FilterProxies => {
+                self.proxies.set_filter(text.trim().to_string());
+            }
         }
     }
 
@@ -634,11 +637,20 @@ impl APP {
         });
     }
 
+    fn open_proxies_filter(&mut self) {
+        let mut input = InputState::new("Filter nodes", InputPurpose::FilterProxies);
+        input.buffer = self.proxies.filter.clone();
+        input.cursor = input.buffer.len();
+        self.input = Some(input);
+    }
+
     fn on_proxies_char(&mut self, c: char) {
         match c {
             't' if self.proxies.focus == ProxyFocus::Proxies => self.test_proxy_delay(),
             'T' => self.test_all_groups(),
             'd' => self.clear_group_selection(),
+            'f' => self.open_proxies_filter(),
+            's' => self.proxies.cycle_sort(),
             _ => {}
         }
     }
@@ -834,6 +846,7 @@ impl APP {
         match c {
             'u' => self.connections.sort_by_upload(),
             'd' => self.connections.sort_by_download(),
+            'c' => self.connections.toggle_unit(),
             'x' => self.close_selected_connection(),
             'X' => {
                 self.confirm = Some(ConfirmState::new(
