@@ -184,6 +184,9 @@ pub async fn start_clard() -> Result<()> {
                     ClardEvent::UpdateTraffic(traffic) => {
                         app.connections.update_traffic(traffic);
                     }
+                    ClardEvent::ProfilesUpdated { current, items } => {
+                        app.apply_profiles(current, items);
+                    }
                     ClardEvent::Notify(msg) => {
                         app.message = Some(msg);
                     }

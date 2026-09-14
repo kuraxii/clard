@@ -12,7 +12,9 @@ use clard_core::mihomo::models::{Connection, DelayHistory, Proxy as ProxyModel, 
 use crate::app::{
     APP,
     connections::{ConnectionsSort, ConnectionsState},
+    modal::{ConfirmState, InputState},
     page::Page,
+    profiles::{ProfileBusy, ProfilesState},
     proxy::{ProxyFocus, ProxyState},
 };
 
@@ -49,7 +51,7 @@ impl Painter {
 
             match app.current_page {
                 Page::Home => HomeLayout::draw(f, shell[2], theme),
-                Page::Profiles => ProfilesLayout::draw(f, shell[2], theme),
+                Page::Profiles => ProfilesLayout::draw(f, shell[2], &app.profiles, theme),
                 Page::Proxies => ProxyLayout::draw(f, shell[2], &app.proxies, theme),
                 Page::Connections => ConnectionsLayout::draw(f, shell[2], &app.connections, theme),
                 Page::Logs => LogsLayout::draw(f, shell[2], theme),
@@ -59,6 +61,12 @@ impl Painter {
 
             draw_footer(f, shell[3], app, theme);
 
+            if let Some(input) = &app.input {
+                draw_input_modal(f, area, input, theme);
+            }
+            if let Some(confirm) = &app.confirm {
+                draw_confirm_modal(f, area, confirm, theme);
+            }
             if app.show_help {
                 draw_help(f, area, app, theme);
             }
@@ -301,22 +309,100 @@ impl HomeLayout {
 struct ProfilesLayout;
 
 impl ProfilesLayout {
-    fn draw(f: &mut Frame<'_>, area: Rect, theme: Theme) {
-        draw_placeholder(
-            f,
-            area,
-            Page::Profiles,
-            &[
-                ("i", "import from URL"),
-                ("Enter", "switch current (transactional)"),
-                ("u/d", "update / delete"),
-                ("r", "rename"),
-                ("[ / ]", "reorder"),
-                ("h", "version history (rollback)"),
-            ],
-            theme,
-        );
+    fn draw(f: &mut Frame<'_>, area: Rect, state: &ProfilesState, theme: Theme) {
+        let columns = Layout::default()
+            .direction(Direction::Horizontal)
+            .constraints([Constraint::Percentage(45), Constraint::Min(0)].as_ref())
+            .split(area);
+
+        draw_profile_list(f, columns[0], state, theme);
+        draw_profile_detail(f, columns[1], state, theme);
     }
+}
+
+fn draw_profile_list(f: &mut Frame<'_>, area: Rect, state: &ProfilesState, theme: Theme) {
+    let items: Vec<ListItem<'_>> = state
+        .items
+        .iter()
+        .map(|p| {
+            let is_current = state.current.as_deref() == Some(p.uid.as_str());
+            let updating = state.busy == ProfileBusy::Updating && state.busy_uid.as_deref() == Some(p.uid.as_str());
+            let marker = if is_current { "●" } else { " " };
+            let marker_style = if is_current {
+                Style::default().fg(theme.primary).add_modifier(Modifier::BOLD)
+            } else {
+                Style::default().fg(theme.muted)
+            };
+            let name_style = if is_current {
+                theme.title_style()
+            } else {
+                Style::default().fg(theme.fg)
+            };
+            let status = if updating {
+                Span::styled("updating…", Style::default().fg(theme.warning))
+            } else if is_current {
+                Span::styled("current", Style::default().fg(theme.success))
+            } else {
+                Span::styled("", Style::default())
+            };
+
+            ListItem::new(Line::from(vec![
+                Span::styled(marker, marker_style),
+                Span::raw(" "),
+                Span::styled(p.name.clone(), name_style),
+                Span::raw("  "),
+                status,
+            ]))
+        })
+        .collect();
+
+    let count = state.items.len();
+    let list = List::new(items)
+        .block(panel_block(format!("Profiles ({count})"), true, theme))
+        .highlight_style(theme.selected_style())
+        .highlight_symbol("▸ ");
+
+    let mut list_state = state.list_state.clone();
+    f.render_stateful_widget(list, area, &mut list_state);
+}
+
+fn draw_profile_detail(f: &mut Frame<'_>, area: Rect, state: &ProfilesState, theme: Theme) {
+    let lines = if let Some(p) = state.selected() {
+        let updated = p
+            .updated_at
+            .map(format_unix_time)
+            .unwrap_or_else(|| "-".to_string());
+        let interval = if p.interval == 0 {
+            "off".to_string()
+        } else {
+            format!("{}s", p.interval)
+        };
+        vec![
+            kv_line("Name", &p.name, theme),
+            kv_line("UID", &p.uid, theme),
+            kv_line("Type", "remote", theme),
+            kv_line("URL", &p.url, theme),
+            kv_line("Updated", &updated, theme),
+            kv_line("Interval", &interval, theme),
+            Line::from(""),
+            Line::from(Span::styled(
+                "i import · u update · d delete · Enter switch",
+                theme.muted_style(),
+            )),
+        ]
+    } else {
+        vec![
+            Line::from(Span::styled("No profiles.", theme.title_style())),
+            Line::from(Span::styled("Press i to import a subscription URL.", theme.muted_style())),
+        ]
+    };
+
+    f.render_widget(
+        Paragraph::new(lines)
+            .block(panel_block("Detail", false, theme))
+            .wrap(Wrap { trim: true }),
+        area,
+    );
 }
 
 struct LogsLayout;
@@ -748,6 +834,62 @@ fn draw_connection_detail(f: &mut Frame<'_>, area: Rect, state: &ConnectionsStat
     );
 }
 
+fn draw_input_modal(f: &mut Frame<'_>, area: Rect, input: &InputState, theme: Theme) {
+    let popup = centered_rect(70, 24, area);
+    f.render_widget(Clear, popup);
+
+    let mut display = input.buffer.clone();
+    display.insert(input.cursor, '▏');
+    let lines = vec![
+        Line::from(""),
+        Line::from(Span::styled(display, theme.title_style())),
+        Line::from(""),
+        Line::from(vec![
+            key_span("Enter", theme),
+            Span::raw(" submit  "),
+            key_span("Esc", theme),
+            Span::raw(" cancel  "),
+            key_span("Ctrl+u", theme),
+            Span::raw(" clear"),
+        ]),
+    ];
+
+    f.render_widget(
+        Paragraph::new(lines)
+            .block(panel_block(input.title.as_str(), true, theme))
+            .wrap(Wrap { trim: true }),
+        popup,
+    );
+}
+
+fn draw_confirm_modal(f: &mut Frame<'_>, area: Rect, confirm: &ConfirmState, theme: Theme) {
+    let popup = centered_rect(60, 26, area);
+    f.render_widget(Clear, popup);
+
+    let lines = vec![
+        Line::from(""),
+        Line::from(Span::styled(
+            confirm.message.clone(),
+            Style::default().fg(theme.warning),
+        )),
+        Line::from(""),
+        Line::from(vec![
+            key_span("Enter", theme),
+            Span::raw(" confirm  "),
+            key_span("Esc", theme),
+            Span::raw(" cancel"),
+        ]),
+    ];
+
+    f.render_widget(
+        Paragraph::new(lines)
+            .block(panel_block(confirm.title.as_str(), true, theme))
+            .alignment(Alignment::Center)
+            .wrap(Wrap { trim: true }),
+        popup,
+    );
+}
+
 fn draw_help(f: &mut Frame<'_>, area: Rect, app: &APP, theme: Theme) {
     let popup = centered_rect(68, 70, area);
     f.render_widget(Clear, popup);
@@ -783,7 +925,8 @@ fn draw_help(f: &mut Frame<'_>, area: Rect, app: &APP, theme: Theme) {
         ],
         Page::Profiles => vec![
             Line::from(Span::styled("Profiles", theme.title_style())),
-            Line::from("Import, switch, update, delete, rename and reorder subscriptions."),
+            Line::from("i imports a subscription URL; Enter switches current."),
+            Line::from("u updates the selected profile; d deletes it (confirm)."),
         ],
         Page::Proxies => vec![
             Line::from(Span::styled("Proxies", theme.title_style())),
@@ -900,6 +1043,9 @@ fn footer_keys(app: &APP) -> Vec<(&'static str, &'static str)> {
         }
         Page::Profiles => {
             keys.push(("↑↓/jk", "move"));
+            keys.push(("i", "import"));
+            keys.push(("u", "update"));
+            keys.push(("d", "delete"));
             keys.push(("Enter", "switch"));
         }
         Page::Proxies => {
@@ -1117,6 +1263,31 @@ fn format_rate(bytes_per_second: u64) -> String {
     format!("{}/s", format_network_bytes(bytes_per_second))
 }
 
+/// unix 秒 → UTC `YYYY-MM-DD HH:MM:SS`（Howard Hinnant 民用日期算法，无外部依赖）。
+fn format_unix_time(secs: i64) -> String {
+    let days = secs.div_euclid(86_400);
+    let secs_of_day = secs.rem_euclid(86_400);
+    let (year, month, day) = civil_from_days(days);
+    let h = secs_of_day / 3600;
+    let m = (secs_of_day % 3600) / 60;
+    let s = secs_of_day % 60;
+    format!("{year:04}-{month:02}-{day:02} {h:02}:{m:02}:{s:02}")
+}
+
+/// 天数（自 1970-01-01 起）→ (year, month, day)。
+fn civil_from_days(z: i64) -> (i64, u32, u32) {
+    let z = z + 719_468;
+    let era = z.div_euclid(146_097);
+    let doe = z.rem_euclid(146_097);
+    let yoe = (doe - doe / 1460 + doe / 36_524 - doe / 146_096) / 365;
+    let y = yoe + era * 400;
+    let doy = doe - (365 * yoe + yoe / 4 - yoe / 100);
+    let mp = (5 * doy + 2) / 153;
+    let d = (doy - (153 * mp + 2) / 5 + 1) as u32;
+    let m = if mp < 10 { mp + 3 } else { mp - 9 } as u32;
+    (if m <= 2 { y + 1 } else { y }, m, d)
+}
+
 fn format_network_bytes(bytes: u64) -> String {
     const UNITS: [&str; 6] = ["B", "KB", "MB", "GB", "TB", "PB"];
 
@@ -1200,7 +1371,21 @@ fn centered_rect(percent_x: u16, percent_y: u16, area: Rect) -> Rect {
 
 #[cfg(test)]
 mod tests {
-    use super::format_network_bytes;
+    use super::{civil_from_days, format_network_bytes, format_unix_time};
+
+    #[test]
+    fn format_unix_time_matches_known_instants() {
+        assert_eq!(format_unix_time(0), "1970-01-01 00:00:00");
+        assert_eq!(format_unix_time(1_600_000_000), "2020-09-13 12:26:40");
+    }
+
+    #[test]
+    fn civil_from_days_covers_leap_years() {
+        assert_eq!(civil_from_days(0), (1970, 1, 1));
+        assert_eq!(civil_from_days(18_518), (2020, 9, 13));
+        // 2000-02-29 是闰日；11016 天 = 951782400 秒
+        assert_eq!(civil_from_days(11_016), (2000, 2, 29));
+    }
 
     #[test]
     fn format_network_bytes_upgrades_when_value_exceeds_three_digits() {

@@ -16,28 +16,37 @@ pub enum ClardEvent {
     UpdateGroups(clard_core::mihomo::models::Groups),
     UpdateConnections(clard_core::mihomo::models::Connections),
     UpdateTraffic(clard_core::mihomo::models::Traffic),
+    ProfilesUpdated {
+        current: Option<String>,
+        items: Vec<clard_proto::ProfileItem>,
+    },
     /// 成功/信息消息（页脚消息条）
     Notify(String),
     Error(String),
 }
 
 pub fn handle_key_event(event: KeyEvent, app: &mut APP, sender: mpsc::UnboundedSender<ClardEvent>) {
+    // 全局强制退出（兑底）
+    if event.modifiers == KeyModifiers::CONTROL && event.code == KeyCode::Char('c') {
+        tokio::spawn(async move {
+            let _ = sender.send(ClardEvent::Terminal);
+        });
+        return;
+    }
+
+    // 弹窗层（help > confirm > input）；弹窗打开时吞掉其余按键
     if app.show_help {
-        if event.modifiers.is_empty() {
-            match event.code {
-                KeyCode::Esc => app.on_esc_key(),
-                KeyCode::Char('?') | KeyCode::Char('q') => {
-                    if let KeyCode::Char(c) = event.code {
-                        app.on_char(c);
-                    }
-                }
-                _ => {}
-            }
-        } else if event.modifiers == KeyModifiers::CONTROL && matches!(event.code, KeyCode::Char('c')) {
-            tokio::spawn(async move {
-                let _ = sender.send(ClardEvent::Terminal);
-            });
+        if event.modifiers.is_empty() && matches!(event.code, KeyCode::Esc | KeyCode::Char('?')) {
+            app.show_help = false;
         }
+        return;
+    }
+    if app.confirm.is_some() {
+        app.on_confirm_key(event);
+        return;
+    }
+    if app.input.is_some() {
+        app.on_input_key(event);
         return;
     }
 
@@ -58,18 +67,6 @@ pub fn handle_key_event(event: KeyEvent, app: &mut APP, sender: mpsc::UnboundedS
             KeyCode::Enter => app.on_enter_key(),
             KeyCode::Char(caught_cahr) => app.on_char(caught_cahr),
             _ => {}
-        }
-    } else {
-        if let KeyModifiers::CONTROL = event.modifiers {
-            match event.code {
-                KeyCode::Char('c') => {
-                    tokio::spawn(async move {
-                        let _ = sender.send(ClardEvent::Terminal);
-                    });
-                }
-                KeyCode::Char(_caught_cahr) => {}
-                _ => {}
-            }
         }
     }
 }
