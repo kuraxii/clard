@@ -23,7 +23,6 @@ pub mod rpc;
 use std::{
     io::stdout,
     panic::{self, PanicHookInfo},
-    path::Path,
     time::Duration,
 };
 
@@ -119,8 +118,8 @@ use std::sync::Arc;
 
 use clard_core::mihomo::backend::Backend;
 
-const DEFAULT_UNIX_SOCKET: &str = "/tmp/verge/verge-mihomo.sock";
-const DEFAULT_TCP_ADDR: &str = "127.0.0.1:9090";
+/// core 只开 unix controller（external-controller-unix，doc/01 §6.3），不开 TCP
+const DEFAULT_CORE_SOCK: &str = "/run/clard/core.sock";
 
 /// 事件订阅（§5.6）：连接 → 全量同步 → 转发事件；断开后退避重连。
 /// 每次连接建立发 `Subscribed` 触发 Status 全量；收到状态类事件也触发刷新。
@@ -154,13 +153,11 @@ async fn subscribe_events(sender: mpsc::UnboundedSender<ClardEvent>) {
 }
 
 fn default_backend() -> Result<Backend> {
-    let backend = if Path::new(DEFAULT_UNIX_SOCKET).exists() {
-        Backend::builder().set_unix_socket(DEFAULT_UNIX_SOCKET).build()?
-    } else {
-        Backend::builder().set_tcp_addr(DEFAULT_TCP_ADDR)?.build()?
-    };
-
-    Ok(backend)
+    let sock = std::env::var("CLARD_CORE_SOCK")
+        .ok()
+        .filter(|s| !s.is_empty())
+        .unwrap_or_else(|| DEFAULT_CORE_SOCK.to_string());
+    Backend::builder().set_unix_socket(&sock).build()
 }
 
 pub async fn start_clard() -> Result<()> {
