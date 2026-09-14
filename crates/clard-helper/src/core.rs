@@ -86,6 +86,11 @@ impl CoreManager {
         self.version.as_deref()
     }
 
+    /// 运行态配置路径（SetTun 编辑入口）。
+    pub fn runtime_config_path(&self) -> PathBuf {
+        self.config_path.clone()
+    }
+
     /// 启动核心（幂等）：需先存在运行态配置；就绪探测成功才算启动成功。
     pub async fn start(&mut self) -> Result<(), String> {
         if self.state() == "running" {

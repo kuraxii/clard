@@ -282,6 +282,16 @@ pub enum Response {
         cursor: u64,
         records: Vec<AuditRecord>,
     },
+    /// cleanup-tun 结果：clean=false 时 residuals 列出残余（doc/01 §6.4）
+    CleanupResult {
+        clean: bool,
+        residuals: Vec<String>,
+    },
+    /// SetTun 结果：hot_reloaded=false = 核心未运行，仅落盘待启动生效（§5.6）
+    TunSet {
+        hot_reloaded: bool,
+        verified: bool,
+    },
     /// 无额外载荷的成功
     Ok,
     Error {

@@ -64,6 +64,16 @@ async fn main() {
                 std::process::exit(1);
             }
         }
+        Command::CleanupTun => {
+            // §6.4：幂等清理（ExecStopPost / 手动 / 启动自检共用同一实现）
+            let (clean, residuals) = tun::cleanup_tun(&tun::Tools::system()).await;
+            if clean {
+                println!("TUN 残留已清理完毕（无残留）");
+            } else {
+                println!("TUN 清理完成，仍有残余: {}", residuals.join(", "));
+                std::process::exit(1);
+            }
+        }
         other => not_yet(&format!("{other:?}")),
     }
 }

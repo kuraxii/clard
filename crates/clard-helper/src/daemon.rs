@@ -78,6 +78,19 @@ pub async fn run() -> io::Result<()> {
     ));
     let core = Arc::new(Mutex::new(CoreManager::new(&state)));
 
+    // §5.3 启动自检：TUN 残留扫描 → 有残留即 cleanup-tun（fail-open，幂等）
+    {
+        let audit = audit.clone();
+        tokio::spawn(async move {
+            let (clean, residuals) = crate::tun::cleanup_tun(&crate::tun::Tools::system()).await;
+            if !clean {
+                let msg = residuals.join(", ");
+                audit.record("cleanup.tun", &Actor::system(), &format!("partial: {msg}"));
+                tracing::warn!("启动自检：TUN 残留已清理，仍有残余: {msg}");
+            }
+        });
+    }
+
     // 订阅自动更新定时器（R2.8；0=关，见 clard.toml）
     autoupdate::spawn(store.clone(), settings.clone(), audit.clone());
 

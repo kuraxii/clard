@@ -22,15 +22,18 @@ pub async fn handle(
             helper_version: env!("CARGO_PKG_VERSION").to_string(),
             proto_version: clard_proto::PROTO_VERSION,
         }),
-        Request::Status => (
-            "rpc.status",
-            Response::Status {
-                core_state: core.state().to_string(),
-                core_pid: core.pid(),
-                core_version: core.version().map(str::to_string),
-                tun_active: false,
-            },
-        ),
+        Request::Status => {
+            let tun_active = crate::tun::tun_active(&crate::tun::Tools::system()).await;
+            (
+                "rpc.status",
+                Response::Status {
+                    core_state: core.state().to_string(),
+                    core_pid: core.pid(),
+                    core_version: core.version().map(str::to_string),
+                    tun_active,
+                },
+            )
+        }
         Request::StartCore => match core.start().await {
             Ok(()) => ("core.start", Response::Ok),
             Err(e) => ("core.start", Response::err(e)),
@@ -170,12 +173,55 @@ pub async fn handle(
             Ok((cursor, records)) => ("audit.query", Response::AuditQuery { cursor, records }),
             Err(e) => ("audit.query", Response::err(e.to_string())),
         },
+        Request::SetTun { enable } => {
+            let s = settings.get().clone();
+            let path = core.runtime_config_path();
+            let sock = crate::core::core_sock_path();
+            let running = core.state() == "running";
+            match crate::tun::set_tun(
+                enable,
+                &s,
+                &path,
+                &sock,
+                running,
+                &crate::tun::Tools::system(),
+            )
+            .await
+            {
+                Ok(apply) => {
+                    // 设置持久化（失败时 tun 块已回退，设置不落盘：§7.2 设置不被静默修改）
+                    let patch = clard_proto::SettingsPatch {
+                        tun_enabled: Some(enable),
+                        ..Default::default()
+                    };
+                    match settings.patch(&patch) {
+                        Ok(()) => (
+                            "tun.enable",
+                            Response::TunSet {
+                                hot_reloaded: apply.hot_reloaded,
+                                verified: apply.verified,
+                            },
+                        ),
+                        Err(e) => ("tun.enable", Response::err(e.to_string())),
+                    }
+                }
+                Err(e) => ("tun.enable", Response::err(e)),
+            }
+        }
+        Request::CleanupTun => {
+            let (clean, residuals) = crate::tun::cleanup_tun(&crate::tun::Tools::system()).await;
+            ("cleanup.tun", Response::CleanupResult { clean, residuals })
+        }
         other => {
             let op = "rpc.unimplemented";
             (op, Response::err(format!("方法未实现: {other:?}")))
         }
     };
-    let result = if matches!(resp, Response::Error { .. }) { "error" } else { "ok" };
+    let result = match &resp {
+        Response::Error { .. } => "error",
+        Response::CleanupResult { clean, .. } if !*clean => "partial",
+        _ => "ok",
+    };
     audit.record(op, actor, result);
     resp
 }
