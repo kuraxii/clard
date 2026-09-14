@@ -1,62 +1,67 @@
 # Clard
 
-Clard is a terminal UI client for managing mihomo/Clash-compatible backends.
+Clard 是 Linux 上的完整代理管理工具：系统级常驻服务 `clard-helper`（root，拥有 mihomo 核心、TUN 与全部数据）+ TUI 客户端 `clard`（ratatui）。数据面 **TUN-only**，系统级服务、不分用户。
 
-## TODO 列表
+设计文档（唯一实现依据）：`doc/01-方案设计.md`（架构/边界/安全）、`doc/03-ui设计.md`（UI/UX）、`doc/04-mihomo调研.md`（运行时接口）、`doc/05-需求文档.md`（需求清单）。
 
-下面为常见的 GitHub 开发者使用的扁平任务清单格式，方便在 PR/Issue 中直接勾选。已完成项已标记。
+## 需求 TODO（依据 doc/05-需求文档.md）
 
-### 实时数据（WebSocket）
+### 已完成（基础设施，非用户操作层）
 
-- [x] 流量数据
-- [ ] 内存使用情况
-- [ ] 连接信息数据
-- [ ] 日志
+- [x] helper daemon：flock 单实例、0666 unix socket、`SO_PEERCRED` 记录 actor、审计双写
+- [x] profiles 存储迁移 helper（`/var/lib/clard`，同 URL 覆盖更新）
+- [x] config_gen：base64 归一化、7 种节点协议转换（vless/vmess/ss/trojan/http/socks/hysteria2）、深合并、托管字段注入
+- [x] 订阅下载（HttpFetcher：30s 超时、8MiB 上限）
+- [x] 订阅管理 CLI（`clard profiles import/list/update/remove/current/set-current`，经 IPC 调 helper）
 
-### 简单请求（HTTP）
+### 页面与导航
 
-- [x] 版本信息
-- [x] 清理 fakeip 缓存
-- [x] 清理 DNS 缓存
-- [x] 获取全部连接信息
-- [x] 关闭全部连接
-- [x] 关闭指定 ID 的连接
+- [ ] 七页导航（主页/配置/代理/连接/日志/设置/规则，`1`–`7` 直达，状态保持）
+- [ ] 全局键位与帮助浮层（`?`）
+- [ ] 语言（默认英语，rust-i18n 中文）
 
-### 代理相关
+### 订阅配置
 
-- [x] 获取所有的代理组
-- [x] 获取指定名称的代理组
-- [ ] 对指定代理组进行延迟测试（同时清理代理组已固定的节点）
-- [ ] 获取代理组提供者的信息
-- [ ] 获取指定代理提供者的信息
-- [ ] 更新指定代理提供者的信息
-- [ ] 对指定代理提供者进行健康检查
-- [ ] 对指定代理提供者下的指定节点（非代理组）进行健康检查，并返回新的延迟信息
-- [ ] 获取所有代理信息
-- [ ] 获取指定代理信息
-- [x] 为指定代理选择节点（一般为指定代理组下使用指定的代理节点）
-- [x] 指定代理组下不再使用固定的代理节点
-- [ ] 对指定代理进行延迟测试（可用于代理节点或代理组）
+- [ ] URL 导入与覆盖更新（CLI ✓，TUI 页未做）
+- [ ] 切换当前配置（事务：config_gen → ApplyConfig 热重载 → 恢复记忆节点）
+- [ ] 手动更新订阅（CLI ✓，TUI 页未做）
+- [ ] 删除配置（CLI ✓，TUI 页未做）
+- [ ] 改名 / 排序（上移下移）
+- [ ] 订阅信息展示（流量/到期，`subscription-userinfo`）
+- [ ] 自动更新（helper 全局定时，默认 6 小时，可编辑）
+- [ ] 版本回滚（保留 3 份）
 
-### 规则 & 提供者
+### 代理
 
-- [x] 获取所有规则信息
-- [ ] 获取所有规则提供者信息
-- [ ] 更新规则提供者信息
+- [ ] 分组树与节点选择 / 清除固定选择（`PUT/DELETE /proxies/:name`）
+- [ ] 测延迟（单个 / 全组，`/proxies/:name/delay`、`/group/:name/delay`）
+- [ ] 测速 URL 配置 / 节点过滤排序
 
-### 配置 & 维护
+### 连接
 
-- [ ] 获取基础配置
-- [ ] 重新加载配置
-- [ ] 更新基础配置
-- [ ] 更新 Geo 地理位置信息
-- [ ] 重启核心
-- [ ] 升级核心
-- [ ] 更新 UI
-- [ ] 更新 Geo
+- [ ] 连接列表与实时流量（`/connections`、`/traffic` WS）
+- [ ] 关闭单个 / 全部连接
+- [ ] 排序 / 单位切换 / 搜索 / 内存显示
 
-### tui 架构 M(app) -- V(canvas) -- C(controller)
+### 规则
 
-app 存储tui 组件之间的状态机状态、获取的数据
-canvas 负责绘制，以及组件内部状态管理
-controller 负责整理存储的数据 排序
+- [ ] 规则列表查看（`GET /rules`）
+- [ ] 规则启用/禁用（`PATCH /rules/disable`）
+- [ ] 搜索过滤 / 规则集视图（`/providers/rules`）
+
+### 日志与审计
+
+- [ ] TUI 日志页三栏（应用/核心/审计）与过滤导出
+- [ ] 审计完整规格（intent+result、net 快照、cfg_sha256、按 op 过滤）——helper 基础记录已实现
+
+### 设置
+
+- [ ] 通用（混合端口 7890 仅回环、自动更新间隔、语言、主题）
+- [ ] TUN 与旁路（热重载 + 读回校验）
+- [ ] 核心（版本 / 检查更新 / 升级）
+- [ ] 后台服务（安装 / 卸载 / 偏执模式）
+- [ ] 关于（版本 / 路径一览 / 打开目录）
+
+### 备份与恢复
+
+- [ ] 本地备份 / 恢复 / 备份管理（tar.gz 打包 `/var/lib/clard`，`/var/backups/clard/`）
