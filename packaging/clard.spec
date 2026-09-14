@@ -4,9 +4,10 @@
 # 收集）；%post 负责数据目录 + systemd enable/start，%preun/%postun 负责 stop/disable。
 # 安装即作为系统级常驻服务（doc/01 §4）：TUI 无需 su，helper 常驻后台。
 #
-# mihomo 核心二进制不在包内（体积大且动态升级，见 doc/01 §5.1）：
-# 首次使用时经 helper InstallCore 里程碑下载到 /var/clard/bin/mihomo；
-# 若需随包分发，构建时在 SOURCES 放 mihomo 并取消 %install 中对应行的注释。
+# mihomo 核心：build-rpm.sh 构建时下载最新版打包进安装包（Source4）→ 安装即用；
+# 用户侧 InstallCore 升级（doc/01 §5.1）保留为可选动作，且以 %config(noreplace)
+# 声明——rpm 升级不会覆盖用户手动升级过的 mihomo。构建时未下载 mihomo（显式
+# --no-mihomo）则包内不含，首次使用经 InstallCore 安装。
 
 Name:           clard
 Version:        0.1.0
@@ -19,6 +20,8 @@ Source0:        %{name}-%{version}.tar.gz
 Source1:        clard
 Source2:        clard-helper
 Source3:        clard-helper.service
+# 可选：构建时下载的最新 mihomo（build-rpm.sh；缺失 = 包内不含核心）
+Source4:        mihomo
 
 # 预构建方案：无 BuildRequires；运行依赖
 Requires:       systemd
@@ -29,11 +32,14 @@ Requires(preun): systemd
 
 # 二进制由 build-rpm.sh 预构建，无 debug 源参与；禁用 debuginfo/debugsource 子包
 %global debug_package %{nil}
+# 是否随包分发 mihomo（build-rpm.sh 下载成功 = 1）
+%global mihomo_present %(test -f %{_sourcedir}/mihomo && echo 1 || echo 0)
 
 %description
 Clard 是 Linux 上的完整代理管理工具：系统级常驻服务 clard-helper（root，
 拥有 mihomo 核心、TUN 与全部数据）+ TUI 客户端 clard（ratatui）。
 数据面 TUN-only，系统级服务、不分用户；安装一次后任意本地用户可经 TUI 使用。
+安装包携带 mihomo 核心，安装即用；核心升级是用户可选项（TUI Core 页）。
 
 %prep
 %setup -q -n %{name}-%{version}
@@ -46,7 +52,9 @@ install -Dm755 %{SOURCE1} %{buildroot}%{_bindir}/clard
 install -Dm755 %{SOURCE2} %{buildroot}%{_libexecdir}/clard/clard-helper
 install -Dm644 %{SOURCE3} %{buildroot}%{_unitdir}/clard-helper.service
 install -d -m 0755 %{buildroot}%{_sysconfdir}/clard
-# 如需随包分发初始 mihomo：install -Dm755 %{_sourcedir}/mihomo %{buildroot}%{_localstatedir}/clard/bin/mihomo
+%if %{mihomo_present}
+install -Dm755 %{SOURCE4} %{buildroot}%{_localstatedir}/clard/bin/mihomo
+%endif
 
 %post
 # 数据目录（helper 启动自检也会建，这里预建保证权限 root 0700）
@@ -73,3 +81,7 @@ systemctl start clard-helper.service >/dev/null 2>&1 || :
 %{_unitdir}/clard-helper.service
 %dir %{_sysconfdir}/clard
 %doc README.md
+%if %{mihomo_present}
+# noreplace：用户经 InstallCore 升级过的 mihomo 不被 rpm 升级覆盖
+%config(noreplace) %{_localstatedir}/clard/bin/mihomo
+%endif
