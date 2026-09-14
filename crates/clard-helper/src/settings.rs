@@ -80,6 +80,34 @@ impl SettingsStore {
         if let Some(v) = &patch.test_url {
             self.settings.test_url = v.clone();
         }
+        // TUN（R7.2）
+        if let Some(v) = patch.tun_enabled {
+            self.settings.tun_enabled = v;
+        }
+        if let Some(v) = &patch.tun_stack {
+            self.settings.tun_stack = v.clone();
+        }
+        if let Some(v) = &patch.dns_hijack {
+            self.settings.dns_hijack = v.clone();
+        }
+        if let Some(v) = &patch.route_exclude_address {
+            self.settings.route_exclude_address = v.clone();
+        }
+        if let Some(v) = &patch.exclude_uid {
+            self.settings.exclude_uid = v.clone();
+        }
+        if let Some(v) = &patch.exclude_interface {
+            self.settings.exclude_interface = v.clone();
+        }
+        if let Some(v) = &patch.exclude_dst_port {
+            self.settings.exclude_dst_port = v.clone();
+        }
+        if let Some(v) = patch.strict_route {
+            self.settings.strict_route = v;
+        }
+        if let Some(v) = patch.auto_redirect {
+            self.settings.auto_redirect = v;
+        }
         self.save()
     }
 
@@ -110,6 +138,9 @@ mod tests {
         assert_eq!(s.language, "en");
         assert_eq!(s.theme, "dark");
         assert_eq!(s.mixed_port, 7890);
+        assert!(!s.tun_enabled, "TUN 默认关");
+        assert_eq!(s.tun_stack, "system");
+        assert!(s.route_exclude_address.is_empty(), "空 = 用默认私网段");
     }
 
     #[test]
@@ -124,6 +155,15 @@ mod tests {
                     theme: None,
                     mixed_port: Some(7891),
                     test_url: Some("http://x".into()),
+                    tun_enabled: Some(true),
+                    tun_stack: Some("gvisor".into()),
+                    dns_hijack: Some(vec!["any:53".into()]),
+                    route_exclude_address: Some(vec!["10.0.0.0/8".into()]),
+                    exclude_uid: Some(vec![1000]),
+                    exclude_interface: Some(vec!["eth1".into()]),
+                    exclude_dst_port: Some(vec![5353]),
+                    strict_route: Some(false),
+                    auto_redirect: Some(true),
                 })
                 .unwrap();
         }
@@ -133,6 +173,15 @@ mod tests {
         assert_eq!(s.language, "zh");
         assert_eq!(s.theme, "dark", "未补丁字段保持默认");
         assert_eq!(s.mixed_port, 7891);
+        assert!(s.tun_enabled);
+        assert_eq!(s.tun_stack, "gvisor");
+        assert_eq!(s.dns_hijack, vec!["any:53"]);
+        assert_eq!(s.route_exclude_address, vec!["10.0.0.0/8"]);
+        assert_eq!(s.exclude_uid, vec![1000]);
+        assert_eq!(s.exclude_interface, vec!["eth1"]);
+        assert_eq!(s.exclude_dst_port, vec![5353]);
+        assert!(!s.strict_route);
+        assert!(s.auto_redirect);
     }
 
     #[test]

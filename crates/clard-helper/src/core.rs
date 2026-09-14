@@ -192,7 +192,7 @@ async fn probe_version(sock: &Path) -> Result<String, String> {
 }
 
 /// 热重载：`PUT /configs?force=true`（内联 payload，doc/01 §5.5）。
-async fn reload_config(sock: &Path, yaml: &str) -> Result<(), String> {
+pub(crate) async fn reload_config(sock: &Path, yaml: &str) -> Result<(), String> {
     let client = reqwest::Client::builder()
         .unix_socket(sock)
         .build()
@@ -211,6 +211,44 @@ async fn reload_config(sock: &Path, yaml: &str) -> Result<(), String> {
         return Err(format!("热重载失败: HTTP {status} {msg}"));
     }
     Ok(())
+}
+
+/// 字段级热更新：`PATCH /configs`（doc/04 §3，TUN 开关走这里，无需重启核心）。
+pub(crate) async fn patch_configs(sock: &Path, body: &serde_json::Value) -> Result<(), String> {
+    let client = reqwest::Client::builder()
+        .unix_socket(sock)
+        .build()
+        .map_err(|e| e.to_string())?;
+    let resp = client
+        .patch("http://localhost/configs")
+        .json(body)
+        .send()
+        .await
+        .map_err(|e| e.to_string())?;
+    let status = resp.status().as_u16();
+    if status != 200 && status != 204 {
+        let msg = resp.text().await.unwrap_or_default();
+        return Err(format!("字段级热更新失败: HTTP {status} {msg}"));
+    }
+    Ok(())
+}
+
+/// 回读当前生效配置：`GET /configs`（doc/04 §3，回读校验取数点）。
+pub(crate) async fn get_configs(sock: &Path) -> Result<serde_json::Value, String> {
+    let client = reqwest::Client::builder()
+        .unix_socket(sock)
+        .build()
+        .map_err(|e| e.to_string())?;
+    let resp = client
+        .get("http://localhost/configs")
+        .timeout(Duration::from_secs(3))
+        .send()
+        .await
+        .map_err(|e| e.to_string())?;
+    if !resp.status().is_success() {
+        return Err(format!("HTTP {}", resp.status().as_u16()));
+    }
+    resp.json().await.map_err(|e| e.to_string())
 }
 
 fn atomic_write(path: &Path, data: &[u8]) -> std::io::Result<()> {

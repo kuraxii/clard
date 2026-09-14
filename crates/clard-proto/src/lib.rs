@@ -20,7 +20,7 @@
 use serde::{Deserialize, Serialize};
 
 /// 当前协议版本。任何不兼容变更都必须递增并在 `Hello` 握手中核对。
-pub const PROTO_VERSION: u32 = 4;
+pub const PROTO_VERSION: u32 = 5;
 
 /// 协议层错误
 #[derive(Debug, thiserror::Error)]
@@ -102,7 +102,7 @@ pub enum Request {
     },
 }
 
-/// 系统级设置（`/var/lib/clard/clard.toml`，doc/05 §7 R7.1）。
+/// 系统级设置（`/var/lib/clard/clard.toml`，doc/05 §7 R7.1/R7.2）。
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(default)]
 pub struct Settings {
@@ -116,6 +116,25 @@ pub struct Settings {
     pub mixed_port: u16,
     /// 自定义测速 URL（空 = 用 mihomo 内置，doc/05 §3 R3.4）
     pub test_url: String,
+    // ---- TUN（doc/05 §7 R7.2，托管固定值见 doc/01 §6.2）----
+    /// TUN 开关（`SetTun` 持久化，doc/01 §5.6）
+    pub tun_enabled: bool,
+    /// TUN stack：system / gvisor / mixed（默认 system）
+    pub tun_stack: String,
+    /// dns-hijack 列表；空 = 用默认 `["any:53", "tcp://any:53"]`
+    pub dns_hijack: Vec<String>,
+    /// route-exclude-address；空 = 用默认私网段（doc/01 §6.7）
+    pub route_exclude_address: Vec<String>,
+    /// exclude-uid（该本地用户不被接管，doc/01 §6.7）
+    pub exclude_uid: Vec<u32>,
+    /// exclude-interface（该网卡不参与）
+    pub exclude_interface: Vec<String>,
+    /// exclude-dst-port（该目的端口不参与）
+    pub exclude_dst_port: Vec<u16>,
+    /// strict-route（默认禁用；开启需二次确认，残留即断网，doc/01 §6.3）
+    pub strict_route: bool,
+    /// auto-redirect（默认禁用；开启需二次确认，nftables 残留面，doc/01 §6.3）
+    pub auto_redirect: bool,
 }
 
 impl Default for Settings {
@@ -126,6 +145,15 @@ impl Default for Settings {
             theme: "dark".into(),
             mixed_port: 7890,
             test_url: String::new(),
+            tun_enabled: false,
+            tun_stack: "system".into(),
+            dns_hijack: Vec::new(),
+            route_exclude_address: Vec::new(),
+            exclude_uid: Vec::new(),
+            exclude_interface: Vec::new(),
+            exclude_dst_port: Vec::new(),
+            strict_route: false,
+            auto_redirect: false,
         }
     }
 }
@@ -139,6 +167,16 @@ pub struct SettingsPatch {
     pub theme: Option<String>,
     pub mixed_port: Option<u16>,
     pub test_url: Option<String>,
+    // ---- TUN（doc/05 §7 R7.2）----
+    pub tun_enabled: Option<bool>,
+    pub tun_stack: Option<String>,
+    pub dns_hijack: Option<Vec<String>>,
+    pub route_exclude_address: Option<Vec<String>>,
+    pub exclude_uid: Option<Vec<u32>>,
+    pub exclude_interface: Option<Vec<String>>,
+    pub exclude_dst_port: Option<Vec<u16>>,
+    pub strict_route: Option<bool>,
+    pub auto_redirect: Option<bool>,
 }
 
 /// 审计操作者（`SO_PEERCRED` 记录，doc/01 §4.2）。
@@ -278,7 +316,7 @@ mod tests {
 
     #[test]
     fn proto_version_is_current() {
-        assert_eq!(PROTO_VERSION, 4);
+        assert_eq!(PROTO_VERSION, 5);
     }
 
     #[test]
