@@ -1,5 +1,6 @@
 pub mod connections;
 pub mod home;
+pub mod i18n;
 pub mod logs;
 pub mod modal;
 pub mod page;
@@ -13,13 +14,14 @@ use std::sync::Arc;
 use connections::ConnectionsState;
 use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
 use home::HomeState;
+use i18n::Lang;
 use logs::LogsState;
 use modal::{ConfirmPurpose, ConfirmState, InputPurpose, InputState};
 use page::Page;
 use profiles::{HistoryView, ProfileBusy, ProfilesState};
 use proxy::{ProxyFocus, ProxyState};
 use rules::{RulesState, RulesTab};
-use settings::SettingsState;
+use settings::{GeneralRow, SettingsState, SettingsTab};
 use tokio::sync::mpsc::UnboundedSender;
 
 use clard_core::{
@@ -51,6 +53,7 @@ pub struct APP {
     pub backend: Arc<Backend>,
     pub message: Option<String>,
     pub show_help: bool,
+    pub lang: Lang,
     traffic_subscription_started: bool,
 }
 
@@ -72,6 +75,7 @@ impl APP {
             backend,
             message: None,
             show_help: false,
+            lang: Lang::En,
             traffic_subscription_started: false,
         }
     }
@@ -147,6 +151,11 @@ impl APP {
             Page::Logs => {
                 self.fetch_logs();
                 self.fetch_audit();
+            }
+            Page::Settings => {
+                self.fetch_settings();
+                self.fetch_core_status();
+                self.fetch_backups();
             }
             _ => {}
         }
@@ -437,6 +446,28 @@ impl APP {
             InputPurpose::FilterLogs => {
                 self.logs.set_filter(text.trim().to_string());
             }
+            InputPurpose::EditMixedPort => {
+                if let Ok(port) = text.trim().parse::<u16>() {
+                    let patch = clard_proto::SettingsPatch {
+                        mixed_port: Some(port),
+                        ..Default::default()
+                    };
+                    self.set_setting(patch);
+                } else {
+                    self.message = Some("invalid port".to_string());
+                }
+            }
+            InputPurpose::EditAutoUpdateHours => {
+                if let Ok(h) = text.trim().parse::<u64>() {
+                    let patch = clard_proto::SettingsPatch {
+                        auto_update_interval_hours: Some(h),
+                        ..Default::default()
+                    };
+                    self.set_setting(patch);
+                } else {
+                    self.message = Some("invalid hours".to_string());
+                }
+            }
         }
     }
 
@@ -444,6 +475,9 @@ impl APP {
         match purpose {
             ConfirmPurpose::DeleteProfile { uid } => self.remove_profile(uid),
             ConfirmPurpose::CloseAllConnections => self.close_all_connections(),
+            ConfirmPurpose::StopCore => self.stop_core(),
+            ConfirmPurpose::DeleteBackup { name } => self.delete_backup(name),
+            ConfirmPurpose::RestoreBackup { name } => self.restore_backup(name),
         }
     }
 
@@ -538,6 +572,269 @@ impl APP {
             'f' => self.open_rules_filter(),
             'u' if self.rules.tab == RulesTab::Providers => self.update_rule_provider(),
             _ => {}
+        }
+    }
+
+    // ---- 设置（Settings）----
+
+    pub fn fetch_settings(&self) {
+        let sender = self.event_sender.clone();
+        tokio::spawn(async move {
+            if let Ok(Response::Settings { settings }) = rpc::call(&Request::SettingsGet).await {
+                let _ = sender.send(ClardEvent::SettingsReady(settings));
+            }
+        });
+    }
+
+    pub fn fetch_core_status(&self) {
+        let sender = self.event_sender.clone();
+        tokio::spawn(async move {
+            if let Ok(Response::Status {
+                core_state,
+                core_pid,
+                core_version,
+                ..
+            }) = rpc::call(&Request::Status).await
+            {
+                let _ = sender.send(ClardEvent::CoreStatusReady {
+                    state: core_state,
+                    pid: core_pid,
+                    version: core_version,
+                });
+            }
+        });
+    }
+
+    pub fn fetch_backups(&self) {
+        let sender = self.event_sender.clone();
+        tokio::spawn(async move {
+            if let Ok(Response::BackupList { backups }) = rpc::call(&Request::BackupList).await {
+                let _ = sender.send(ClardEvent::BackupsReady(backups));
+            }
+        });
+    }
+
+    /// 应用 helper 设置（含语言键 → 全局 lang）。
+    pub fn apply_settings(&mut self, settings: clard_proto::Settings) {
+        self.lang = Lang::parse(&settings.language);
+        self.settings.apply_settings(settings);
+    }
+
+    /// 提交设置补丁并刷新。
+    pub fn set_setting(&mut self, patch: clard_proto::SettingsPatch) {
+        let sender = self.event_sender.clone();
+        tokio::spawn(async move {
+            match rpc::call(&Request::SettingsSet(patch)).await {
+                Ok(Response::Ok) => {
+                    let _ = sender.send(ClardEvent::Notify("settings saved".to_string()));
+                }
+                Ok(other) => {
+                    let _ = sender.send(ClardEvent::Error(rpc::unexpected(other).to_string()));
+                }
+                Err(e) => {
+                    let _ = sender.send(ClardEvent::Error(e.to_string()));
+                }
+            }
+            if let Ok(Response::Settings { settings }) = rpc::call(&Request::SettingsGet).await {
+                let _ = sender.send(ClardEvent::SettingsReady(settings));
+            }
+        });
+    }
+
+    pub fn start_core(&mut self) {
+        let sender = self.event_sender.clone();
+        tokio::spawn(async move {
+            match rpc::call(&Request::StartCore).await {
+                Ok(Response::Ok) => {
+                    let _ = sender.send(ClardEvent::Notify("core started".to_string()));
+                }
+                Ok(other) => {
+                    let _ = sender.send(ClardEvent::Error(rpc::unexpected(other).to_string()));
+                }
+                Err(e) => {
+                    let _ = sender.send(ClardEvent::Error(e.to_string()));
+                }
+            }
+            send_core_status(&sender).await;
+        });
+    }
+
+    pub fn stop_core(&mut self) {
+        let sender = self.event_sender.clone();
+        tokio::spawn(async move {
+            match rpc::call(&Request::StopCore).await {
+                Ok(Response::Ok) => {
+                    let _ = sender.send(ClardEvent::Notify("core stopped".to_string()));
+                }
+                Ok(other) => {
+                    let _ = sender.send(ClardEvent::Error(rpc::unexpected(other).to_string()));
+                }
+                Err(e) => {
+                    let _ = sender.send(ClardEvent::Error(e.to_string()));
+                }
+            }
+            send_core_status(&sender).await;
+        });
+    }
+
+    pub fn restart_core(&mut self) {
+        let sender = self.event_sender.clone();
+        tokio::spawn(async move {
+            match rpc::call(&Request::RestartCore).await {
+                Ok(Response::Ok) => {
+                    let _ = sender.send(ClardEvent::Notify("core restarted".to_string()));
+                }
+                Ok(other) => {
+                    let _ = sender.send(ClardEvent::Error(rpc::unexpected(other).to_string()));
+                }
+                Err(e) => {
+                    let _ = sender.send(ClardEvent::Error(e.to_string()));
+                }
+            }
+            send_core_status(&sender).await;
+        });
+    }
+
+    pub fn create_backup(&mut self) {
+        let sender = self.event_sender.clone();
+        tokio::spawn(async move {
+            match rpc::call(&Request::BackupCreate { name: None }).await {
+                Ok(Response::BackupCreated { item }) => {
+                    let _ = sender.send(ClardEvent::Notify(format!("backup created: {}", item.name)));
+                }
+                Ok(other) => {
+                    let _ = sender.send(ClardEvent::Error(rpc::unexpected(other).to_string()));
+                }
+                Err(e) => {
+                    let _ = sender.send(ClardEvent::Error(e.to_string()));
+                }
+            }
+            send_backups(&sender).await;
+        });
+    }
+
+    pub fn delete_backup(&mut self, name: String) {
+        let sender = self.event_sender.clone();
+        tokio::spawn(async move {
+            match rpc::call(&Request::BackupDelete { name: name.clone() }).await {
+                Ok(Response::Ok) => {
+                    let _ = sender.send(ClardEvent::Notify(format!("backup deleted: {name}")));
+                }
+                Ok(other) => {
+                    let _ = sender.send(ClardEvent::Error(rpc::unexpected(other).to_string()));
+                }
+                Err(e) => {
+                    let _ = sender.send(ClardEvent::Error(e.to_string()));
+                }
+            }
+            send_backups(&sender).await;
+        });
+    }
+
+    pub fn restore_backup(&mut self, name: String) {
+        let sender = self.event_sender.clone();
+        tokio::spawn(async move {
+            match rpc::call(&Request::BackupRestore { name: name.clone() }).await {
+                Ok(Response::Ok) => {
+                    let _ = sender.send(ClardEvent::Notify(format!("backup restored: {name}")));
+                }
+                Ok(other) => {
+                    let _ = sender.send(ClardEvent::Error(rpc::unexpected(other).to_string()));
+                }
+                Err(e) => {
+                    let _ = sender.send(ClardEvent::Error(e.to_string()));
+                }
+            }
+            send_profiles(&sender).await;
+            send_backups(&sender).await;
+        });
+    }
+
+    fn on_settings_char(&mut self, c: char) {
+        match self.settings.tab {
+            SettingsTab::General => self.on_settings_general_char(c),
+            SettingsTab::Core => match c {
+                's' => self.start_core(),
+                'S' => {
+                    self.confirm = Some(ConfirmState::new(
+                        "Stop core",
+                        "Stop the proxy core?",
+                        ConfirmPurpose::StopCore,
+                    ));
+                }
+                'r' => self.restart_core(),
+                _ => {}
+            },
+            SettingsTab::Backup => match c {
+                'b' => self.create_backup(),
+                'd' => {
+                    if let Some(b) = self.settings.selected_backup() {
+                        let name = b.name.clone();
+                        self.confirm = Some(ConfirmState::new(
+                            "Delete backup",
+                            format!("Delete backup '{name}'?"),
+                            ConfirmPurpose::DeleteBackup { name },
+                        ));
+                    }
+                }
+                _ => {}
+            },
+            _ => {}
+        }
+    }
+
+    fn on_settings_general_char(&mut self, c: char) {
+        if c != 'e' {
+            return;
+        }
+        let Some(row) = self.settings.selected_general_row() else {
+            return;
+        };
+        match row {
+            GeneralRow::MixedPort => {
+                self.input = Some(InputState::new("Mixed port (1-65535)", InputPurpose::EditMixedPort));
+            }
+            GeneralRow::AutoUpdateHours => {
+                self.input = Some(InputState::new(
+                    "Auto update interval (hours, 0=off)",
+                    InputPurpose::EditAutoUpdateHours,
+                ));
+            }
+            GeneralRow::Language => {
+                let next = self.lang.toggle();
+                let patch = clard_proto::SettingsPatch {
+                    language: Some(next.as_str().to_string()),
+                    ..Default::default()
+                };
+                self.set_setting(patch);
+            }
+            GeneralRow::Theme => {
+                let cur = self
+                    .settings
+                    .settings
+                    .as_ref()
+                    .map(|s| s.theme.clone())
+                    .unwrap_or_else(|| "dark".into());
+                let next = if cur == "dark" { "light" } else { "dark" };
+                let patch = clard_proto::SettingsPatch {
+                    theme: Some(next.to_string()),
+                    ..Default::default()
+                };
+                self.set_setting(patch);
+            }
+        }
+    }
+
+    fn on_settings_enter(&mut self) {
+        if self.settings.tab == SettingsTab::Backup
+            && let Some(b) = self.settings.selected_backup()
+        {
+            let name = b.name.clone();
+            self.confirm = Some(ConfirmState::new(
+                "Restore backup",
+                format!("Restore '{name}'? This overwrites current profiles and settings."),
+                ConfirmPurpose::RestoreBackup { name },
+            ));
         }
     }
 
@@ -771,6 +1068,7 @@ impl APP {
             Page::Connections => self.connections.on_up_key(),
             Page::Rules => self.rules.on_up_key(),
             Page::Logs => self.logs.on_up_key(),
+            Page::Settings => self.settings.on_up_key(),
             _ => {}
         }
     }
@@ -782,6 +1080,7 @@ impl APP {
             Page::Connections => self.connections.on_down_key(),
             Page::Rules => self.rules.on_down_key(),
             Page::Logs => self.logs.on_down_key(),
+            Page::Settings => self.settings.on_down_key(),
             _ => {}
         }
     }
@@ -822,6 +1121,7 @@ impl APP {
             }
             Page::Rules => self.rules.toggle_tab(),
             Page::Logs => self.logs.next_tab(),
+            Page::Settings => self.settings.next_tab(),
             _ => {}
         }
     }
@@ -850,6 +1150,7 @@ impl APP {
                 }
             }
             Page::Proxies => self.select_proxy_node(),
+            Page::Settings => self.on_settings_enter(),
             Page::Rules => {
                 if self.rules.tab == RulesTab::Rules {
                     self.toggle_rule();
@@ -970,6 +1271,7 @@ impl APP {
             Page::Connections => self.on_connections_char(char),
             Page::Rules => self.on_rules_char(char),
             Page::Logs => self.on_logs_char(char),
+            Page::Settings => self.on_settings_char(char),
             _ => {}
         }
     }
@@ -987,6 +1289,28 @@ async fn send_profiles(sender: &UnboundedSender<ClardEvent>) {
         Err(e) => {
             let _ = sender.send(ClardEvent::Error(format!("profile list failed: {e}")));
         }
+    }
+}
+
+async fn send_core_status(sender: &UnboundedSender<ClardEvent>) {
+    if let Ok(Response::Status {
+        core_state,
+        core_pid,
+        core_version,
+        ..
+    }) = rpc::call(&Request::Status).await
+    {
+        let _ = sender.send(ClardEvent::CoreStatusReady {
+            state: core_state,
+            pid: core_pid,
+            version: core_version,
+        });
+    }
+}
+
+async fn send_backups(sender: &UnboundedSender<ClardEvent>) {
+    if let Ok(Response::BackupList { backups }) = rpc::call(&Request::BackupList).await {
+        let _ = sender.send(ClardEvent::BackupsReady(backups));
     }
 }
 

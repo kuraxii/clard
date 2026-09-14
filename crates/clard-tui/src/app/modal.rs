@@ -91,6 +91,10 @@ pub enum InputPurpose {
     FilterProxies,
     /// 日志页关键字过滤（doc/05 §6 R6.1）
     FilterLogs,
+    /// 设置：混合端口（doc/05 §7 R7.1）
+    EditMixedPort,
+    /// 设置：自动更新间隔小时（doc/05 §7 R7.1）
+    EditAutoUpdateHours,
 }
 
 /// 确认弹窗状态。
@@ -118,6 +122,12 @@ pub enum ConfirmPurpose {
     DeleteProfile { uid: String },
     /// 关闭全部连接（doc/05 §4 R4.2）
     CloseAllConnections,
+    /// 停止核心（doc/05 §7 R7.3）
+    StopCore,
+    /// 删除备份（doc/05 §8 R8.3）
+    DeleteBackup { name: String },
+    /// 恢复备份（doc/05 §8 R8.2）
+    RestoreBackup { name: String },
 }
 
 #[cfg(test)]

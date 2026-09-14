@@ -205,6 +205,15 @@ pub async fn start_clard() -> Result<()> {
                     ClardEvent::AuditRecordsReady { cursor, records } => {
                         app.logs.set_audit(cursor, records);
                     }
+                    ClardEvent::SettingsReady(settings) => {
+                        app.apply_settings(settings);
+                    }
+                    ClardEvent::CoreStatusReady { state, pid, version } => {
+                        app.settings.apply_core_status(state, pid, version);
+                    }
+                    ClardEvent::BackupsReady(backups) => {
+                        app.settings.apply_backups(backups);
+                    }
                     ClardEvent::Notify(msg) => {
                         app.message = Some(msg.clone());
                         app.submit_app_log(format!("[Notify] {msg}"));

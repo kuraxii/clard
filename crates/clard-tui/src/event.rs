@@ -29,6 +29,13 @@ pub enum ClardEvent {
     /// 日志分页结果：source=tui/core
     LogLinesReady { source: String, cursor: u64, lines: Vec<String> },
     AuditRecordsReady { cursor: u64, records: Vec<clard_proto::AuditRecord> },
+    SettingsReady(clard_proto::Settings),
+    CoreStatusReady {
+        state: String,
+        pid: Option<u32>,
+        version: Option<String>,
+    },
+    BackupsReady(Vec<clard_proto::BackupItem>),
     /// 成功/信息消息（页脚消息条）
     Notify(String),
     Error(String),

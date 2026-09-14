@@ -10,7 +10,7 @@ use ratatui::{
 use clard_core::mihomo::models::{Connection, DelayHistory, Proxy as ProxyModel, ProxyType, RuleBehavior};
 
 use crate::app::{
-    APP,
+    APP, i18n,
     connections::{ConnUnit, ConnectionsSort, ConnectionsState},
     logs::{LogsState, LogsTab},
     modal::{ConfirmState, InputState},
@@ -18,6 +18,7 @@ use crate::app::{
     profiles::{HistoryView, ProfileBusy, ProfilesState},
     proxy::{ProxyFocus, ProxyState},
     rules::{RulesState, RulesTab},
+    settings::{GeneralRow, SettingsState, SettingsTab},
 };
 
 #[derive(Debug, Default)]
@@ -57,7 +58,7 @@ impl Painter {
                 Page::Proxies => ProxyLayout::draw(f, shell[2], &app.proxies, theme),
                 Page::Connections => ConnectionsLayout::draw(f, shell[2], &app.connections, theme),
                 Page::Logs => LogsLayout::draw(f, shell[2], &app.logs, theme),
-                Page::Settings => SettingsLayout::draw(f, shell[2], theme),
+                Page::Settings => SettingsLayout::draw(f, shell[2], &app.settings, theme),
                 Page::Rules => RulesLayout::draw(f, shell[2], &app.rules, theme),
             }
 
@@ -231,7 +232,7 @@ fn draw_header(f: &mut Frame<'_>, area: Rect, app: &APP, theme: Theme) {
 fn draw_navigation(f: &mut Frame<'_>, area: Rect, app: &APP, theme: Theme) {
     let titles: Vec<String> = Page::ALL
         .iter()
-        .map(|page| format!(" {} {} ", page.key(), page.title()))
+        .map(|page| format!(" {} {} ", page.key(), i18n::t(app.lang, page_title_key(*page))))
         .collect();
     let tabs = Tabs::new(titles)
         .block(panel_block("Pages", false, theme))
@@ -533,22 +534,196 @@ fn log_level_style(level: &str, theme: Theme) -> Style {
 struct SettingsLayout;
 
 impl SettingsLayout {
-    fn draw(f: &mut Frame<'_>, area: Rect, theme: Theme) {
-        draw_placeholder(
-            f,
-            area,
-            Page::Settings,
-            &[
-                ("General", "mixed port, auto update, language, theme"),
-                ("TUN", "stack, dns-hijack, route-exclude"),
-                ("Core", "version / check update / upgrade"),
-                ("Service", "install / uninstall / paranoid mode"),
-                ("Backup", "create / restore / delete / export"),
-                ("About", "version, paths, open directory"),
-            ],
-            theme,
-        );
+    fn draw(f: &mut Frame<'_>, area: Rect, state: &SettingsState, theme: Theme) {
+        let rows = Layout::default()
+            .direction(Direction::Vertical)
+            .constraints([Constraint::Length(3), Constraint::Min(0)].as_ref())
+            .split(area);
+
+        draw_settings_tabs(f, rows[0], state, theme);
+        match state.tab {
+            SettingsTab::General => draw_settings_general(f, rows[1], state, theme),
+            SettingsTab::Core => draw_settings_core(f, rows[1], state, theme),
+            SettingsTab::Service => draw_settings_service(f, rows[1], state, theme),
+            SettingsTab::Backup => draw_settings_backup(f, rows[1], state, theme),
+            SettingsTab::About => draw_settings_about(f, rows[1], theme),
+        }
     }
+}
+
+fn draw_settings_tabs(f: &mut Frame<'_>, area: Rect, state: &SettingsState, theme: Theme) {
+    let selected = match state.tab {
+        SettingsTab::General => 0,
+        SettingsTab::Core => 1,
+        SettingsTab::Service => 2,
+        SettingsTab::Backup => 3,
+        SettingsTab::About => 4,
+    };
+    let titles = vec![" General ", " Core ", " Service ", " Backup ", " About "];
+    let tabs = Tabs::new(titles)
+        .block(panel_block("Settings", false, theme))
+        .select(selected)
+        .style(Style::default().fg(theme.muted))
+        .highlight_style(Style::default().fg(theme.primary).add_modifier(Modifier::BOLD));
+    f.render_widget(tabs, area);
+}
+
+fn draw_settings_general(f: &mut Frame<'_>, area: Rect, state: &SettingsState, theme: Theme) {
+    let settings = state.settings.as_ref();
+    let items: Vec<ListItem<'_>> = GeneralRow::ALL
+        .iter()
+        .map(|row| {
+            let value = match row {
+                GeneralRow::MixedPort => settings
+                    .map(|s| s.mixed_port.to_string())
+                    .unwrap_or_else(|| "-".to_string()),
+                GeneralRow::AutoUpdateHours => settings
+                    .map(|s| s.auto_update_interval_hours.to_string())
+                    .unwrap_or_else(|| "-".to_string()),
+                GeneralRow::Language => settings
+                    .map(|s| s.language.clone())
+                    .unwrap_or_else(|| "en".to_string()),
+                GeneralRow::Theme => settings
+                    .map(|s| s.theme.clone())
+                    .unwrap_or_else(|| "dark".to_string()),
+            };
+            ListItem::new(Line::from(vec![
+                Span::styled(format!("{:<20}", row.label()), Style::default().fg(theme.fg)),
+                Span::styled(value, Style::default().fg(theme.primary)),
+            ]))
+        })
+        .collect();
+
+    let list = List::new(items)
+        .block(panel_block("General  Enter edit", true, theme))
+        .highlight_style(theme.selected_style())
+        .highlight_symbol("▸ ");
+    let mut list_state = state.list_state.clone();
+    f.render_stateful_widget(list, area, &mut list_state);
+}
+
+fn draw_settings_core(f: &mut Frame<'_>, area: Rect, state: &SettingsState, theme: Theme) {
+    let state_text = state.core_state.as_deref().unwrap_or("unknown");
+    let state_color = match state_text {
+        "running" => theme.success,
+        _ => theme.muted,
+    };
+    let pid = state.core_pid.map(|p| p.to_string()).unwrap_or_else(|| "-".to_string());
+    let version = state.core_version.clone().unwrap_or_else(|| "-".to_string());
+    let state_span = Span::styled(state_text.to_string(), Style::default().fg(state_color));
+    let mut lines = vec![
+        Line::from(vec![
+            Span::styled(format!("{:<10}", "State"), Style::default().fg(theme.primary)),
+            state_span,
+        ]),
+        kv_line("PID", &pid, theme),
+        kv_line("Version", &version, theme),
+        Line::from(""),
+    ];
+    lines.push(Line::from(vec![
+        key_span("s", theme),
+        Span::raw(" start  "),
+        key_span("S", theme),
+        Span::raw(" stop (confirm)  "),
+        key_span("r", theme),
+        Span::raw(" restart"),
+    ]));
+    f.render_widget(
+        Paragraph::new(lines)
+            .block(panel_block("Core", true, theme))
+            .wrap(Wrap { trim: true }),
+        area,
+    );
+}
+
+fn draw_settings_service(f: &mut Frame<'_>, area: Rect, state: &SettingsState, theme: Theme) {
+    let lines = vec![
+        kv_line(
+            "Helper",
+            &format!("v{}", state.helper_version.clone().unwrap_or_else(|| "-".to_string())),
+            theme,
+        ),
+        Line::from(""),
+        Line::from(Span::styled("Install (one-time, pkexec):", theme.title_style())),
+        Line::from(Span::styled(
+            "  pkexec /usr/libexec/clard/clard-helper install",
+            Style::default().fg(theme.primary),
+        )),
+        Line::from(Span::styled("Uninstall:", theme.title_style())),
+        Line::from(Span::styled(
+            "  sudo /usr/libexec/clard/clard-helper uninstall",
+            Style::default().fg(theme.primary),
+        )),
+        Line::from(""),
+        Line::from(Span::styled(
+            "Run these outside the TUI, then return.",
+            theme.muted_style(),
+        )),
+    ];
+    f.render_widget(
+        Paragraph::new(lines)
+            .block(panel_block("Service", true, theme))
+            .wrap(Wrap { trim: true }),
+        area,
+    );
+}
+
+fn draw_settings_backup(f: &mut Frame<'_>, area: Rect, state: &SettingsState, theme: Theme) {
+    let header = Row::new(
+        ["Name", "Created", "Size"]
+            .into_iter()
+            .map(|h| Cell::from(h).style(Style::default().fg(theme.emphasis).add_modifier(Modifier::BOLD))),
+    )
+    .height(1)
+    .bottom_margin(1)
+    .style(Style::default().bg(theme.overlay));
+
+    let rows = state.backups.iter().map(|b| {
+        Row::new(vec![
+            Cell::from(b.name.clone()),
+            Cell::from(format_unix_time(b.created_at)),
+            Cell::from(format_network_bytes(b.size)),
+        ])
+    });
+
+    let table = Table::new(
+        rows,
+        [
+            Constraint::Percentage(40),
+            Constraint::Length(19),
+            Constraint::Length(12),
+        ],
+    )
+    .header(header)
+    .block(panel_block("Backup  b create  Enter restore  d delete", true, theme))
+    .row_highlight_style(theme.selected_style())
+    .highlight_symbol("▸ ");
+
+    let mut table_state = state.backups_state.clone();
+    f.render_stateful_widget(table, area, &mut table_state);
+}
+
+fn draw_settings_about(f: &mut Frame<'_>, area: Rect, theme: Theme) {
+    let paths = [
+        ("/run/clard", "runtime sockets"),
+        ("/var/lib/clard", "persistent data"),
+        ("/var/cache/clard", "downloads / assets"),
+        ("/var/log/clard", "audit and logs"),
+        ("/etc/clard", "helper config"),
+    ];
+    let mut lines = vec![kv_line("Clard", env!("CARGO_PKG_VERSION"), theme), Line::from("")];
+    for (p, desc) in paths {
+        lines.push(Line::from(vec![
+            Span::styled(format!("  {:<22}", p), Style::default().fg(theme.primary)),
+            Span::styled(desc, theme.muted_style()),
+        ]));
+    }
+    f.render_widget(
+        Paragraph::new(lines)
+            .block(panel_block("About", true, theme))
+            .wrap(Wrap { trim: true }),
+        area,
+    );
 }
 
 struct RulesLayout;
@@ -1204,7 +1379,10 @@ fn draw_help(f: &mut Frame<'_>, area: Rect, app: &APP, theme: Theme) {
         ],
         Page::Settings => vec![
             Line::from(Span::styled("Settings", theme.title_style())),
-            Line::from("General, TUN, core, service, backup and about sections."),
+            Line::from("Tab switches General / Core / Service / Backup / About."),
+            Line::from("General: Enter edits port/interval, toggles language/theme."),
+            Line::from("Core: s start, S stop, r restart. Backup: b create, d delete."),
+            Line::from("TUN settings land last (see plan)."),
         ],
         Page::Rules => vec![
             Line::from(Span::styled("Rules", theme.title_style())),
@@ -1259,8 +1437,20 @@ fn key_span(key: &str, theme: Theme) -> Span<'static> {
     )
 }
 
-fn page_name(app: &APP) -> &'static str {
-    app.current_page.title()
+fn page_name(app: &APP) -> &str {
+    i18n::t(app.lang, page_title_key(app.current_page))
+}
+
+fn page_title_key(page: Page) -> &'static str {
+    match page {
+        Page::Home => "page.home",
+        Page::Profiles => "page.profiles",
+        Page::Proxies => "page.proxies",
+        Page::Connections => "page.connections",
+        Page::Logs => "page.logs",
+        Page::Settings => "page.settings",
+        Page::Rules => "page.rules",
+    }
 }
 
 fn header_summary(app: &APP) -> String {
@@ -1339,7 +1529,9 @@ fn footer_keys(app: &APP) -> Vec<(&'static str, &'static str)> {
             keys.push(("f", "filter"));
         }
         Page::Settings => {
+            keys.push(("Tab/←→", "tab"));
             keys.push(("↑↓/jk", "move"));
+            keys.push(("Enter", "edit"));
         }
         Page::Rules => {
             keys.push(("↑↓/jk", "move"));
