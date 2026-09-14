@@ -81,9 +81,9 @@ Clard 是 Linux 上的完整代理管理工具：系统级常驻服务 `clard-he
 
 ### P2 崩溃安全（doc/01 §5.4/§6.5，核心承诺）
 
-- [ ] watchdog 退避重启：核心崩溃 `max_restarts=10`/`window=600s`/`backoff≤30s`，超限 cleanup-tun + fail-open + 审计 + 通知
-- [ ] TUN 健康 watchdog：每 3s 检查（`GET /version` + `ip link clard0 UP` + table 2023 默认路由 + rule 9100），连续 3 次不满足 → cleanup-tun + 审计 `watchdog.failopen` + `Degraded` 事件
-- [ ] Subscribe 事件流（§5.6）：helper 推送 `CoreStatusChanged`/`TunChanged`/`LogLine`/`AuditLine`/`Degraded`；TUI 断线重连先 `Status` 全量再增量订阅；`Degraded` → 主页红色提示
+- [x] watchdog 退避重启：核心崩溃 `max_restarts=10`/`window=600s`/`backoff≤30s`，超限 cleanup-tun + fail-open + 审计 `watchdog.failopen` + `Degraded` 事件
+- [x] TUN 健康 watchdog：每 3s 检查（`ip link clard0 UP` + table 2023 路由 + rule 9100），连续 3 次不满足 → cleanup-tun + 审计 `watchdog.failopen` + `Degraded` 事件
+- [x] Subscribe 事件流（§5.6）：helper 广播 `CoreStatusChanged`/`TunChanged`/`Degraded`；TUI 订阅长连接 + 断线重连全量同步；`Degraded` → 消息条红色提示
 
 ### P3 可选加固 / 体验
 
