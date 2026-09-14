@@ -15,11 +15,9 @@ Clard：Linux 代理管理工具（Rust）。架构 = root 常驻服务 `clard-h
 
 功能实现方式不确定时看 clash-verge-rev；mihomo 接口/行为不确定时看 mihomo（Meta 分支）源码与 `doc/04`。路径优先本机，其次上游；改代码前先读对应实现。
 
-- **clash-verge-rev** — 本机 `~/workspace/project/clash-verge-rev`（dev 分支，较新），备选 `~/workspace/repo/clash-verge-rev`，上游 https://github.com/clash-verge-rev/clash-verge-rev 。核心进程与退出清理看 `src-tauri/src/core/manager/*.rs`、`core/service.rs`、`feat/window.rs`；TUN 降级看 `feat/tun.rs`；配置生成看 `src-tauri/src/config/clash.rs`。`core/sysopt.rs` 已弃用，仅参考不采用。
-- **clash-verge-service-ipc**（特权服务契约 v2.6）— 上游 https://github.com/clash-verge-rev/clash-verge-service-ipc （未克隆，可浅克隆到 `~/workspace/repo/`）。启动自检/孤儿清理看 `src/core/reconcile.rs`、`runtime.rs`、`process.rs`；崩溃自愈 watchdog 看 `src/core/manager.rs`；配置投递的 `RuntimeBundle` 看 `src/core/structure.rs`。
-- **mihomo（Meta 分支）** — 上游 https://github.com/MetaCubeX/mihomo/tree/Meta （未克隆，可浅克隆到 `~/workspace/repo/mihomo`）。TUN 落地看 `listener/sing_tun/server.go`（默认设备名 `Meta`、`tun.Options` 组装）；`config/config.go` 解析 tun/listeners；`PUT /configs` 热重载入口在 `hub/route/configs.go`。
-- **MetaCubeX/sing-tun** — 上游 https://github.com/MetaCubeX/sing-tun 。网卡/路由/ip rule 的创建与清理看 `tun_linux.go`（`New/configure/Close`、`unsetRules` 删除区间）；`DefaultIPRoute2TableIndex/RuleIndex` 等常量在 `tun.go`。
-- **sysproxy-rs** — 已弃用，仅 `doc/01` 附录 A 留档。
+- **clash-verge-rev** — 本机 `/home/zjzhu/workspace/repo/clash-verge-rev`（main），dev 分支备选 `~/workspace/project/clash-verge-rev`，上游 https://github.com/clash-verge-rev/clash-verge-rev 。核心进程与退出清理看 `src-tauri/src/core/manager/*.rs`、`core/service.rs`、`feat/window.rs`；TUN 降级看 `feat/tun.rs`；配置生成看 `src-tauri/src/config/clash.rs`。`core/sysopt.rs` 已弃用，仅参考不采用。
+- **clash-verge-service-ipc**（特权服务契约 v2.6）— 本机 `/home/zjzhu/workspace/repo/clash-verge-service-ipc`，上游 https://github.com/clash-verge-rev/clash-verge-service-ipc 。启动自检/孤儿清理看 `src/core/reconcile.rs`、`runtime.rs`、`process.rs`；崩溃自愈 watchdog 看 `src/core/manager.rs`；配置投递的 `RuntimeBundle` 看 `src/core/structure.rs`。
+- **mihomo（Meta 分支）** — 本机 `/home/zjzhu/workspace/repo/mihomo`（Meta），上游 https://github.com/MetaCubeX/mihomo/tree/Meta 。TUN 落地看 `listener/sing_tun/server.go`（默认设备名 `Meta`、`tun.Options` 组装）；`config/config.go` 解析 tun/listeners；`PUT /configs` 热重载入口在 `hub/route/configs.go`。
 
 ## 开发约定
 
