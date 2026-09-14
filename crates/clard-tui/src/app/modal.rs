@@ -107,8 +107,6 @@ pub enum InputPurpose {
     EditExcludeInterface,
     /// 设置：exclude-dst-port（逗号分隔端口）
     EditExcludeDstPort,
-    /// 核心升级：mihomo 二进制下载 URL（doc/05 §7 R7.3）
-    InstallCoreUrl,
 }
 
 /// 确认弹窗状态。
@@ -150,6 +148,8 @@ pub enum ConfirmPurpose {
     EnableAutoRedirect,
     /// 紧急恢复直连：cleanup-tun（doc/01 §6.4）
     CleanupTun,
+    /// 升级核心：从 GitHub 最新 release 下载并重启（R7.3，会短暂中断）
+    UpgradeCore,
 }
 
 #[cfg(test)]

@@ -1,12 +1,19 @@
-//! mihomo 核心升级下载（doc/05 §7 R7.3，TUI 侧）：二进制下载（.gz 自动解压）、
-//! 期望 sha256 获取（mihomo release 惯例 `<url>.sha256sum`）、本地校验。
+//! mihomo 核心升级下载（doc/05 §7 R7.3，TUI 侧）：GitHub 最新 release 自动获取、
+//! 二进制下载（.gz 自动解压）、本地校验、inbox 转交前的哈希计算。
 //!
 //! 边界：本模块只负责「拿到合法、哈希匹配的安装包字节」；安装（helper 复核 + 原子替换
 //! `/var/clard/bin/mihomo`）经 IPC `InstallCore` 由 helper 完成（doc/01 §5.1）。
+//!
+//! 哈希策略：MetaCubeX 官方 release **不提供**独立 sha256sum 文件，故 TUI 下载后自算
+//! sha256 作为期望哈希交 helper 复核——保证「下载内容 → inbox → helper 原子替换」链路
+//! 完整（HTTPS 传输完整性 + helper 复核），供应链信任边界与 RPM 包内 mihomo 同级。
 
 use std::time::Duration;
 
 use thiserror::Error;
+
+/// GitHub 最新 release API（测试可注入 mock 地址）。
+pub const GITHUB_API_URL: &str = "https://api.github.com/repos/MetaCubeX/mihomo/releases/latest";
 
 /// 核心安装包下载上限（mihomo release 通常 < 100MB，gzip 后更小）。
 pub const CORE_DOWNLOAD_LIMIT: u64 = 256 * 1024 * 1024;
@@ -34,6 +41,12 @@ pub enum UpgradeError {
     ShaMismatch { expected: String, actual: String },
     #[error("gzip 解压失败: {0}")]
     Gzip(String),
+    #[error("GitHub release API 获取失败: {0}")]
+    Release(String),
+    #[error("不支持的架构（{0}），mihomo 仅提供 amd64/arm64")]
+    UnsupportedArch(String),
+    #[error("release {tag} 未找到 {arch} 资产（{asset:?}）")]
+    AssetNotFound { tag: String, arch: String, asset: String },
 }
 
 /// sha256 十六进制。
@@ -56,6 +69,83 @@ pub async fn download_core(client: &reqwest::Client, url: &str) -> Result<Vec<u8
         return Err(UpgradeError::Empty);
     }
     Ok(data)
+}
+
+/// 最新 release 信息。
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ReleaseInfo {
+    /// 版本 tag（如 `v1.19.30`）
+    pub tag: String,
+    /// 资产下载 URL（`mihomo-linux-{arch}-{tag}.gz` 默认变体）
+    pub asset_url: String,
+}
+
+/// 本机架构 → mihomo 资产架构名（amd64/arm64）。
+pub fn asset_arch() -> Result<&'static str, UpgradeError> {
+    match std::env::consts::ARCH {
+        "x86_64" => Ok("amd64"),
+        "aarch64" => Ok("arm64"),
+        other => Err(UpgradeError::UnsupportedArch(other.to_string())),
+    }
+}
+
+/// 从 GitHub release API 解析最新版本与对应资产 URL。
+/// `api_url` 生产为 [`GITHUB_API_URL`]，测试注入 mock 地址。
+pub async fn fetch_latest_release(
+    client: &reqwest::Client,
+    api_url: &str,
+) -> Result<ReleaseInfo, UpgradeError> {
+    let arch = asset_arch()?;
+    let resp = client
+        .get(api_url)
+        .timeout(TIMEOUT)
+        .header(reqwest::header::USER_AGENT, "clard")
+        .send()
+        .await
+        .map_err(|e| UpgradeError::Release(e.to_string()))?;
+    if !resp.status().is_success() {
+        return Err(UpgradeError::Release(format!("HTTP {}", resp.status().as_u16())));
+    }
+    let body = resp
+        .bytes()
+        .await
+        .map_err(|e| UpgradeError::Release(e.to_string()))?;
+    let v: serde_json::Value = serde_json::from_slice(&body)
+        .map_err(|e| UpgradeError::Release(format!("JSON 解析失败: {e}")))?;
+    let tag = v
+        .get("tag_name")
+        .and_then(|t| t.as_str())
+        .ok_or_else(|| UpgradeError::Release("缺少 tag_name".into()))?
+        .to_string();
+    let want = format!("mihomo-linux-{arch}-{tag}.gz");
+    let asset_url = v
+        .get("assets")
+        .and_then(|a| a.as_array())
+        .and_then(|assets| {
+            assets
+                .iter()
+                .find(|a| a.get("name").and_then(|n| n.as_str()) == Some(want.as_str()))
+                .and_then(|a| a.get("browser_download_url").and_then(|u| u.as_str()))
+        })
+        .ok_or_else(|| UpgradeError::AssetNotFound {
+            tag: tag.clone(),
+            arch: arch.to_string(),
+            asset: want,
+        })?
+        .to_string();
+    Ok(ReleaseInfo { tag, asset_url })
+}
+
+/// 下载最新 release 核心：获取 release 信息 → 下载（gzip 解压）→ 自算 sha256。
+/// 返回 (安装包字节, release 信息, sha256)。
+pub async fn download_latest(
+    client: &reqwest::Client,
+    api_url: &str,
+) -> Result<(Vec<u8>, ReleaseInfo, String), UpgradeError> {
+    let info = fetch_latest_release(client, api_url).await?;
+    let bytes = download_core(client, &info.asset_url).await?;
+    let sha = sha256_hex(&bytes);
+    Ok((bytes, info, sha))
 }
 
 /// 获取期望 sha256（`<url>.sha256sum`，第一行 `<hex>  <filename>`）。
@@ -302,5 +392,112 @@ mod tests {
         // 10 字节上限：Content-Length 预判拒绝
         let err = fetch_bytes(&client(), &format!("http://{addr}/big"), 10).await.unwrap_err();
         assert_eq!(err, UpgradeError::TooLarge(10));
+    }
+
+    /// mock GitHub release API：`/latest` 返回 release JSON（资产 URL 指向自身 `/asset.gz`），
+    /// `/asset.gz` 返回 gzip 主体。
+    async fn serve_release_api(arch: &str, tag: &str, payload: &[u8], with_asset: bool) -> SocketAddr {
+        let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let addr = listener.local_addr().unwrap();
+        let base = format!("http://{addr}");
+        let arch = arch.to_string();
+        let tag = tag.to_string();
+        let payload = payload.to_vec();
+        let with_asset = with_asset;
+        tokio::spawn(async move {
+            use std::io::Write;
+            let mut enc =
+                flate2::write::GzEncoder::new(Vec::new(), flate2::Compression::default());
+            enc.write_all(&payload).unwrap();
+            let gz = enc.finish().unwrap();
+            for _ in 0..4 {
+                let Ok((mut sock, _)) = listener.accept().await else { break };
+                let mut buf = [0u8; 8192];
+                let mut read = 0;
+                loop {
+                    let n = sock.read(&mut buf[read..]).await.unwrap();
+                    if n == 0 { break; }
+                    read += n;
+                    if buf[..read].windows(4).any(|w| w == b"\r\n\r\n") { break; }
+                }
+                let req = String::from_utf8_lossy(&buf[..read]);
+                let path = req
+                    .lines()
+                    .next()
+                    .and_then(|l| l.split_whitespace().nth(1))
+                    .unwrap_or("/")
+                    .to_string();
+                let (status, body): (&str, Vec<u8>) = if path == "/latest" {
+                    let asset_name = format!("mihomo-linux-{arch}-{tag}.gz");
+                    let json = if with_asset {
+                        format!(
+                            r#"{{"tag_name":"{tag}","assets":[{{"name":"{asset_name}","browser_download_url":"{base}/asset.gz"}}]}}"#
+                        )
+                    } else {
+                        format!(r#"{{"tag_name":"{tag}","assets":[]}}"#)
+                    };
+                    ("200 OK", json.into_bytes())
+                } else if path == "/asset.gz" {
+                    ("200 OK", gz.clone())
+                } else {
+                    ("404 Not Found", b"nope".to_vec())
+                };
+                let head = format!(
+                    "HTTP/1.1 {status}\r\nContent-Length: {}\r\nConnection: close\r\n\r\n",
+                    body.len()
+                );
+                let _ = sock.write_all(head.as_bytes()).await;
+                let _ = sock.write_all(&body).await;
+                let _ = sock.shutdown().await;
+            }
+        });
+        addr
+    }
+
+    #[tokio::test]
+    async fn fetch_latest_release_parses_mock_api() {
+        let addr = serve_release_api("amd64", "v1.19.30", b"bin", true).await;
+        let info = fetch_latest_release(&client(), &format!("http://{addr}/latest"))
+            .await
+            .unwrap();
+        assert_eq!(info.tag, "v1.19.30");
+        assert_eq!(info.asset_url, format!("http://{addr}/asset.gz"));
+    }
+
+    #[tokio::test]
+    async fn fetch_latest_release_missing_asset_errors() {
+        let addr = serve_release_api("amd64", "v1.19.30", b"bin", false).await;
+        let err = fetch_latest_release(&client(), &format!("http://{addr}/latest"))
+            .await
+            .unwrap_err();
+        assert!(matches!(err, UpgradeError::AssetNotFound { .. }), "{err}");
+    }
+
+    #[tokio::test]
+    async fn fetch_latest_release_bad_json_errors() {
+        // 复用 serve_router：返回裸字节（非 JSON）→ Release 错误
+        let addr = serve_router(vec![b'x'; 8], None, false).await;
+        let err = fetch_latest_release(&client(), &format!("http://{addr}/latest"))
+            .await
+            .unwrap_err();
+        assert!(matches!(err, UpgradeError::Release(_)), "{err}");
+    }
+
+    #[tokio::test]
+    async fn download_latest_full_flow_with_gzip() {
+        let bin = b"mihomo-auto-upgrade".to_vec();
+        let addr = serve_release_api("amd64", "v2.0.0", &bin, true).await;
+        let (bytes, info, sha) = download_latest(&client(), &format!("http://{addr}/latest"))
+            .await
+            .unwrap();
+        assert_eq!(bytes, bin);
+        assert_eq!(info.tag, "v2.0.0");
+        assert_eq!(sha, sha256_hex(&bin));
+    }
+
+    #[test]
+    fn asset_arch_maps_host() {
+        // 本机编译架构必须被支持（x86_64→amd64 / aarch64→arm64）
+        assert!(asset_arch().is_ok());
     }
 }

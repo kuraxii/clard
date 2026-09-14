@@ -839,7 +839,7 @@ fn draw_settings_core(f: &mut Frame<'_>, area: Rect, state: &SettingsState, them
         key_span("c", theme),
         Span::raw(" check  "),
         key_span("i", theme),
-        Span::raw(" upgrade (URL)"),
+        Span::raw(" upgrade (GitHub latest)"),
     ]));
     f.render_widget(
         Paragraph::new(lines)

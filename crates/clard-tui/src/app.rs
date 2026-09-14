@@ -519,12 +519,6 @@ impl APP {
                 };
                 self.set_tun_setting(patch);
             }
-            InputPurpose::InstallCoreUrl => {
-                let url = text.trim().to_string();
-                if !url.is_empty() {
-                    self.install_core(url);
-                }
-            }
         }
     }
 
@@ -551,6 +545,7 @@ impl APP {
                 self.set_tun_setting(patch);
             }
             ConfirmPurpose::CleanupTun => self.recover_direct(),
+            ConfirmPurpose::UpgradeCore => self.upgrade_core(),
         }
     }
 
@@ -870,12 +865,29 @@ impl APP {
         });
     }
 
-    /// 升级核心（R7.3）：下载（.sha256sum 自动校验）→ 写 inbox → helper 复核+原子替换+重启。
-    pub fn install_core(&mut self, url: String) {
-        self.message = Some("downloading core…".to_string());
+    /// 检查更新（R7.3）：对比 GitHub 最新 release 与当前版本。
+    pub fn check_update(&mut self) {
+        self.message = Some("checking for updates…".to_string());
+        let sender = self.event_sender.clone();
+        let current = self.settings.core_version.clone();
+        tokio::spawn(async move {
+            match check_update_flow(current).await {
+                Ok(msg) => {
+                    let _ = sender.send(ClardEvent::Notify(msg));
+                }
+                Err(e) => {
+                    let _ = sender.send(ClardEvent::Error(e));
+                }
+            }
+        });
+    }
+
+    /// 升级核心（R7.3）：自动下载 GitHub 最新 release → inbox → helper 复核+原子替换+重启。
+    pub fn upgrade_core(&mut self) {
+        self.message = Some("downloading latest core…".to_string());
         let sender = self.event_sender.clone();
         tokio::spawn(async move {
-            match install_core_flow(url).await {
+            match upgrade_core_flow().await {
                 Ok(msg) => {
                     let _ = sender.send(ClardEvent::Notify(msg));
                 }
@@ -965,27 +977,13 @@ impl APP {
                     ));
                 }
                 'r' => self.restart_core(),
-                'c' => {
-                    // 检查更新：展示当前版本/checksum，提示输入新版 URL（R7.3）
-                    let v = self
-                        .settings
-                        .core_version
-                        .clone()
-                        .unwrap_or_else(|| "-".to_string());
-                    let sha = self
-                        .settings
-                        .core_sha256
-                        .clone()
-                        .unwrap_or_else(|| "-".to_string());
-                    let short = if sha.len() > 16 { &sha[..16] } else { &sha };
-                    self.message = Some(format!(
-                        "core: v{v}  sha256 {short}…  press i and paste the new release URL"
-                    ));
-                }
+                'c' => self.check_update(),
                 'i' => {
-                    self.input = Some(InputState::new(
-                        "Core download URL (e.g. …/mihomo-linux-amd64-v1.19.2.gz)",
-                        InputPurpose::InstallCoreUrl,
+                    // 升级 = 从 GitHub 最新 release 下载并重启（会短暂中断，二次确认）
+                    self.confirm = Some(ConfirmState::new(
+                        "Upgrade core",
+                        "Download the latest mihomo from GitHub and restart the core? (brief interruption)",
+                        ConfirmPurpose::UpgradeCore,
                     ));
                 }
                 _ => {}
@@ -1816,16 +1814,32 @@ fn split_csv_u16(text: &str) -> Vec<u16> {
     split_csv(text).iter().filter_map(|s| s.parse().ok()).collect()
 }
 
-/// 升级核心（R7.3）：下载（gzip 解压 + `<url>.sha256sum` 校验）→ 写 inbox →
-/// IPC InstallCore（helper 复核 + 原子替换 + 重启）。失败无副作用（inbox 由 helper 清理）。
-async fn install_core_flow(url: String) -> Result<String, String> {
+/// 检查更新（R7.3）：拉取 GitHub 最新 release tag，对比当前版本（忽略前导 v）。
+async fn check_update_flow(current: Option<String>) -> Result<String, String> {
+    let client = reqwest::Client::new();
+    let info = clard_core::upgrade::fetch_latest_release(&client, clard_core::upgrade::GITHUB_API_URL)
+        .await
+        .map_err(|e| format!("检查更新失败: {e}"))?;
+    let cur = current.unwrap_or_default().trim_start_matches('v').to_string();
+    let latest = info.tag.trim_start_matches('v');
+    if !cur.is_empty() && cur == latest {
+        Ok(format!("core is up to date (v{latest})"))
+    } else if cur.is_empty() {
+        Ok(format!("latest core: v{latest}  (press i to install)"))
+    } else {
+        Ok(format!("update available: v{cur} → v{latest}  (press i to upgrade)"))
+    }
+}
+
+/// 升级核心（R7.3）：自动从 GitHub 最新 release 下载（自算 sha256 供 helper 复核）→
+/// 写 inbox → IPC InstallCore（helper 复核 + 原子替换 + 重启）。失败无副作用（inbox 由 helper 清理）。
+async fn upgrade_core_flow() -> Result<String, String> {
     use std::time::{SystemTime, UNIX_EPOCH};
 
     let client = reqwest::Client::new();
-    let (bytes, sha) = clard_core::upgrade::download_and_verify(&client, &url)
+    let (bytes, info, sha) = clard_core::upgrade::download_latest(&client, clard_core::upgrade::GITHUB_API_URL)
         .await
         .map_err(|e| format!("下载/校验失败: {e}"))?;
-    let version = version_from_url(&url);
 
     // 写 inbox（/run/clard/inbox 0733+sticky，任意本地用户可写；doc/01 §4）
     let dir = "/run/clard/inbox";
@@ -1837,27 +1851,14 @@ async fn install_core_flow(url: String) -> Result<String, String> {
     match rpc::call(&Request::InstallCore {
         inbox_path,
         sha256: sha,
-        version: version.clone(),
+        version: info.tag.clone(),
     })
     .await
     {
-        Ok(Response::Ok) => Ok(format!("core upgraded & restarted (v{version})")),
+        Ok(Response::Ok) => Ok(format!("core upgraded to {} & restarted", info.tag)),
         Ok(other) => Err(rpc::unexpected(other).to_string()),
         Err(e) => Err(e.to_string()),
     }
-}
-
-/// 从 mihomo release URL 提取版本（如 `…/mihomo-linux-amd64-v1.19.2.gz` → `v1.19.2`）。
-fn version_from_url(url: &str) -> String {
-    let file = url.rsplit('/').next().unwrap_or(url);
-    file.split('-')
-        .find(|seg| {
-            seg.len() > 1
-                && seg.starts_with('v')
-                && seg[1..].chars().all(|c| c.is_ascii_digit() || c == '.')
-        })
-        .unwrap_or_default()
-        .to_string()
 }
 
 /// 下载 → 归一化 → 提交 helper（R2.1/R2.3 共用）。
