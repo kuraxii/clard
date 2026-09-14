@@ -351,11 +351,16 @@ impl APP {
     pub fn set_current_profile(&mut self, uid: String) {
         let previous = self.profiles.current.clone();
         let settings = self.settings.settings.clone().unwrap_or_default();
+        let backend = self.backend.clone();
         self.message = Some(format!("switching to {uid}…"));
         let sender = self.event_sender.clone();
         tokio::spawn(async move {
             match switch_profile_flow(&uid, previous, &settings).await {
                 Ok(msg) => {
+                    // R2.2 记忆节点恢复：新配置的 selected → 逐个 PUT /proxies/:name
+                    if let Err(e) = restore_memorized_nodes(&backend, &uid).await {
+                        let _ = sender.send(ClardEvent::Error(format!("restore nodes: {e}")));
+                    }
                     let _ = sender.send(ClardEvent::Notify(msg));
                 }
                 Err(e) => {
@@ -1343,6 +1348,13 @@ impl APP {
                 return;
             }
 
+            // 记忆当前配置的组选择（R2.2：切换配置后恢复）
+            let _ = rpc::call(&Request::ProfileMemorize {
+                group: group_name.clone(),
+                node: node.clone(),
+            })
+            .await;
+
             if let Ok(groups) = backend.get_groups().await {
                 let _ = sender.send(ClardEvent::UpdateGroups(groups));
             }
@@ -1936,6 +1948,28 @@ async fn upgrade_core_flow() -> Result<String, String> {
         Ok(other) => Err(rpc::unexpected(other).to_string()),
         Err(e) => Err(e.to_string()),
     }
+}
+
+/// 恢复指定配置的记忆节点（R2.2）：读 ProfileGet.selected → 逐个 `PUT /proxies/:name`。
+/// 核心未运行/节点不存在时跳过（best-effort，失败不阻断切换）。
+async fn restore_memorized_nodes(
+    backend: &Backend,
+    uid: &str,
+) -> Result<(), String> {
+    let Response::ProfileContent { item, .. } = rpc::call(&Request::ProfileGet {
+        uid: uid.to_string(),
+    })
+    .await
+    .map_err(|e| e.to_string())?
+    else {
+        return Ok(());
+    };
+    for sel in &item.selected {
+        let _ = backend
+            .select_node_for_group(&sel.group, &sel.node)
+            .await;
+    }
+    Ok(())
 }
 
 /// 下载 → 归一化 → 提交 helper（R2.1/R2.3 共用）。
