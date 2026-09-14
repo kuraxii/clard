@@ -196,11 +196,22 @@ pub async fn start_clard() -> Result<()> {
                     ClardEvent::RuleProvidersUpdated(providers) => {
                         app.rules.update_providers(providers);
                     }
+                    ClardEvent::LogLinesReady { source, cursor, lines } => {
+                        match source.as_str() {
+                            "tui" => app.logs.set_app(cursor, lines),
+                            _ => app.logs.set_core(cursor, lines),
+                        }
+                    }
+                    ClardEvent::AuditRecordsReady { cursor, records } => {
+                        app.logs.set_audit(cursor, records);
+                    }
                     ClardEvent::Notify(msg) => {
-                        app.message = Some(msg);
+                        app.message = Some(msg.clone());
+                        app.submit_app_log(format!("[Notify] {msg}"));
                     }
                     ClardEvent::Error(msg) => {
-                        app.message = Some(msg);
+                        app.message = Some(msg.clone());
+                        app.submit_app_log(format!("[Error] {msg}"));
                     }
                     ClardEvent::Terminal => {
                         break;

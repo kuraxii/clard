@@ -152,6 +152,24 @@ pub async fn handle(
             Ok(()) => ("profile.restore", Response::Ok),
             Err(e) => ("profile.restore", Response::err(e.to_string())),
         },
+        Request::LogSubmit { line } => match crate::logs::append_tui_log(&line) {
+            Ok(()) => ("log.submit", Response::Ok),
+            Err(e) => ("log.submit", Response::err(e.to_string())),
+        },
+        Request::LogTail { source, cursor } => {
+            let src = match source.as_str() {
+                "tui" => crate::logs::LogSource::Tui,
+                _ => crate::logs::LogSource::Core,
+            };
+            match crate::logs::tail(src, cursor) {
+                Ok((cursor, lines)) => ("log.tail", Response::LogTail { cursor, lines }),
+                Err(e) => ("log.tail", Response::err(e.to_string())),
+            }
+        }
+        Request::AuditQuery { cursor } => match crate::logs::audit_query(cursor) {
+            Ok((cursor, records)) => ("audit.query", Response::AuditQuery { cursor, records }),
+            Err(e) => ("audit.query", Response::err(e.to_string())),
+        },
         other => {
             let op = "rpc.unimplemented";
             (op, Response::err(format!("方法未实现: {other:?}")))

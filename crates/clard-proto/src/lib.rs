@@ -137,6 +137,26 @@ pub struct SettingsPatch {
     pub mixed_port: Option<u16>,
 }
 
+/// 审计操作者（`SO_PEERCRED` 记录，doc/01 §4.2）。
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct AuditActor {
+    pub uid: u32,
+    pub pid: i32,
+}
+
+/// 审计记录（audit.log JSON lines，doc/01 §10.2）。
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct AuditRecord {
+    #[serde(default)]
+    pub ts: i64,
+    #[serde(default)]
+    pub op: String,
+    #[serde(default)]
+    pub actor: AuditActor,
+    #[serde(default)]
+    pub result: String,
+}
+
 /// 备份条目（doc/05 §8）。
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct BackupItem {
@@ -211,6 +231,14 @@ pub enum Response {
     },
     BackupCreated {
         item: BackupItem,
+    },
+    LogTail {
+        cursor: u64,
+        lines: Vec<String>,
+    },
+    AuditQuery {
+        cursor: u64,
+        records: Vec<AuditRecord>,
     },
     /// 无额外载荷的成功
     Ok,

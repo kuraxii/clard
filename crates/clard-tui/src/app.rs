@@ -144,6 +144,10 @@ impl APP {
                 self.fetch_rules();
                 self.fetch_rule_providers();
             }
+            Page::Logs => {
+                self.fetch_logs();
+                self.fetch_audit();
+            }
             _ => {}
         }
     }
@@ -430,6 +434,9 @@ impl APP {
             InputPurpose::FilterProxies => {
                 self.proxies.set_filter(text.trim().to_string());
             }
+            InputPurpose::FilterLogs => {
+                self.logs.set_filter(text.trim().to_string());
+            }
         }
     }
 
@@ -531,6 +538,61 @@ impl APP {
             'f' => self.open_rules_filter(),
             'u' if self.rules.tab == RulesTab::Providers => self.update_rule_provider(),
             _ => {}
+        }
+    }
+
+    // ---- 日志（Logs）----
+
+    /// 拉取应用/核心日志（每次从 0 重读，语义为刷新）。
+    pub fn fetch_logs(&self) {
+        let sender = self.event_sender.clone();
+        tokio::spawn(async move {
+            for source in ["tui", "core"] {
+                if let Ok(Response::LogTail { cursor, lines }) = rpc::call(&Request::LogTail {
+                    source: source.to_string(),
+                    cursor: 0,
+                })
+                .await
+                {
+                    let _ = sender.send(ClardEvent::LogLinesReady {
+                        source: source.to_string(),
+                        cursor,
+                        lines,
+                    });
+                }
+            }
+        });
+    }
+
+    /// 拉取审计日志（每次从 0 重读）。
+    pub fn fetch_audit(&self) {
+        let sender = self.event_sender.clone();
+        tokio::spawn(async move {
+            if let Ok(Response::AuditQuery { cursor, records }) =
+                rpc::call(&Request::AuditQuery { cursor: 0 }).await
+            {
+                let _ = sender.send(ClardEvent::AuditRecordsReady { cursor, records });
+            }
+        });
+    }
+
+    /// TUI 应用日志交 helper 落盘（R6.2，/var/log/clard/tui.log）。
+    pub fn submit_app_log(&self, msg: String) {
+        tokio::spawn(async move {
+            let _ = rpc::call(&Request::LogSubmit { line: msg }).await;
+        });
+    }
+
+    fn open_logs_filter(&mut self) {
+        let mut input = InputState::new("Filter logs", InputPurpose::FilterLogs);
+        input.buffer = self.logs.filter.clone();
+        input.cursor = input.buffer.len();
+        self.input = Some(input);
+    }
+
+    fn on_logs_char(&mut self, c: char) {
+        if c == 'f' {
+            self.open_logs_filter();
         }
     }
 
@@ -708,6 +770,7 @@ impl APP {
             Page::Proxies => self.proxies.on_up_key(),
             Page::Connections => self.connections.on_up_key(),
             Page::Rules => self.rules.on_up_key(),
+            Page::Logs => self.logs.on_up_key(),
             _ => {}
         }
     }
@@ -718,6 +781,7 @@ impl APP {
             Page::Proxies => self.proxies.on_down_key(),
             Page::Connections => self.connections.on_down_key(),
             Page::Rules => self.rules.on_down_key(),
+            Page::Logs => self.logs.on_down_key(),
             _ => {}
         }
     }
@@ -757,6 +821,7 @@ impl APP {
                 }
             }
             Page::Rules => self.rules.toggle_tab(),
+            Page::Logs => self.logs.next_tab(),
             _ => {}
         }
     }
@@ -904,6 +969,7 @@ impl APP {
             Page::Proxies => self.on_proxies_char(char),
             Page::Connections => self.on_connections_char(char),
             Page::Rules => self.on_rules_char(char),
+            Page::Logs => self.on_logs_char(char),
             _ => {}
         }
     }

@@ -12,6 +12,7 @@ use clard_core::mihomo::models::{Connection, DelayHistory, Proxy as ProxyModel, 
 use crate::app::{
     APP,
     connections::{ConnUnit, ConnectionsSort, ConnectionsState},
+    logs::{LogsState, LogsTab},
     modal::{ConfirmState, InputState},
     page::Page,
     profiles::{HistoryView, ProfileBusy, ProfilesState},
@@ -55,7 +56,7 @@ impl Painter {
                 Page::Profiles => ProfilesLayout::draw(f, shell[2], &app.profiles, theme),
                 Page::Proxies => ProxyLayout::draw(f, shell[2], &app.proxies, theme),
                 Page::Connections => ConnectionsLayout::draw(f, shell[2], &app.connections, theme),
-                Page::Logs => LogsLayout::draw(f, shell[2], theme),
+                Page::Logs => LogsLayout::draw(f, shell[2], &app.logs, theme),
                 Page::Settings => SettingsLayout::draw(f, shell[2], theme),
                 Page::Rules => RulesLayout::draw(f, shell[2], &app.rules, theme),
             }
@@ -424,20 +425,108 @@ fn draw_profile_detail(f: &mut Frame<'_>, area: Rect, state: &ProfilesState, the
 struct LogsLayout;
 
 impl LogsLayout {
-    fn draw(f: &mut Frame<'_>, area: Rect, theme: Theme) {
-        draw_placeholder(
-            f,
-            area,
-            Page::Logs,
-            &[
-                ("Tab", "app / core / audit / merged"),
-                ("e/f", "level / keyword filter"),
-                ("F/G", "follow tail / jump to end"),
-                ("o", "audit op filter"),
-                ("x", "export audit"),
-            ],
-            theme,
-        );
+    fn draw(f: &mut Frame<'_>, area: Rect, state: &LogsState, theme: Theme) {
+        let rows = Layout::default()
+            .direction(Direction::Vertical)
+            .constraints([Constraint::Length(3), Constraint::Min(0)].as_ref())
+            .split(area);
+
+        draw_logs_tabs(f, rows[0], state, theme);
+        match state.tab {
+            LogsTab::Audit => draw_audit_table(f, rows[1], state, theme),
+            _ => draw_log_lines(f, rows[1], state, theme),
+        }
+    }
+}
+
+fn draw_logs_tabs(f: &mut Frame<'_>, area: Rect, state: &LogsState, theme: Theme) {
+    let selected = match state.tab {
+        LogsTab::App => 0,
+        LogsTab::Core => 1,
+        LogsTab::Audit => 2,
+    };
+    let titles = vec![" App ", " Core ", " Audit "];
+    let tabs = Tabs::new(titles)
+        .block(panel_block("Logs", false, theme))
+        .select(selected)
+        .style(Style::default().fg(theme.muted))
+        .highlight_style(Style::default().fg(theme.primary).add_modifier(Modifier::BOLD));
+    f.render_widget(tabs, area);
+}
+
+fn draw_log_lines(f: &mut Frame<'_>, area: Rect, state: &LogsState, theme: Theme) {
+    let lines = state.visible_lines();
+    let items: Vec<ListItem<'_>> = lines
+        .iter()
+        .map(|line| {
+            let style = log_level_style(&line.level, theme);
+            ListItem::new(Line::from(vec![
+                Span::styled(format!("{:<8}", line.ts.map_or_else(String::new, format_unix_time)), theme.muted_style()),
+                Span::styled(format!("[{:<5}]", line.level), style),
+                Span::styled(format!("[{:<4}] ", line.source), Style::default().fg(theme.secondary)),
+                Span::styled(line.message.clone(), Style::default().fg(theme.fg)),
+            ]))
+        })
+        .collect();
+
+    let list = List::new(items)
+        .block(panel_block("Logs  Tab switch  f filter", true, theme))
+        .highlight_style(theme.selected_style())
+        .highlight_symbol("▸ ");
+
+    let mut list_state = state.lines_state.clone();
+    f.render_stateful_widget(list, area, &mut list_state);
+}
+
+fn draw_audit_table(f: &mut Frame<'_>, area: Rect, state: &LogsState, theme: Theme) {
+    let records = state.visible_audit();
+    let header = Row::new(
+        ["Time", "OP", "Actor", "Result"]
+            .into_iter()
+            .map(|h| Cell::from(h).style(Style::default().fg(theme.emphasis).add_modifier(Modifier::BOLD))),
+    )
+    .height(1)
+    .bottom_margin(1)
+    .style(Style::default().bg(theme.overlay));
+
+    let rows = records.iter().map(|r| {
+        let result_style = if r.result == "ok" {
+            Style::default().fg(theme.success)
+        } else {
+            Style::default().fg(theme.error)
+        };
+        Row::new(vec![
+            Cell::from(format_unix_time(r.ts)),
+            Cell::from(r.op.clone()),
+            Cell::from(format!("uid{} pid{}", r.actor.uid, r.actor.pid)),
+            Cell::from(r.result.clone()).style(result_style),
+        ])
+    });
+
+    let table = Table::new(
+        rows,
+        [
+            Constraint::Length(19),
+            Constraint::Percentage(30),
+            Constraint::Percentage(20),
+            Constraint::Percentage(12),
+        ],
+    )
+    .header(header)
+    .block(panel_block("Audit  f filter", true, theme))
+    .row_highlight_style(theme.selected_style())
+    .highlight_symbol("▸ ");
+
+    let mut table_state = state.table_state.clone();
+    f.render_stateful_widget(table, area, &mut table_state);
+}
+
+fn log_level_style(level: &str, theme: Theme) -> Style {
+    match level.to_lowercase().as_str() {
+        "error" | "err" => Style::default().fg(theme.error),
+        "warn" | "warning" => Style::default().fg(theme.warning),
+        "debug" => Style::default().fg(theme.muted),
+        _ => Style::default().fg(theme.info),
     }
 }
 
@@ -1110,7 +1199,8 @@ fn draw_help(f: &mut Frame<'_>, area: Rect, app: &APP, theme: Theme) {
         ],
         Page::Logs => vec![
             Line::from(Span::styled("Logs", theme.title_style())),
-            Line::from("App / core / audit log columns with filter and export."),
+            Line::from("Tab switches between App / Core / Audit columns."),
+            Line::from("f filters by keyword; audit rows show op/actor/result."),
         ],
         Page::Settings => vec![
             Line::from(Span::styled("Settings", theme.title_style())),
@@ -1244,7 +1334,9 @@ fn footer_keys(app: &APP) -> Vec<(&'static str, &'static str)> {
             keys.push(("c", "unit"));
         }
         Page::Logs => {
-            keys.push(("Tab", "source"));
+            keys.push(("↑↓/jk", "move"));
+            keys.push(("Tab", "app/core/audit"));
+            keys.push(("f", "filter"));
         }
         Page::Settings => {
             keys.push(("↑↓/jk", "move"));

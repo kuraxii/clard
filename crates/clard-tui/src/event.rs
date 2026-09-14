@@ -26,6 +26,9 @@ pub enum ClardEvent {
     },
     RulesUpdated(Vec<clard_core::mihomo::models::Rule>),
     RuleProvidersUpdated(std::collections::HashMap<String, clard_core::mihomo::models::RuleProvider>),
+    /// 日志分页结果：source=tui/core
+    LogLinesReady { source: String, cursor: u64, lines: Vec<String> },
+    AuditRecordsReady { cursor: u64, records: Vec<clard_proto::AuditRecord> },
     /// 成功/信息消息（页脚消息条）
     Notify(String),
     Error(String),

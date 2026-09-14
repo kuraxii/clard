@@ -53,8 +53,8 @@ Clard 是 Linux 上的完整代理管理工具：系统级常驻服务 `clard-he
 
 ### 日志与审计
 
-- [ ] TUI 日志页三栏（应用/核心/审计）与过滤导出
-- [ ] 审计完整规格（intent+result、net 快照、cfg_sha256、按 op 过滤）——helper 基础记录已实现
+- [x] TUI 日志页三栏（应用/核心/审计）与过滤
+- [ ] 审计完整规格（intent+result、net 快照、cfg_sha256、按 op 过滤）；导出
 
 ### 设置
 

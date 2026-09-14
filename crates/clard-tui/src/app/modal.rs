@@ -89,6 +89,8 @@ pub enum InputPurpose {
     RenameProfile { uid: String },
     /// 代理页节点过滤（doc/05 §3 R3.5）
     FilterProxies,
+    /// 日志页关键字过滤（doc/05 §6 R6.1）
+    FilterLogs,
 }
 
 /// 确认弹窗状态。
