@@ -1,4 +1,4 @@
-//! Main entry point for ClardRs
+//! clard 入口：无子命令/`--tui` 进 TUI；`profiles` 子命令为 CLI 订阅管理。
 
 #![deny(warnings, missing_docs, trivial_casts, unused_qualifications)]
 
@@ -7,7 +7,7 @@ use clard_core::config_gen::{ConfigGenOptions, subscription_to_yaml};
 use clard_core::profiles::{HttpFetcher, SubscriptionFetcher};
 use clard_proto::{ProfileImport, Request, Response};
 use clard_tui::{
-    commands::{ClardRsCmd, Cli, ProfilesSub},
+    commands::{ClardCmd, Cli, ProfilesSub},
     error::Result,
     rpc,
     start_clard,
@@ -27,10 +27,7 @@ async fn run() -> Result<()> {
     // --tui 优先
     if !cli.tui {
         match cli.cmd {
-            Some(cmd) => match cmd {
-                ClardRsCmd::Test(name) => println!("Test! {:?}", name),
-                ClardRsCmd::Profiles(profiles) => run_profiles_cmd(profiles.cmd).await?,
-            },
+            Some(ClardCmd::Profiles(profiles)) => run_profiles_cmd(profiles.cmd).await?,
             None => start_clard().await?,
         };
     } else {

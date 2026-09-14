@@ -1,4 +1,4 @@
-//! ClardRs
+//! clard TUI 客户端（ratatui）
 
 // Tip: Deny warnings with `RUSTFLAGS="-D warnings"` environment variable in CI
 
@@ -157,8 +157,7 @@ fn default_backend() -> Result<Backend> {
         .ok()
         .filter(|s| !s.is_empty())
         .unwrap_or_else(|| DEFAULT_CORE_SOCK.to_string());
-    Backend::builder().set_unix_socket(&sock).build()
-}
+    Ok(Backend::builder().set_unix_socket(&sock).build()?)}
 
 pub async fn start_clard() -> Result<()> {
     let (sender, mut receiver) = mpsc::unbounded_channel::<ClardEvent>();

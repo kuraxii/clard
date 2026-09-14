@@ -397,7 +397,7 @@ mod tests {
             op: op.into(),
             op_id: op_id.into(),
             phase: phase.into(),
-            actor: clard_proto::AuditActor { uid: 0, pid: 1 },
+            actor: AuditActor { uid: 0, pid: 1 },
             result: result.into(),
             intent: String::new(),
             net: None,

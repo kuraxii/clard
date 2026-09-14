@@ -543,18 +543,18 @@ mod tests {
             format!("{:x}", h.finalize())
         };
         let inbox_file = inbox.join("core.bin");
-        std::fs::write(&inbox_file, &payload).unwrap();
+        fs::write(&inbox_file, &payload).unwrap();
 
         install_core(&state, &targets, &inbox_file, &sha).unwrap();
 
         // 替换目标存在、内容一致、0755、root 拥有
-        assert_eq!(std::fs::read(&targets.bin_path).unwrap(), payload);
+        assert_eq!(fs::read(&targets.bin_path).unwrap(), payload);
         use std::os::unix::fs::{MetadataExt, PermissionsExt};
         let meta = fs::metadata(&targets.bin_path).unwrap();
         assert_eq!(meta.permissions().mode() & 0o777, 0o755);
         assert_eq!(meta.uid(), 0);
         // sha 记录
-        assert_eq!(std::fs::read_to_string(core_sha256_path(&state)).unwrap(), sha);
+        assert_eq!(fs::read_to_string(core_sha256_path(&state)).unwrap(), sha);
         // inbox 已清理
         assert!(!inbox_file.exists());
     }
@@ -563,7 +563,7 @@ mod tests {
     fn install_core_sha_mismatch_rejects_and_removes_inbox() {
         let (_dir, state, inbox, targets) = install_env();
         let inbox_file = inbox.join("core.bin");
-        std::fs::write(&inbox_file, b"evil").unwrap();
+        fs::write(&inbox_file, b"evil").unwrap();
 
         let e = install_core(&state, &targets, &inbox_file, &"0".repeat(64)).unwrap_err();
         assert!(e.contains("校验和失败"), "{e}");
@@ -574,7 +574,7 @@ mod tests {
     fn install_core_rejects_path_traversal_outside_inbox() {
         let (_dir, state, _inbox, targets) = install_env();
         let outside = std::env::temp_dir().join(format!("clard-outside-inbox-{}.bin", std::process::id()));
-        std::fs::write(&outside, b"x").unwrap();
+        fs::write(&outside, b"x").unwrap();
         let e = install_core(&state, &targets, &outside, &"0".repeat(64)).unwrap_err();
         assert!(e.contains("inbox 路径越界"), "{e}");
         let _ = fs::remove_file(&outside);
@@ -584,13 +584,13 @@ mod tests {
     fn install_core_rejects_symlink_inbox() {
         let (_dir, state, inbox, targets) = install_env();
         let target = std::env::temp_dir().join(format!("clard-symlink-target-{}.bin", std::process::id()));
-        std::fs::write(&target, b"payload").unwrap();
+        fs::write(&target, b"payload").unwrap();
         let link = inbox.join("core.bin");
         std::os::unix::fs::symlink(&target, &link).unwrap();
 
         let e = install_core(&state, &targets, &link, &"0".repeat(64)).unwrap_err();
         assert!(e.contains("打开 inbox 文件失败"), "O_NOFOLLOW 拒绝 symlink: {e}");
-        assert!(!std::fs::read_to_string(&target).map(|s| s.is_empty()).unwrap_or(true), "目标未被读取/影响");
+        assert!(!fs::read_to_string(&target).map(|s| s.is_empty()).unwrap_or(true), "目标未被读取/影响");
         let _ = fs::remove_file(&target);
     }
 
@@ -601,12 +601,12 @@ mod tests {
         // 缺失
         assert!(verify_core_binary(&bin).unwrap_err().contains("核心二进制缺失"));
         // 正常 0755
-        std::fs::write(&bin, b"ELF").unwrap();
+        fs::write(&bin, b"ELF").unwrap();
         use std::os::unix::fs::PermissionsExt;
-        fs::set_permissions(&bin, std::fs::Permissions::from_mode(0o755)).unwrap();
+        fs::set_permissions(&bin, fs::Permissions::from_mode(0o755)).unwrap();
         assert!(verify_core_binary(&bin).is_ok());
         // group/other 可写拒绝
-        fs::set_permissions(&bin, std::fs::Permissions::from_mode(0o775)).unwrap();
+        fs::set_permissions(&bin, fs::Permissions::from_mode(0o775)).unwrap();
         assert!(verify_core_binary(&bin).unwrap_err().contains("group/other 可写"));
         // symlink 拒绝
         let link = dir.path().join("link");

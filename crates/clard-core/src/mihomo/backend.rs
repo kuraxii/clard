@@ -128,7 +128,7 @@ impl Backend {
         Ok((ui_rx, ctrl_tx))
     }
 
-    // clash 业务实现
+    // mihomo REST/WS API 客户端实现
 
     /// 获取后端版本
     pub async fn get_version(&self) -> Result<BackendVersion> {
@@ -649,7 +649,8 @@ mod tests {
 
     #[test]
     fn build_backend() -> Result<()> {
-        let _ = Backend::builder().set_tcp_addr("127.0.0.1:9090")?.build()?;
+        // unix socket 客户端构建（core 只开 unix controller）
+        let _ = Backend::builder().set_unix_socket("/run/clard/core.sock").build()?;
         Ok(())
     }
 
@@ -670,10 +671,10 @@ mod tests {
     }
 
     #[tokio::test]
-    #[ignore = "需要真实运行中的 mihomo（/tmp/verge/verge-mihomo.sock）"]
+    #[ignore = "需要真实运行中的 mihomo（/run/clard/core.sock）"]
     async fn test_get_traffic() -> Result<()> {
         let backend = Backend::builder()
-            .set_unix_socket("/tmp/verge/verge-mihomo.sock")
+            .set_unix_socket("/run/clard/core.sock")
             .build()?;
         let url = Url::parse(&crate::mihomo::websocket::get_websocket_url("traffic")).unwrap();
         let (mut traffic_rx, _) = backend.subscribe::<crate::mihomo::models::Traffic>(url).await?;

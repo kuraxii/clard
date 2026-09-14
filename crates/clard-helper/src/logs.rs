@@ -137,14 +137,14 @@ mod tests {
         append_rotated(&path, "aaaa", 12, 3).unwrap();
         append_rotated(&path, "bbbb", 12, 3).unwrap();
         append_rotated(&path, "cccc", 12, 3).unwrap(); // 触发：当前 → .1
-        assert_eq!(std::fs::read_to_string(&path).unwrap(), "cccc\n");
-        assert_eq!(std::fs::read_to_string(dir.path().join("audit.log.1")).unwrap(), "aaaa\nbbbb\n");
+        assert_eq!(fs::read_to_string(&path).unwrap(), "cccc\n");
+        assert_eq!(fs::read_to_string(dir.path().join("audit.log.1")).unwrap(), "aaaa\nbbbb\n");
 
         append_rotated(&path, "dddd", 12, 3).unwrap();
         append_rotated(&path, "eeee", 12, 3).unwrap();
         append_rotated(&path, "ffff", 12, 3).unwrap(); // .1→.2，当前→.1
         assert!(dir.path().join("audit.log.1").exists());
-        assert_eq!(std::fs::read_to_string(dir.path().join("audit.log.2")).unwrap(), "aaaa\nbbbb\n");
+        assert_eq!(fs::read_to_string(dir.path().join("audit.log.2")).unwrap(), "aaaa\nbbbb\n");
         // keep=3：最多 .log.2，不会出现 .log.3
         assert!(!dir.path().join("audit.log.3").exists());
     }
@@ -154,6 +154,6 @@ mod tests {
         let dir = tempdir().unwrap();
         let path = dir.path().join("sub").join("tui.log");
         append_rotated(&path, "x", 100, 5).unwrap();
-        assert_eq!(std::fs::read_to_string(&path).unwrap(), "x\n");
+        assert_eq!(fs::read_to_string(&path).unwrap(), "x\n");
     }
 }

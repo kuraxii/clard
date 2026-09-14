@@ -1,23 +1,24 @@
-/// ClardRs Configuration Filename
-pub const CONFIG_FILE: &str = "~/.config/clard-rs/clard-rs.toml";
+//! clard CLI（`clard` 二进制入口，doc/01 §7）。
+//!
+//! 无子命令时进入 TUI；`profiles` 子命令为订阅管理的命令行入口（经 IPC 调 helper）。
+//! 早期 clash-verge 模板残留（Test 子命令、clard-rs 配置路径等）已清理。
 
-/// ClardRs Subcommands
-/// Subcommands need to be listed in an enum.
-#[derive(clap::Parser, Debug)]
-pub enum ClardRsCmd {
-    /// 执行测试子命令
-    Test(TestCmd),
-    /// 订阅配置管理：URL 导入 / 列表 / 更新 / 删除 / 当前
+use clap::{Args, Parser, Subcommand};
+
+/// 顶层子命令。
+#[derive(Parser, Debug)]
+pub enum ClardCmd {
+    /// 订阅配置管理：URL 导入 / 列表 / 更新 / 删除 / 当前 / 切换 / 生成运行时配置
     Profiles(ProfilesCmd),
 }
 
-#[derive(clap::Args, Debug)]
+#[derive(Args, Debug)]
 pub struct ProfilesCmd {
     #[command(subcommand)]
     pub cmd: ProfilesSub,
 }
 
-#[derive(clap::Subcommand, Debug)]
+#[derive(Subcommand, Debug)]
 pub enum ProfilesSub {
     /// 从 URL 导入订阅；同 URL 已存在则覆盖更新
     Import {
@@ -26,7 +27,7 @@ pub enum ProfilesSub {
         /// 配置名（缺省取 URL host）
         #[arg(long)]
         name: Option<String>,
-        /// 定时更新间隔（秒，0=关闭；定时器一期不实现）
+        /// 定时更新间隔（秒，0=关闭）
         #[arg(long, default_value_t = 0)]
         interval: u64,
     },
@@ -56,52 +57,13 @@ pub enum ProfilesSub {
     },
 }
 
-#[derive(clap::Args, Debug)]
-pub struct TestCmd {
-    name: Option<String>,
-}
-
-#[derive(clap::Parser, Debug)]
+#[derive(Parser, Debug)]
 #[command(author, about, version)]
 pub struct Cli {
     #[command(subcommand)]
-    pub cmd: Option<ClardRsCmd>,
+    pub cmd: Option<ClardCmd>,
 
-    /// Enable verbose logging
-    #[arg(short, long)]
-    pub verbose: bool,
-
+    /// 强制以 TUI 模式启动（默认无子命令即 TUI）
     #[arg(long)]
     pub tui: bool,
-}
-
-// fn config_path(&self) -> Option<PathBuf> {
-//     let filename = self
-//         .config
-//         .as_ref()
-//         .map(|path| PathBuf::from(shellexpand::tilde(path).into_owned()))
-//         .unwrap_or_else(|| shellexpand::tilde(CONFIG_FILE).into_owned().into());
-
-//     filename.try_exists().map_or(None, |_| {
-//         if let Some(parent) = filename.parent() {
-//             fs::create_dir_all(parent).unwrap();
-//         }
-
-//         // 将默认配置结构体转为 TOML 字符串
-//         let default_toml = toml::to_string_pretty(&ClardRsConfig::default()).unwrap();
-
-//         fs::write(filename.clone(), default_toml).unwrap();
-//         Some(filename)
-//     })
-// }
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn shellexpand() {
-        let expanded = shellexpand::tilde(CONFIG_FILE).into_owned();
-        println!("{}", expanded);
-    }
 }

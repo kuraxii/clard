@@ -512,7 +512,7 @@ impl Display for CoreUpdaterChannel {
     }
 }
 
-/// clash mode enum
+/// mihomo 模式枚举（rule/global/direct）
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "lowercase")]
 pub enum ClashMode {
