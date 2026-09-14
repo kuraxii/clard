@@ -25,9 +25,10 @@ Source3:        clard-helper.service
 Source4:        mihomo
 
 # 预构建方案：无 BuildRequires；运行依赖
+# ip 用文件依赖（跨发行版免疫包名差异：Fedora 41 为 iproute，RHEL 为 iproute2）；
+# nftables 不依赖——一期 auto-redirect 关闭，cleanup-tun 对 nft 失败容错（§6.4）
 Requires:       systemd
-Requires:       iproute2
-Requires:       nftables
+Requires:       /usr/sbin/ip
 Requires(post): systemd
 Requires(preun): systemd
 

@@ -12,6 +12,9 @@ ExecStart=/usr/libexec/clard/clard-helper run
 ExecStopPost=/usr/libexec/clard/clard-helper cleanup-tun
 Restart=always
 RestartSec=2
+# systemd 自动创建 /run/clard（tmpfs 重启即清空；避免 ReadWritePaths 目录缺失导致 NAMESPACE 失败）
+RuntimeDirectory=clard
+RuntimeDirectoryMode=0755
 ProtectSystem=strict
 ReadWritePaths=/run/clard /var/clard
 ProtectHome=yes
