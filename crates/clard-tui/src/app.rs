@@ -309,12 +309,16 @@ impl APP {
                     self.import_profile(url);
                 }
             }
+            InputPurpose::FilterConnections => {
+                self.connections.set_filter(text.trim().to_string());
+            }
         }
     }
 
     fn submit_confirm(&mut self, purpose: ConfirmPurpose) {
         match purpose {
             ConfirmPurpose::DeleteProfile { uid } => self.remove_profile(uid),
+            ConfirmPurpose::CloseAllConnections => self.close_all_connections(),
         }
     }
 
@@ -388,6 +392,32 @@ impl APP {
                 }
             }
         });
+    }
+
+    /// 关闭全部连接（R4.2，二次确认后触发）。
+    pub fn close_all_connections(&mut self) {
+        let backend = self.backend.clone();
+        let sender = self.event_sender.clone();
+        tokio::spawn(async move {
+            match backend.close_all_connections().await {
+                Ok(()) => {
+                    let _ = sender.send(ClardEvent::Notify("all connections closed".to_string()));
+                    if let Ok(conns) = backend.get_connections().await {
+                        let _ = sender.send(ClardEvent::UpdateConnections(conns));
+                    }
+                }
+                Err(e) => {
+                    let _ = sender.send(ClardEvent::Error(format!("Close all failed: {e}")));
+                }
+            }
+        });
+    }
+
+    fn open_connections_filter(&mut self) {
+        let mut input = InputState::new("Filter connections", InputPurpose::FilterConnections);
+        input.buffer = self.connections.filter.clone();
+        input.cursor = input.buffer.len();
+        self.input = Some(input);
     }
 
     // ---- 键位分派 ----
@@ -492,6 +522,23 @@ impl APP {
         }
     }
 
+    fn on_connections_char(&mut self, c: char) {
+        match c {
+            'u' => self.connections.sort_by_upload(),
+            'd' => self.connections.sort_by_download(),
+            'x' => self.close_selected_connection(),
+            'X' => {
+                self.confirm = Some(ConfirmState::new(
+                    "Close all connections",
+                    "Close every active connection?",
+                    ConfirmPurpose::CloseAllConnections,
+                ));
+            }
+            'f' => self.open_connections_filter(),
+            _ => {}
+        }
+    }
+
     pub fn on_char(&mut self, char: char) {
         match char {
             '?' => {
@@ -536,9 +583,7 @@ impl APP {
             Page::Proxies if (char == 'd' || char == 't') && self.proxies.focus == ProxyFocus::Proxies => {
                 self.test_proxy_delay();
             }
-            Page::Connections if char == 'u' => self.connections.sort_by_upload(),
-            Page::Connections if char == 'd' => self.connections.sort_by_download(),
-            Page::Connections if char == 'x' => self.close_selected_connection(),
+            Page::Connections => self.on_connections_char(char),
             _ => {}
         }
     }

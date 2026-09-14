@@ -791,7 +791,7 @@ fn draw_connections_table(f: &mut Frame<'_>, area: Rect, state: &ConnectionsStat
         ],
     )
     .header(header)
-    .block(panel_block("Connections  u/d sort  x close selected", true, theme))
+    .block(panel_block("Connections  u/d sort  x close  X all  f filter", true, theme))
     .row_highlight_style(theme.selected_style())
     .highlight_symbol("▸ ");
 
@@ -936,6 +936,7 @@ fn draw_help(f: &mut Frame<'_>, area: Rect, app: &APP, theme: Theme) {
         Page::Connections => vec![
             Line::from(Span::styled("Connections", theme.title_style())),
             Line::from("u sorts by upload, d sorts by download, x closes the selected connection."),
+            Line::from("X closes all (confirm); f filters by host/rule/process."),
             Line::from("The list refreshes automatically every second while visible."),
         ],
         Page::Logs => vec![
@@ -1062,7 +1063,8 @@ fn footer_keys(app: &APP) -> Vec<(&'static str, &'static str)> {
         Page::Connections => {
             keys.push(("↑↓/jk", "move"));
             keys.push(("u/d", "sort"));
-            keys.push(("x", "close"));
+            keys.push(("x/X", "close"));
+            keys.push(("f", "filter"));
         }
         Page::Logs => {
             keys.push(("Tab", "source"));

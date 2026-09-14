@@ -81,6 +81,8 @@ impl InputState {
 pub enum InputPurpose {
     /// 从 URL 导入订阅（doc/05 §2 R2.1）
     ImportProfileUrl,
+    /// 连接页关键字过滤（doc/05 §4 R4.4）
+    FilterConnections,
 }
 
 /// 确认弹窗状态。
@@ -106,6 +108,8 @@ impl ConfirmState {
 pub enum ConfirmPurpose {
     /// 删除配置（doc/05 §2 R2.4）
     DeleteProfile { uid: String },
+    /// 关闭全部连接（doc/05 §4 R4.2）
+    CloseAllConnections,
 }
 
 #[cfg(test)]
