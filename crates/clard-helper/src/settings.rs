@@ -33,15 +33,31 @@ pub struct SettingsStore {
     settings: Settings,
 }
 
+/// 设置归一化扩展：tun_dns_mode 空/非法 → fake-ip。
+trait SettingsNormalize {
+    fn normalize_dns_mode(&mut self);
+}
+
+impl SettingsNormalize for Settings {
+    fn normalize_dns_mode(&mut self) {
+        match self.tun_dns_mode.as_str() {
+            "fake-ip" | "redir-host" => {}
+            _ => self.tun_dns_mode = "fake-ip".into(),
+        }
+    }
+}
+
 impl SettingsStore {
     /// 打开设置；文件不存在则用默认值（首次写时落盘）。
     pub fn open(root: &Path) -> Result<Self, SettingsError> {
         let path = root.join(SETTINGS_FILE);
-        let settings = match fs::read_to_string(&path) {
+        let mut settings = match fs::read_to_string(&path) {
             Ok(text) => toml::from_str(&text)?,
             Err(e) if e.kind() == io::ErrorKind::NotFound => Settings::default(),
             Err(e) => return Err(e.into()),
         };
+        // 归一化：旧 clard.toml 无 tun_dns_mode（空串）→ fake-ip
+        settings.normalize_dns_mode();
         Ok(Self { path, settings })
     }
 
@@ -86,6 +102,13 @@ impl SettingsStore {
         }
         if let Some(v) = &patch.tun_stack {
             self.settings.tun_stack = v.clone();
+        }
+        if let Some(v) = &patch.tun_dns_mode {
+            // 仅接受 fake-ip / redir-host；空或非法值归一化为 fake-ip（向后兼容旧 clard.toml）
+            self.settings.tun_dns_mode = match v.as_str() {
+                "redir-host" => "redir-host".into(),
+                _ => "fake-ip".into(),
+            };
         }
         if let Some(v) = &patch.dns_hijack {
             self.settings.dns_hijack = v.clone();
@@ -157,6 +180,7 @@ mod tests {
                     test_url: Some("http://x".into()),
                     tun_enabled: Some(true),
                     tun_stack: Some("gvisor".into()),
+                    tun_dns_mode: Some("redir-host".into()),
                     dns_hijack: Some(vec!["any:53".into()]),
                     route_exclude_address: Some(vec!["10.0.0.0/8".into()]),
                     exclude_uid: Some(vec![1000]),
@@ -175,6 +199,7 @@ mod tests {
         assert_eq!(s.mixed_port, 7891);
         assert!(s.tun_enabled);
         assert_eq!(s.tun_stack, "gvisor");
+        assert_eq!(s.tun_dns_mode, "redir-host");
         assert_eq!(s.dns_hijack, vec!["any:53"]);
         assert_eq!(s.route_exclude_address, vec!["10.0.0.0/8"]);
         assert_eq!(s.exclude_uid, vec![1000]);

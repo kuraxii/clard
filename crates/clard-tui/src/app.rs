@@ -1103,6 +1103,24 @@ impl APP {
                 };
                 self.set_tun_setting(patch);
             }
+            TunRow::TunDnsMode => {
+                let cur = self
+                    .settings
+                    .settings
+                    .as_ref()
+                    .map(|s| s.tun_dns_mode.clone())
+                    .unwrap_or_else(|| "fake-ip".into());
+                let next = if cur.as_str() == "redir-host" {
+                    "fake-ip"
+                } else {
+                    "redir-host"
+                };
+                let patch = clard_proto::SettingsPatch {
+                    tun_dns_mode: Some(next.to_string()),
+                    ..Default::default()
+                };
+                self.set_tun_setting(patch);
+            }
             TunRow::DnsHijack => {
                 let mut input = InputState::new(
                     "dns-hijack (comma separated; empty = default any:53,tcp://any:53)",
@@ -1891,6 +1909,11 @@ fn config_options(settings: &clard_proto::Settings, log_level: &str) -> ConfigGe
                 default_tun.dns_hijack
             } else {
                 settings.dns_hijack.clone()
+            },
+            dns_mode: if settings.tun_dns_mode.is_empty() {
+                default_tun.dns_mode
+            } else {
+                settings.tun_dns_mode.clone()
             },
             route_exclude_address: if settings.route_exclude_address.is_empty() {
                 default_tun.route_exclude_address

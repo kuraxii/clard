@@ -20,7 +20,7 @@
 use serde::{Deserialize, Serialize};
 
 /// 当前协议版本。任何不兼容变更都必须递增并在 `Hello` 握手中核对。
-pub const PROTO_VERSION: u32 = 7;
+pub const PROTO_VERSION: u32 = 8;
 
 /// 协议层错误
 #[derive(Debug, thiserror::Error)]
@@ -135,6 +135,8 @@ pub struct Settings {
     pub tun_enabled: bool,
     /// TUN stack：system / gvisor / mixed（默认 system）
     pub tun_stack: String,
+    /// TUN 下 DNS 模式：fake-ip / redir-host（默认 fake-ip，doc/01 §6.3）
+    pub tun_dns_mode: String,
     /// dns-hijack 列表；空 = 用默认 `["any:53", "tcp://any:53"]`
     pub dns_hijack: Vec<String>,
     /// route-exclude-address；空 = 用默认私网段（doc/01 §6.7）
@@ -161,6 +163,7 @@ impl Default for Settings {
             test_url: String::new(),
             tun_enabled: false,
             tun_stack: "system".into(),
+            tun_dns_mode: "fake-ip".into(),
             dns_hijack: Vec::new(),
             route_exclude_address: Vec::new(),
             exclude_uid: Vec::new(),
@@ -184,6 +187,8 @@ pub struct SettingsPatch {
     // ---- TUN（doc/05 §7 R7.2）----
     pub tun_enabled: Option<bool>,
     pub tun_stack: Option<String>,
+    /// TUN 下 DNS 模式：fake-ip / redir-host
+    pub tun_dns_mode: Option<String>,
     pub dns_hijack: Option<Vec<String>>,
     pub route_exclude_address: Option<Vec<String>>,
     pub exclude_uid: Option<Vec<u32>>,
@@ -394,7 +399,7 @@ mod tests {
 
     #[test]
     fn proto_version_is_current() {
-        assert_eq!(PROTO_VERSION, 7);
+        assert_eq!(PROTO_VERSION, 8);
     }
 
     #[test]

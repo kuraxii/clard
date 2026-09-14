@@ -142,8 +142,24 @@ mod tests {
         let dns = get(&m, "dns").unwrap().as_mapping().unwrap();
         assert_eq!(get(dns, "enable").unwrap().as_bool(), Some(true));
         assert_eq!(get(dns, "enhanced-mode").unwrap().as_str(), Some("fake-ip"));
+        assert_eq!(get(dns, "fake-ip-range").unwrap().as_str(), Some("198.18.0.1/16"));
         let ns = get(dns, "nameserver").unwrap().as_sequence().unwrap();
-        assert_eq!(ns[0].as_str(), Some("8.8.8.8"), "TUN 下必须有上游 nameserver（劫持 53 后解析依赖）");
+        assert_eq!(ns[0].as_str(), Some("system"), "TUN 下必须有上游 nameserver（劫持 53 后解析依赖）");
+        let dn = get(dns, "default-nameserver").unwrap().as_sequence().unwrap();
+        assert_eq!(dn[0].as_str(), Some("system"));
+    }
+
+    #[test]
+    fn generate_tun_redir_host_dns_no_fakeip_range() {
+        let mut options = opts();
+        let mut tun = options.tun.clone().unwrap();
+        tun.dns_mode = "redir-host".into();
+        options.tun = Some(tun);
+        let out = generate("proxies: []\n", None, &options).unwrap();
+        let m = as_mapping(&out);
+        let dns = get(&m, "dns").unwrap().as_mapping().unwrap();
+        assert_eq!(get(dns, "enhanced-mode").unwrap().as_str(), Some("redir-host"));
+        assert_eq!(get(dns, "fake-ip-range"), None, "redir-host 不注入 fake-ip-range");
     }
 
     #[test]

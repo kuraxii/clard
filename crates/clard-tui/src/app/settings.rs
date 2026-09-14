@@ -56,6 +56,8 @@ impl GeneralRow {
 pub enum TunRow {
     TunEnabled,
     TunStack,
+    /// TUN 下 DNS 模式：fake-ip / redir-host（循环切换）
+    TunDnsMode,
     DnsHijack,
     RouteExclude,
     ExcludeUid,
@@ -68,9 +70,10 @@ pub enum TunRow {
 }
 
 impl TunRow {
-    pub const ALL: [Self; 10] = [
+    pub const ALL: [Self; 11] = [
         Self::TunEnabled,
         Self::TunStack,
+        Self::TunDnsMode,
         Self::DnsHijack,
         Self::RouteExclude,
         Self::ExcludeUid,
@@ -85,6 +88,7 @@ impl TunRow {
         match self {
             Self::TunEnabled => "TUN",
             Self::TunStack => "TUN stack",
+            Self::TunDnsMode => "DNS mode",
             Self::DnsHijack => "dns-hijack",
             Self::RouteExclude => "Route exclude",
             Self::ExcludeUid => "exclude-uid",
@@ -345,11 +349,12 @@ mod tests {
         assert_eq!(s.selected_tun_row(), Some(TunRow::TunEnabled));
         s.on_down_key();
         s.on_down_key();
-        assert_eq!(s.selected_tun_row(), Some(TunRow::DnsHijack));
-        for _ in 0..8 {
+        assert_eq!(s.selected_tun_row(), Some(TunRow::TunDnsMode), "TunEnabled→TunStack→TunDnsMode");
+        // 11 行循环：TunDnsMode(2) + 9 = 11 ≡ 0（回到 TunEnabled）
+        for _ in 0..9 {
             s.on_down_key();
         }
-        assert_eq!(s.selected_tun_row(), Some(TunRow::TunEnabled), "10 行循环回到 TUN");
+        assert_eq!(s.selected_tun_row(), Some(TunRow::TunEnabled), "11 行循环回到 TUN");
     }
 
     #[test]

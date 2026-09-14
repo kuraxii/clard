@@ -64,6 +64,8 @@ pub struct TunOptions {
     pub auto_route: bool,
     pub auto_detect_interface: bool,
     pub dns_hijack: Vec<String>,
+    /// TUN 下 DNS 模式：fake-ip / redir-host（对齐 helper settings.tun_dns_mode）
+    pub dns_mode: String,
     pub strict_route: bool,
     pub auto_redirect: bool,
     pub route_exclude_address: Vec<String>,
@@ -85,6 +87,7 @@ impl Default for TunOptions {
             auto_route: true,
             auto_detect_interface: true,
             dns_hijack: vec!["any:53".into(), "tcp://any:53".into()],
+            dns_mode: "fake-ip".into(),
             strict_route: false,
             auto_redirect: false,
             route_exclude_address: DEFAULT_ROUTE_EXCLUDE
@@ -113,18 +116,40 @@ pub fn inject(doc: &mut Mapping, options: &ConfigGenOptions) {
 
     match &options.tun {
         Some(tun) => {
-            // TUN 下强制 DNS fake-ip（保留用户 dns 的其他字段）+ 上游 nameserver
-            // （dns-hijack 劫持 53 后必须有上游 DNS，否则域名解析失败=全断网）
+            // TUN 下强制 DNS 块（保留用户 dns 的其他字段）+ 上游 nameserver：
+            // dns-hijack 劫持 53 后必须有上游 DNS，否则域名解析失败=全断网。
+            // 模式取 tun.dns_mode（fake-ip / redir-host，对齐 helper build_dns_block）。
             let mut dns = doc
                 .get(&Value::String("dns".into()))
                 .and_then(Value::as_mapping)
                 .cloned()
                 .unwrap_or_default();
             dns.insert(Value::String("enable".into()), Value::Bool(true));
-            dns.insert(Value::String("enhanced-mode".into()), Value::String("fake-ip".into()));
+            let mode = tun.dns_mode.as_str();
+            dns.insert(Value::String("enhanced-mode".into()), Value::String(mode.into()));
+            if mode == "fake-ip" {
+                dns.insert(
+                    Value::String("fake-ip-range".into()),
+                    Value::String("198.18.0.1/16".into()),
+                );
+            }
+            dns.insert(
+                Value::String("default-nameserver".into()),
+                Value::Sequence(
+                    ["system", "223.5.5.5", "119.29.29.29"]
+                        .iter()
+                        .map(|s| Value::String((*s).to_string()))
+                        .collect(),
+                ),
+            );
             dns.insert(
                 Value::String("nameserver".into()),
-                Value::Sequence(vec![Value::String("8.8.8.8".into()), Value::String("1.1.1.1".into())]),
+                Value::Sequence(
+                    ["system", "https://dns.alidns.com/dns-query", "223.5.5.5"]
+                        .iter()
+                        .map(|s| Value::String((*s).to_string()))
+                        .collect(),
+                ),
             );
             doc.insert(Value::String("dns".into()), Value::Mapping(dns));
 

@@ -779,6 +779,15 @@ fn draw_settings_tun(f: &mut Frame<'_>, area: Rect, state: &SettingsState, theme
                         }
                     })
                     .unwrap_or_else(|| "[system]".to_string()),
+                TunRow::TunDnsMode => settings
+                    .map(|s| {
+                        if s.tun_dns_mode.is_empty() {
+                            "[fake-ip]".to_string()
+                        } else {
+                            format!("[{}]", s.tun_dns_mode)
+                        }
+                    })
+                    .unwrap_or_else(|| "[fake-ip]".to_string()),
                 TunRow::DnsHijack => {
                     let v = settings.map(|s| s.dns_hijack.join(",")).unwrap_or_default();
                     if v.is_empty() {

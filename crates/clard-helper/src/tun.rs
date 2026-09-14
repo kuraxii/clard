@@ -143,15 +143,29 @@ pub fn tun_off_block() -> Mapping {
     t
 }
 
-/// TUN 开启时配套的 fake-ip DNS 块（§6.3 + 上游 nameserver）。
+/// 上游 DNS（对齐 clash-verge，抗封锁且本环境可达）：
+/// - `system`：读系统 resolv.conf（mihomo 内建，doc/04）；
+/// - DoH（走 443）与国内裸 DNS 兜底，替代裸 8.8.8.8/1.1.1.1（被墙时悬挂）。
+const DNS_DEFAULT_NAMESERVER: &[&str] = &["system", "223.5.5.5", "119.29.29.29"];
+const DNS_NAMESERVER: &[&str] = &["system", "https://dns.alidns.com/dns-query", "223.5.5.5"];
+
+/// TUN 开启时配套的 DNS 块（§6.3 + 上游 nameserver）。
+/// `mode` 取 `fake-ip` / `redir-host`（settings.tun_dns_mode，helper 侧已归一化）。
 /// dns-hijack 劫持本地 53 后，mihomo 必须有可用的上游 DNS，否则域名解析失败=全断网。
-pub fn build_dns_block() -> Mapping {
+pub fn build_dns_block(mode: &str) -> Mapping {
     let mut d = Mapping::new();
     kv(&mut d, "enable", true);
-    kv(&mut d, "enhanced-mode", "fake-ip");
+    kv(&mut d, "enhanced-mode", mode);
+    if mode == "fake-ip" {
+        kv(&mut d, "fake-ip-range", "198.18.0.1/16");
+    }
+    d.insert(
+        Value::String("default-nameserver".into()),
+        Value::Sequence(strs(DNS_DEFAULT_NAMESERVER)),
+    );
     d.insert(
         Value::String("nameserver".into()),
-        Value::Sequence(strs(&["8.8.8.8", "1.1.1.1"])),
+        Value::Sequence(strs(DNS_NAMESERVER)),
     );
     d
 }
@@ -373,7 +387,7 @@ pub async fn set_tun(
     let mut doc: Value = serde_yaml_ng::from_str(&original)
         .map_err(|e| format!("解析运行态配置失败: {e}"))?;
     let block = if enable { build_tun_block(settings) } else { tun_off_block() };
-    let dns_block = enable.then(build_dns_block);
+    let dns_block = enable.then(|| build_dns_block(&settings.tun_dns_mode));
     let mapping = doc
         .as_mapping_mut()
         .ok_or_else(|| "运行态配置根必须是 mapping".to_string())?;
@@ -565,12 +579,23 @@ mod tests {
     }
 
     #[test]
-    fn build_dns_block_injects_fakeip_and_nameserver() {
-        let d = build_dns_block();
+    fn build_dns_block_fakeip_injects_mode_and_nameservers() {
+        let d = build_dns_block("fake-ip");
         assert_eq!(get(&d, "enable").unwrap().as_bool(), Some(true));
         assert_eq!(get(&d, "enhanced-mode").unwrap().as_str(), Some("fake-ip"));
+        assert_eq!(get(&d, "fake-ip-range").unwrap().as_str(), Some("198.18.0.1/16"));
         let ns = get(&d, "nameserver").unwrap().as_sequence().unwrap();
-        assert_eq!(ns[0].as_str(), Some("8.8.8.8"));
+        assert_eq!(ns[0].as_str(), Some("system"), "system 上游（读系统 resolv.conf）");
+        let dn = get(&d, "default-nameserver").unwrap().as_sequence().unwrap();
+        assert_eq!(dn[0].as_str(), Some("system"));
+    }
+
+    #[test]
+    fn build_dns_block_redir_host_no_fakeip_range() {
+        let d = build_dns_block("redir-host");
+        assert_eq!(get(&d, "enhanced-mode").unwrap().as_str(), Some("redir-host"));
+        assert_eq!(get(&d, "fake-ip-range"), None, "redir-host 不注入 fake-ip-range");
+        assert_eq!(get(&d, "nameserver").unwrap().as_sequence().unwrap().len(), 3);
     }
 
     #[test]
@@ -618,11 +643,12 @@ mod tests {
         let tun = as_mapping(doc.get("tun").unwrap());
         assert_eq!(get(tun, "enable").unwrap().as_bool(), Some(true));
         assert_eq!(get(tun, "device").unwrap().as_str(), Some("clard0"), "托管块完整注入");
-        // 开启时必须注入 fake-ip dns（劫持 53 后无上游 nameserver 会断网）
+        // 开启时必须注入 dns（劫持 53 后无上游 nameserver 会断网）；默认 fake-ip 模式
         let dns = as_mapping(doc.get("dns").unwrap());
         assert_eq!(get(dns, "enable").unwrap().as_bool(), Some(true));
+        assert_eq!(get(dns, "enhanced-mode").unwrap().as_str(), Some("fake-ip"));
         let ns = get(dns, "nameserver").unwrap().as_sequence().unwrap();
-        assert_eq!(ns[0].as_str(), Some("8.8.8.8"));
+        assert_eq!(ns[0].as_str(), Some("system"), "system 上游（读系统 resolv.conf）");
         // 其他顶层字段不受影响
         assert_eq!(as_mapping(&doc).get(&Value::String("mode".into())).unwrap().as_str(), Some("rule"));
 
