@@ -21,7 +21,7 @@
 use serde::{Deserialize, Serialize};
 
 /// 当前协议版本。任何不兼容变更都必须递增并在 `Hello` 握手中核对。
-pub const PROTO_VERSION: u32 = 9;
+pub const PROTO_VERSION: u32 = 10;
 
 /// 协议层错误
 #[derive(Debug, thiserror::Error)]
@@ -113,6 +113,12 @@ pub enum Request {
         sha256: String,
         version: String,
     },
+    /// 更新 geo 数据（geoip/geosite，inbox 哈希校验 → 原子替换 → 重启核心，对齐 InstallCore）
+    UpdateGeoData {
+        kind: GeoKind,
+        inbox_path: String,
+        sha256: String,
+    },
 }
 
 /// 系统级设置（`/var/clard/lib/clard.toml`，doc/05 §7 R7.1/R7.2）。
@@ -197,6 +203,13 @@ pub struct SettingsPatch {
     pub exclude_dst_port: Option<Vec<u16>>,
     pub strict_route: Option<bool>,
     pub auto_redirect: Option<bool>,
+}
+
+/// geo 数据类型（§6.3：随 RPM 分发 + TUI 可更新）
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub enum GeoKind {
+    Geoip,
+    Geosite,
 }
 
 /// 审计操作者（`SO_PEERCRED` 记录，doc/01 §4.2）。
@@ -400,7 +413,7 @@ mod tests {
 
     #[test]
     fn proto_version_is_current() {
-        assert_eq!(PROTO_VERSION, 9);
+        assert_eq!(PROTO_VERSION, 10);
     }
 
     #[test]
