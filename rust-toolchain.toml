@@ -1,0 +1,4 @@
+# 钉住与开发机一致的 toolchain（CI 同款，避免新版 clippy/rustfmt 版本漂移导致误报）
+[toolchain]
+channel = "1.95.0"
+components = ["clippy", "rustfmt"]
