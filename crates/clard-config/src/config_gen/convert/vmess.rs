@@ -133,7 +133,7 @@ pub fn convert(line: &str) -> Result<Value, ConfigGenError> {
             }
             _ => {}
         }
-        if tls && !m.contains_key(&Value::String("servername".into())) {
+        if tls && !m.contains_key(Value::String("servername".into())) {
             if let Some(host) = host {
                 kv(&mut m, "servername", host);
             }

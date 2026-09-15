@@ -84,7 +84,7 @@ mod tests {
     use super::*;
 
     fn get<'a>(m: &'a Mapping, key: &str) -> Option<&'a Value> {
-        m.get(&Value::String(key.into()))
+        m.get(Value::String(key.into()))
     }
 
     fn parse_one(line: &str) -> Mapping {

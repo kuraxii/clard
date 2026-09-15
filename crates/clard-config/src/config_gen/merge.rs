@@ -39,21 +39,21 @@ mod tests {
         let over = parse("a:\n  y: 3\n  z: 4\n");
         let out = deep_merge(&base, &over);
         let m = out.as_mapping().unwrap();
-        let a = m.get(&Value::String("a".into())).unwrap().as_mapping().unwrap();
+        let a = m.get(Value::String("a".into())).unwrap().as_mapping().unwrap();
         assert_eq!(a.len(), 3, "x 保留、y 覆盖、z 新增");
-        assert_eq!(m.get(&Value::String("b".into())).unwrap().as_i64(), Some(1));
+        assert_eq!(m.get(Value::String("b".into())).unwrap().as_i64(), Some(1));
     }
 
     #[test]
     fn scalar_overridden_by_overlay() {
         let out = deep_merge(&parse("port: 1\n"), &parse("port: 2\n"));
-        assert_eq!(out.as_mapping().unwrap().get(&Value::String("port".into())).unwrap().as_i64(), Some(2));
+        assert_eq!(out.as_mapping().unwrap().get(Value::String("port".into())).unwrap().as_i64(), Some(2));
     }
 
     #[test]
     fn list_replaced_entirely() {
         let out = deep_merge(&parse("dns-hijack: [a]\n"), &parse("dns-hijack: [b, c]\n"));
-        let seq = out.as_mapping().unwrap().get(&Value::String("dns-hijack".into())).unwrap().as_sequence().unwrap();
+        let seq = out.as_mapping().unwrap().get(Value::String("dns-hijack".into())).unwrap().as_sequence().unwrap();
         assert_eq!(seq.len(), 2);
     }
 

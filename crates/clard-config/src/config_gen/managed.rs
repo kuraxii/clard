@@ -120,7 +120,7 @@ pub fn inject(doc: &mut Mapping, options: &ConfigGenOptions) {
             // dns-hijack 劫持 53 后必须有上游 DNS，否则域名解析失败=全断网。
             // 模式取 tun.dns_mode（fake-ip / redir-host，对齐 helper build_dns_block）。
             let mut dns = doc
-                .get(&Value::String("dns".into()))
+                .get(Value::String("dns".into()))
                 .and_then(Value::as_mapping)
                 .cloned()
                 .unwrap_or_default();

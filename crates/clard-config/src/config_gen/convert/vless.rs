@@ -177,7 +177,7 @@ pub fn convert(line: &str) -> Result<Value, ConfigGenError> {
     }
 
     // tls 但无 servername → 从传输层 host 推导
-    if tls && !m.contains_key(&Value::String("servername".into())) {
+    if tls && !m.contains_key(Value::String("servername".into())) {
         if let Some(host) = q.get("host") {
             kv(&mut m, "servername", host);
         }

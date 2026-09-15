@@ -249,6 +249,6 @@ mod tests {
     }
 
     fn get<'a>(m: &'a serde_yaml_ng::Mapping, key: &str) -> Option<&'a Value> {
-        m.get(&Value::String(key.into()))
+        m.get(Value::String(key.into()))
     }
 }
