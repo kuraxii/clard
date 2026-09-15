@@ -23,6 +23,9 @@ Source2:        clard-helper
 Source3:        clard-helper.service
 # 可选：构建时下载的最新 mihomo（build-rpm.sh；缺失 = 包内不含核心）
 Source4:        mihomo
+# 可选：构建时下载的最新 geo 数据（build-rpm.sh；缺失 = 包内不含，TUI 可更新）
+Source5:        geoip.metadb
+Source6:        geosite.dat
 
 # 预构建方案：无 BuildRequires；运行依赖
 # ip 用文件依赖（跨发行版免疫包名差异：Fedora 41 为 iproute，RHEL 为 iproute2）；
@@ -36,6 +39,8 @@ Requires(preun): systemd
 %global debug_package %{nil}
 # 是否随包分发 mihomo（build-rpm.sh 下载成功 = 1）
 %global mihomo_present %(test -f %{_sourcedir}/mihomo && echo 1 || echo 0)
+# 是否随包分发 geo 数据（build-rpm.sh 下载成功 = 1）
+%global geodata_present %(test -f %{_sourcedir}/geoip.metadb && echo 1 || echo 0)
 
 %description
 Clard 是 Linux 上的完整代理管理工具：系统级常驻服务 clard-helper（root，
@@ -57,6 +62,10 @@ install -d -m 0755 %{buildroot}%{_sysconfdir}/clard
 %if %{mihomo_present}
 install -Dm755 %{SOURCE4} %{buildroot}%{_localstatedir}/clard/bin/mihomo
 %endif
+%if %{geodata_present}
+install -Dm644 %{SOURCE5} %{buildroot}%{_localstatedir}/clard/geodata/geoip.metadb
+install -Dm644 %{SOURCE6} %{buildroot}%{_localstatedir}/clard/geodata/geosite.dat
+%endif
 
 %post
 # 数据目录（helper 启动自检也会建，这里预建保证权限 root 0700）
@@ -64,7 +73,8 @@ install -d -m 0700 %{_localstatedir}/clard/lib \
                  %{_localstatedir}/clard/cache \
                  %{_localstatedir}/clard/log \
                  %{_localstatedir}/clard/backups \
-                 %{_localstatedir}/clard/bin
+                 %{_localstatedir}/clard/bin \
+                 %{_localstatedir}/clard/geodata
 %systemd_post clard-helper.service
 # 兜底：部分环境（容器/最小化 systemd）file-trigger 不生效导致 enable 缺失，
 # 显式 enable + restart（幂等，失败不阻塞事务）。
@@ -88,4 +98,9 @@ systemctl restart clard-helper.service >/dev/null 2>&1 || :
 %if %{mihomo_present}
 # noreplace：用户经 InstallCore 升级过的 mihomo 不被 rpm 升级覆盖
 %config(noreplace) %{_localstatedir}/clard/bin/mihomo
+%endif
+%if %{geodata_present}
+# noreplace：用户经 TUI 更新过的 geo 数据不被 rpm 升级覆盖
+%config(noreplace) %{_localstatedir}/clard/geodata/geoip.metadb
+%config(noreplace) %{_localstatedir}/clard/geodata/geosite.dat
 %endif
