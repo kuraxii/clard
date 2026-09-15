@@ -1960,7 +1960,7 @@ async fn restore_memorized_nodes(
 
 /// 下载 → 归一化 → 提交 helper（R2.1/R2.3 共用）。
 async fn import_profile_flow(url: String) -> Result<String, String> {
-    let (raw, info) = HttpFetcher::new(reqwest::Client::new())
+    let (raw, info, filename) = HttpFetcher::new(reqwest::Client::new())
         .fetch_with_info(&url)
         .await
         .map_err(|e| format!("download failed: {e}"))?;
@@ -1970,9 +1970,11 @@ async fn import_profile_flow(url: String) -> Result<String, String> {
         total: info.total,
         expire: info.expire,
     };
-    // §8.3 A：提交原始订阅 raw，helper 侧 clard-config 转换
+    // §8.3 A：提交原始订阅 raw，helper 侧 clard-config 转换。
+    // 缺省名对齐 clash-verge-rev：Content-Disposition filename → URL 最后一段路径 → 兜底
+    // （同 URL 覆盖更新时 helper 保留原名，见 store.import）。
     let resp = rpc::call(&Request::ProfileImport(ProfileImport {
-        name: None,
+        name: Some(clard_core::profiles::default_name(filename.as_deref(), &url)),
         url,
         interval: 0,
         yaml: raw,
@@ -1999,7 +2001,8 @@ async fn update_profile_flow(uid: String) -> Result<String, String> {
         Ok(other) => return Err(rpc::unexpected(other).to_string()),
         Err(e) => return Err(e.to_string()),
     };
-    let (raw, info) = HttpFetcher::new(reqwest::Client::new())
+    // 更新保留原名称（对齐 clash-verge-rev：update 不覆盖 name）
+    let (raw, info, _filename) = HttpFetcher::new(reqwest::Client::new())
         .fetch_with_info(&url)
         .await
         .map_err(|e| format!("download failed: {e}"))?;
