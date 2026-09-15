@@ -34,7 +34,8 @@ jobs:
         run: |
           dnf install -y --setopt=install_weak_deps=False \
             rust cargo git bash curl tar gzip \
-            rpm-build systemd-rpm-macros
+            rpm-build systemd-rpm-macros \
+            perl-core   # native-tls-vendored 源码编译 OpenSSL 需要 FindBin 等 perl 核心模块
 
       - name: Checkout
         uses: actions/checkout@v4
