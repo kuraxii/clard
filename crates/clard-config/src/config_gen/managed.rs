@@ -113,6 +113,11 @@ pub fn inject(doc: &mut Mapping, options: &ConfigGenOptions) {
         "external-controller-unix",
         options.external_controller_unix.to_string_lossy().as_ref(),
     );
+    // geo 数据（§6.3/§8）：随 RPM 分发到 /var/clard/geodata，TUI 可更新（UpdateGeoData）；
+    // geo-auto-update 关闭——避免 mihomo 启动时自连 GitHub 下载 geodata 卡死（github 被墙场景）
+    kv(doc, "geodata-path", "/var/clard/geodata/geoip.metadb");
+    kv(doc, "geosite-path", "/var/clard/geodata/geosite.dat");
+    kv(doc, "geo-auto-update", false);
 
     match &options.tun {
         Some(tun) => {
