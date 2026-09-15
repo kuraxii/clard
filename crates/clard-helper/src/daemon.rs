@@ -100,6 +100,8 @@ pub async fn run() -> io::Result<()> {
     {
         let audit = audit.clone();
         let core = core.clone();
+        let store = store.clone();
+        let settings = settings.clone();
         let events = events_tx.clone();
         tokio::spawn(async move {
             // §5.2 启动自检：TUN 残留清理（fail-open，幂等）
@@ -109,6 +111,33 @@ pub async fn run() -> io::Result<()> {
                 let op_id = audit.intent("cleanup.tun", &Actor::system(), "startup residual cleanup");
                 audit.result("cleanup.tun", &op_id, &Actor::system(), "partial", Some(&msg), None);
                 tracing::warn!("启动自检：TUN 残留已清理，仍有残余: {msg}");
+            }
+            // §8.3 E 启动自愈：按 current + settings 重新拼装运行态配置（R1–R4，Startup
+            // 上下文跳过热重载/回读；核心尚未启动）。无当前配置/拼装失败不阻断启动。
+            {
+                let store = store.lock().await;
+                let settings = settings.lock().await;
+                let mut core = core.lock().await;
+                match crate::config::regenerate(
+                    &store,
+                    settings.get(),
+                    &mut core,
+                    false,
+                    &audit,
+                    &events,
+                    &Actor::system(),
+                    "startup",
+                    crate::config::Ctx::Startup,
+                )
+                .await
+                {
+                    Ok(r) => {
+                        tracing::info!("启动自检：运行态配置已生成 (sha256={})", r.cfg_sha256);
+                    }
+                    Err(e) => {
+                        tracing::warn!("启动自检：运行态配置跳过（无当前配置或拼装失败）: {e}");
+                    }
+                }
             }
             // §5.2 生命周期：helper 起 → 核心自动拉起（运行态配置存在时，与用户
             // 之前开启的核心状态一致）。失败不阻塞（全新安装未应用配置/核心二进制

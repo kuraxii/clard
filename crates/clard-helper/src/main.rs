@@ -20,6 +20,7 @@
 mod audit;
 mod autoupdate;
 mod backup;
+mod config;
 mod core;
 mod daemon;
 mod helper_config;

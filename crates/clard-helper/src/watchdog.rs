@@ -24,6 +24,9 @@ const CORE_CHECK_INTERVAL: Duration = Duration::from_secs(2);
 const TUN_CHECK_INTERVAL: Duration = Duration::from_secs(3);
 /// TUN 连续不健康次数阈值（≈9s）。
 const TUN_FAIL_THRESHOLD: u32 = 3;
+/// 启动宽限（§8.3 E）：helper 刚起、核心/TUN 建立窗口（30s），
+/// 期间健康检查失败不计数，避免核心未建好 clard0 就被误判 fail-open。
+const STARTUP_GRACE: Duration = Duration::from_secs(30);
 
 /// 启动两个 watchdog 常驻任务。
 pub fn spawn(
@@ -53,11 +56,16 @@ pub fn spawn(
         async move {
             let mut fail_count = 0u32;
             let mut degraded = false;
+            let started = tokio::time::Instant::now();
             loop {
                 tokio::time::sleep(TUN_CHECK_INTERVAL).await;
                 if check_tun_health(&core, &settings).await {
                     fail_count = 0;
                     degraded = false;
+                    continue;
+                }
+                // 启动宽限：核心/TUN 建立窗口内不计数（§8.3 E）
+                if started.elapsed() < STARTUP_GRACE {
                     continue;
                 }
                 fail_count += 1;
