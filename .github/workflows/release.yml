@@ -43,6 +43,8 @@ jobs:
       - name: Build RPM (cargo build --release → 下载 mihomo → rpmbuild)
         run: |
           cd "$GITHUB_WORKSPACE"
+          # 容器内 root 对 runner 挂载的仓库目录报 dubious ownership，git archive 前声明安全
+          git config --global --add safe.directory "$GITHUB_WORKSPACE"
           bash packaging/build-rpm.sh
 
       - name: Stage release assets
