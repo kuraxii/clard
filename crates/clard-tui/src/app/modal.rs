@@ -166,6 +166,8 @@ pub enum ConfirmPurpose {
     CleanupTun,
     /// 升级核心：从 GitHub 最新 release 下载并重启（R7.3，会短暂中断）
     UpgradeCore,
+    /// 更新 geo 数据（geoip/geosite，doc/01 §6.3，会短暂中断）
+    UpdateGeoData,
 }
 
 #[cfg(test)]

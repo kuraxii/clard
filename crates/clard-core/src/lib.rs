@@ -18,5 +18,6 @@
 
 
 pub mod mihomo;
+pub mod geodata;
 pub mod profiles;
 pub mod upgrade;

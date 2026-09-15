@@ -576,6 +576,7 @@ impl APP {
             }
             ConfirmPurpose::CleanupTun => self.recover_direct(),
             ConfirmPurpose::UpgradeCore => self.upgrade_core(),
+            ConfirmPurpose::UpdateGeoData => self.update_geodata(),
         }
     }
 
@@ -977,6 +978,23 @@ impl APP {
         });
     }
 
+    /// 更新 geo 数据（§6.3）：下载 geoip/geosite → inbox → helper 复核+原子替换+重启。
+    pub fn update_geodata(&mut self) {
+        self.message = Some("downloading geo data…".to_string());
+        let sender = self.event_sender.clone();
+        tokio::spawn(async move {
+            match update_geodata_flow().await {
+                Ok(msg) => {
+                    let _ = sender.send(ClardEvent::Notify(msg));
+                }
+                Err(e) => {
+                    let _ = sender.send(ClardEvent::Error(e));
+                }
+            }
+            send_core_status(&sender).await;
+        });
+    }
+
     pub fn create_backup(&mut self) {
         let sender = self.event_sender.clone();
         tokio::spawn(async move {
@@ -1062,6 +1080,14 @@ impl APP {
                         "Upgrade core",
                         "Download the latest mihomo from GitHub and restart the core? (brief interruption)",
                         ConfirmPurpose::UpgradeCore,
+                    ));
+                }
+                'g' => {
+                    // 更新 geo 数据（geoip/geosite，jsdelivr/GitHub → helper 复核 + 原子替换 + 重启）
+                    self.confirm = Some(ConfirmState::new(
+                        "Update geo data",
+                        "Download the latest geoip/geosite data and restart the core? (brief interruption)",
+                        ConfirmPurpose::UpdateGeoData,
                     ));
                 }
                 _ => {}
@@ -1984,6 +2010,39 @@ async fn upgrade_core_flow() -> Result<String, String> {
         Ok(other) => Err(rpc::unexpected(other).to_string()),
         Err(e) => Err(e.to_string()),
     }
+}
+
+/// 更新 geo 数据（§6.3）：jsdelivr/GitHub 下载 geoip.metadb + geosite.dat →
+/// 自算 sha256 → 写 inbox → 两次 IPC UpdateGeoData（helper 复核 + 原子替换 + 重启）。
+async fn update_geodata_flow() -> Result<String, String> {
+    use std::time::{SystemTime, UNIX_EPOCH};
+
+    let client = reqwest::Client::new();
+    let files = [("geoip.metadb", clard_proto::GeoKind::Geoip), ("geosite.dat", clard_proto::GeoKind::Geosite)];
+    let dir = "/run/clard/inbox";
+    std::fs::create_dir_all(dir).map_err(|e| format!("创建 inbox 失败: {e}"))?;
+
+    for (name, kind) in files {
+        let bytes = clard_core::geodata::download_geo(&client, name)
+            .await
+            .map_err(|e| format!("下载 {name} 失败: {e}"))?;
+        let sha = clard_core::upgrade::sha256_hex(&bytes);
+        let nanos = SystemTime::now().duration_since(UNIX_EPOCH).map(|d| d.as_nanos()).unwrap_or(0);
+        let inbox_path = format!("{dir}/clard-geo-{}-{nanos}.bin", std::process::id());
+        std::fs::write(&inbox_path, &bytes).map_err(|e| format!("写入 inbox 失败: {e}"))?;
+        match rpc::call(&Request::UpdateGeoData {
+            kind,
+            inbox_path,
+            sha256: sha,
+        })
+        .await
+        {
+            Ok(Response::Ok) => {}
+            Ok(other) => return Err(rpc::unexpected(other).to_string()),
+            Err(e) => return Err(e.to_string()),
+        }
+    }
+    Ok("geo data (geoip/geosite) updated & core restarted".to_string())
 }
 
 /// 恢复指定配置的记忆节点（R2.2）：读 ProfileGet.selected → 逐个 `PUT /proxies/:name`。
