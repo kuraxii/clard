@@ -586,7 +586,7 @@ fn draw_audit_table(f: &mut Frame<'_>, area: Rect, state: &LogsState, theme: The
             _ => Style::default().fg(theme.error),
         };
         Row::new(vec![
-            Cell::from(format_unix_time(r.ts)),
+            Cell::from(format_unix_millis(r.ts)),
             Cell::from(r.op.clone()),
             Cell::from(format!("uid{} pid{}", r.actor.uid, r.actor.pid)),
             Cell::from(r.result.clone()).style(result_style),
@@ -2062,6 +2062,11 @@ fn format_rate(bytes_per_second: u64) -> String {
     format!("{}/s", format_network_bytes(bytes_per_second))
 }
 
+/// unix 毫秒 → UTC `YYYY-MM-DD HH:MM:SS`（审计 `ts` 为 epoch 毫秒，见 helper audit.rs `now_millis`）。
+fn format_unix_millis(millis: i64) -> String {
+    format_unix_time(millis.div_euclid(1000))
+}
+
 /// unix 秒 → UTC `YYYY-MM-DD HH:MM:SS`（Howard Hinnant 民用日期算法，无外部依赖）。
 fn format_unix_time(secs: i64) -> String {
     let days = secs.div_euclid(86_400);
@@ -2170,12 +2175,21 @@ fn centered_rect(percent_x: u16, percent_y: u16, area: Rect) -> Rect {
 
 #[cfg(test)]
 mod tests {
-    use super::{civil_from_days, format_network_bytes, format_unix_time};
+    use super::{civil_from_days, format_network_bytes, format_unix_millis, format_unix_time};
 
     #[test]
     fn format_unix_time_matches_known_instants() {
         assert_eq!(format_unix_time(0), "1970-01-01 00:00:00");
         assert_eq!(format_unix_time(1_600_000_000), "2020-09-13 12:26:40");
+    }
+
+    #[test]
+    fn format_unix_millis_matches_known_instants() {
+        assert_eq!(format_unix_millis(0), "1970-01-01 00:00:00");
+        // 1600000000 秒 = 1600000000000 毫秒
+        assert_eq!(format_unix_millis(1_600_000_000_000), "2020-09-13 12:26:40");
+        // 毫秒余数截断，不向上进位
+        assert_eq!(format_unix_millis(1_600_000_000_999), "2020-09-13 12:26:40");
     }
 
     #[test]
