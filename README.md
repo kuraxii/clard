@@ -10,7 +10,7 @@ Clard 是 Linux 上的完整代理管理工具：系统级常驻服务 `clard-he
 
 - [x] helper daemon：flock 单实例、0666 unix socket、`SO_PEERCRED` 记录 actor、审计双写
 - [x] profiles 存储迁移 helper（`/var/clard/lib`，同 URL 覆盖更新）
-- [x] config_gen：base64 归一化、7 种节点协议转换（vless/vmess/ss/trojan/http/socks/hysteria2）、深合并、托管字段注入
+- [x] clard-config（独立 crate）：config_gen 解析/生成——base64 归一化、7 种节点协议转换（vless/vmess/ss/trojan/http/socks/hysteria2）、深合并、托管字段注入
 - [x] 订阅下载（HttpFetcher：30s 超时、8MiB 上限）
 - [x] 订阅管理 CLI（`clard profiles import/list/update/remove/current/set-current`，经 IPC 调 helper）
 
