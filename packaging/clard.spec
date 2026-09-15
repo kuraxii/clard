@@ -12,7 +12,7 @@
 Name:           clard
 Version:        0.1.0
 # 不带 dist 标记（如 fc41）：包名/版本/架构即可，便于跨发行版复用构建产物
-Release:        5
+Release:        6
 Summary:        Clard — Linux transparent proxy manager (system helper + TUI client)
 
 License:        MIT
@@ -100,7 +100,8 @@ systemctl restart clard-helper.service >/dev/null 2>&1 || :
 %config(noreplace) %{_localstatedir}/clard/bin/mihomo
 %endif
 %if %{geodata_present}
-# noreplace：用户经 TUI 更新过的 geo 数据不被 rpm 升级覆盖
-%config(noreplace) %{_localstatedir}/clard/lib/runtime/geoip.metadb
-%config(noreplace) %{_localstatedir}/clard/lib/runtime/geosite.dat
+# %config（非 noreplace）：升级时备份旧文件为 .rpmsave 并应用包内新 geo 数据
+# （geo 数据期望随包刷新；核心 mihomo 仍用 noreplace 保护用户 InstallCore 升级）
+%config %{_localstatedir}/clard/lib/runtime/geoip.metadb
+%config %{_localstatedir}/clard/lib/runtime/geosite.dat
 %endif

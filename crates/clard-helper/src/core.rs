@@ -464,7 +464,7 @@ fn verify_inbox_sha256(inbox_path: &Path, expected_sha256: &str) -> Result<fs::F
 
 /// geo 数据更新（geoip.metadb / geosite.dat，§6.3）：inbox 校验 → 原子替换
 /// `/var/clard/lib/runtime/<file>`（核心 -d 目录——mihomo 只在 -d 目录找 MMDB；
-/// RPM 分发同路径，`%config(noreplace)` 用户更新不被覆盖）。
+/// RPM 分发同路径，`%config` 备份旧文件 .rpmsave 后应用新文件）。
 pub fn install_geodata(
     geodata_dir: &Path,
     inbox_root: &Path,
