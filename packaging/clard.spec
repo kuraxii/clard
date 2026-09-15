@@ -10,9 +10,9 @@
 # --no-mihomo）则包内不含，首次使用经 InstallCore 安装。
 
 Name:           clard
-Version:        0.1.0
+Version:        0.2.0
 # 不带 dist 标记（如 fc41）：包名/版本/架构即可，便于跨发行版复用构建产物
-Release:        7
+Release:        1
 Summary:        Clard — Linux transparent proxy manager (system helper + TUI client)
 
 License:        MIT

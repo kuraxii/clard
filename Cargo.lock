@@ -188,7 +188,7 @@ checksum = "a1d728cc89cf3aee9ff92b05e62b19ee65a02b5702cff7d5a377e32c6ae29d8d"
 
 [[package]]
 name = "clard-config"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "base64",
  "serde_json",
@@ -199,7 +199,7 @@ dependencies = [
 
 [[package]]
 name = "clard-core"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "base64",
  "flate2",
@@ -223,7 +223,7 @@ dependencies = [
 
 [[package]]
 name = "clard-helper"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "clap",
  "clard-config",
@@ -249,7 +249,7 @@ dependencies = [
 
 [[package]]
 name = "clard-proto"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "serde",
  "serde_json",
@@ -258,7 +258,7 @@ dependencies = [
 
 [[package]]
 name = "clard-tui"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "clap",
  "clard-config",
