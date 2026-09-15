@@ -21,7 +21,7 @@
 use serde::{Deserialize, Serialize};
 
 /// 当前协议版本。任何不兼容变更都必须递增并在 `Hello` 握手中核对。
-pub const PROTO_VERSION: u32 = 8;
+pub const PROTO_VERSION: u32 = 9;
 
 /// 协议层错误
 #[derive(Debug, thiserror::Error)]
@@ -185,6 +185,8 @@ pub struct SettingsPatch {
     pub test_url: Option<String>,
     // ---- TUN（doc/05 §7 R7.2）----
     pub tun_enabled: Option<bool>,
+    /// 用户已确认其他 TUN 共存风险后强开（§6.2：跳过占用警告，仅 TUI 确认后携带）
+    pub force_tun: Option<bool>,
     pub tun_stack: Option<String>,
     /// TUN 下 DNS 模式：fake-ip / redir-host
     pub tun_dns_mode: Option<String>,
@@ -360,6 +362,10 @@ pub enum Response {
         clean: bool,
         residuals: Vec<String>,
     },
+    /// 开启 TUN 时检测到其他活跃 TUN 设备（§6.2，非错误）：TUI 二次确认后带 force_tun 重试
+    TunConflict {
+        devices: Vec<String>,
+    },
     /// 无额外载荷的成功
     Ok,
     Error {
@@ -394,7 +400,7 @@ mod tests {
 
     #[test]
     fn proto_version_is_current() {
-        assert_eq!(PROTO_VERSION, 8);
+        assert_eq!(PROTO_VERSION, 9);
     }
 
     #[test]
