@@ -5,7 +5,9 @@
 #   git tag v0.1.0 && git push origin v0.1.0     # 自动构建并发布
 #   Actions 页手动 Run workflow（需填 tag 名）
 #
-# 注意：与本地构建环境一致（Fedora + systemd-rpm-macros），避免跨发行版 rpm 宏缺失。
+# 两 job 结构：build 在 Fedora 容器内构建（与本地环境一致，systemd-rpm-macros 宏齐全），
+# 经 upload-artifact 传产物；release 在无容器的 runner 上传（容器内跑 node action 时
+# docker exec 的工作目录与 shell 步骤路径是两套 bind mount，glob 会漏文件，故拆开）。
 name: release
 
 on:
@@ -22,8 +24,8 @@ permissions:
   contents: write
 
 jobs:
-  release:
-    name: Build & Release (${{ github.ref_name }})
+  build:
+    name: Build RPM + assets
     runs-on: ubuntu-latest
     container:
       # 与 packaging/clard.spec 依赖一致：systemd-rpm-macros 提供 %systemd_post 等宏
@@ -64,13 +66,32 @@ jobs:
           echo "==> release assets:"
           ls -lh dist
 
+      - name: Upload artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: clard-dist
+          path: dist/
+          if-no-files-found: error
+
+  release:
+    name: Publish GitHub Release
+    runs-on: ubuntu-latest
+    needs: build
+    steps:
+      - name: Download artifacts
+        uses: actions/download-artifact@v4
+        with:
+          name: clard-dist
+          path: clard-dist
+
       - name: Publish GitHub Release
         uses: softprops/action-gh-release@v2
         with:
           tag_name: ${{ github.ref_type == 'tag' && github.ref_name || inputs.tag_name }}
           files: |
-            ${{ github.workspace }}/dist/*.rpm
-            ${{ github.workspace }}/dist/*.tar.gz
-            ${{ github.workspace }}/dist/*.txt
+            clard-dist/*.rpm
+            clard-dist/*.tar.gz
+            clard-dist/sha256sums.txt
           generate_release_notes: true
           draft: false
+          fail_on_unmatched_files: true
