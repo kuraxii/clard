@@ -12,7 +12,7 @@
 Name:           clard
 Version:        0.1.0
 # 不带 dist 标记（如 fc41）：包名/版本/架构即可，便于跨发行版复用构建产物
-Release:        1
+Release:        2
 Summary:        Clard — Linux transparent proxy manager (system helper + TUI client)
 
 License:        MIT
@@ -67,11 +67,11 @@ install -d -m 0700 %{_localstatedir}/clard/lib \
                  %{_localstatedir}/clard/bin
 %systemd_post clard-helper.service
 # 兜底：部分环境（容器/最小化 systemd）file-trigger 不生效导致 enable 缺失，
-# 显式 enable + start（幂等，失败不阻塞事务）
+# 显式 enable + restart（幂等，失败不阻塞事务）。
+# restart 同时覆盖两种场景：全新安装时启动；升级时把运行中的旧二进制换成新版本
+# （start 对已 active 是 no-op，try-restart 对未运行是 no-op，restart 两者都覆盖）。
 systemctl enable clard-helper.service >/dev/null 2>&1 || :
-# try-restart：安装时启动；升级时旧服务在跑则重启为新二进制
-# （systemctl start 对已 active 服务是 no-op，会导致升级后 helper 仍是旧版本）
-systemctl try-restart clard-helper.service >/dev/null 2>&1 || :
+systemctl restart clard-helper.service >/dev/null 2>&1 || :
 
 %preun
 %systemd_preun clard-helper.service
