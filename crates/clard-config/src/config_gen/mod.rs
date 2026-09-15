@@ -10,7 +10,7 @@ pub mod managed;
 pub mod merge;
 pub mod normalize;
 
-use serde_yaml_ng::Value;
+use serde_yaml_ng::{Mapping, Value};
 use thiserror::Error;
 
 pub use managed::{ConfigGenOptions, TunOptions};
@@ -52,7 +52,62 @@ pub fn generate(
         other => return Err(ConfigGenError::Yaml(format!("配置根必须是 mapping，实际是 {other:?}"))),
     };
     managed::inject(mapping, options);
+    ensure_default_routing(mapping);
     serde_yaml_ng::to_string(&doc).map_err(|e| ConfigGenError::Yaml(e.to_string()))
+}
+
+/// 订阅只含节点（无 `rules`，纯节点列表）时补默认分组与规则：
+/// 否则 `mode: rule` + 空规则 → 全部直连，外网不可达。
+/// 默认规则对齐 clash-verge 经典默认：私网/国内直连，其余走 `GLOBAL` 组（doc/01 §8.3 A）。
+fn ensure_default_routing(m: &mut Mapping) {
+    // 订阅自带规则则不干预（其自有路由/分组保留）
+    let has_rules = m
+        .get(Value::String("rules".into()))
+        .and_then(Value::as_sequence)
+        .is_some_and(|s| !s.is_empty());
+    if has_rules {
+        return;
+    }
+    // 收集节点名（供 GLOBAL 组引用）
+    let names: Vec<String> = m
+        .get(Value::String("proxies".into()))
+        .and_then(Value::as_sequence)
+        .map(|seq| {
+            seq.iter()
+                .filter_map(|p| p.get(Value::String("name".into())).and_then(Value::as_str))
+                .map(String::from)
+                .collect()
+        })
+        .unwrap_or_default();
+    if names.is_empty() {
+        return; // 无节点可路由，留给 mihomo 兜底
+    }
+    // 分组：未定义 proxy-groups 时注入 GLOBAL（select：全部节点 + DIRECT，TUI 可切换）
+    let has_groups = m
+        .get(Value::String("proxy-groups".into()))
+        .and_then(Value::as_sequence)
+        .is_some_and(|s| !s.is_empty());
+    if !has_groups {
+        let mut members: Vec<Value> = names.iter().cloned().map(Value::String).collect();
+        members.push(Value::String("DIRECT".into()));
+        let mut group = Mapping::new();
+        group.insert(Value::String("name".into()), Value::String("GLOBAL".into()));
+        group.insert(Value::String("type".into()), Value::String("select".into()));
+        group.insert(Value::String("proxies".into()), Value::Sequence(members));
+        m.insert(
+            Value::String("proxy-groups".into()),
+            Value::Sequence(vec![Value::Mapping(group)]),
+        );
+    }
+    // 默认规则（clash-verge 经典默认）：私网/国内直连，其余走 GLOBAL
+    m.insert(
+        Value::String("rules".into()),
+        Value::Sequence(vec![
+            Value::String("GEOIP,private,DIRECT,no-resolve".into()),
+            Value::String("GEOIP,CN,DIRECT".into()),
+            Value::String("MATCH,GLOBAL".into()),
+        ]),
+    );
 }
 
 /// 订阅原始内容 → **可存储的 yaml**（提交 `ProfileImport` 前用，§7.1）：
@@ -246,6 +301,87 @@ mod tests {
     fn generate_unsupported_scheme_errors() {
         let out = generate("tuic://abc@1.2.3.4:443", None, &opts());
         assert!(matches!(out, Err(ConfigGenError::UnsupportedScheme(_))));
+    }
+
+    #[test]
+    fn node_list_subscription_gets_default_routing() {
+        let profile = "vless://uuid@1.2.3.4:443?encryption=none&type=tcp#香港-01\n\
+                       vless://uuid@5.6.7.8:443?encryption=none&type=tcp#日本-02\n";
+        let out = generate(profile, None, &opts()).unwrap();
+        let m = as_mapping(&out);
+        // 默认分组 GLOBAL：全部节点 + DIRECT（TUI 可切换）
+        let groups = get(&m, "proxy-groups").unwrap().as_sequence().unwrap();
+        let g0 = groups[0].as_mapping().unwrap();
+        assert_eq!(get(g0, "name").unwrap().as_str(), Some("GLOBAL"));
+        assert_eq!(get(g0, "type").unwrap().as_str(), Some("select"));
+        let members: Vec<&str> = get(g0, "proxies")
+            .unwrap()
+            .as_sequence()
+            .unwrap()
+            .iter()
+            .filter_map(|v| v.as_str())
+            .collect();
+        assert!(members.contains(&"香港-01"));
+        assert!(members.contains(&"日本-02"));
+        assert!(members.contains(&"DIRECT"));
+        // 默认规则（clash-verge 经典默认）：私网/国内直连 + 兜底 GLOBAL
+        let rs: Vec<&str> = get(&m, "rules")
+            .unwrap()
+            .as_sequence()
+            .unwrap()
+            .iter()
+            .filter_map(|v| v.as_str())
+            .collect();
+        assert_eq!(
+            rs,
+            vec!["GEOIP,private,DIRECT,no-resolve", "GEOIP,CN,DIRECT", "MATCH,GLOBAL"]
+        );
+        assert_eq!(get(&m, "mode").unwrap().as_str(), Some("rule"));
+    }
+
+    #[test]
+    fn yaml_subscription_with_rules_is_not_touched() {
+        let profile = "proxies:\n  - name: n1\n    type: vless\n    server: 1.2.3.4\n    port: 443\n\
+                       proxy-groups:\n  - name: 我的组\n    type: select\n    proxies: [n1, DIRECT]\n\
+                       rules:\n  - DOMAIN-SUFFIX,example.com,我的组\n  - MATCH,我的组\n";
+        let out = generate(profile, None, &opts()).unwrap();
+        let m = as_mapping(&out);
+        let rs: Vec<&str> = get(&m, "rules")
+            .unwrap()
+            .as_sequence()
+            .unwrap()
+            .iter()
+            .filter_map(|v| v.as_str())
+            .collect();
+        assert_eq!(
+            rs,
+            vec!["DOMAIN-SUFFIX,example.com,我的组", "MATCH,我的组"],
+            "订阅自带规则不干预"
+        );
+        let groups = get(&m, "proxy-groups").unwrap().as_sequence().unwrap();
+        assert_eq!(
+            get(groups[0].as_mapping().unwrap(), "name").unwrap().as_str(),
+            Some("我的组"),
+            "订阅自带分组不干预"
+        );
+        assert_eq!(get(&m, "mode").unwrap().as_str(), Some("rule"));
+    }
+
+    #[test]
+    fn yaml_proxies_only_gets_default_routing() {
+        let profile = "proxies:\n  - name: n1\n    type: vless\n    server: 1.2.3.4\n    port: 443\n";
+        let out = generate(profile, None, &opts()).unwrap();
+        let m = as_mapping(&out);
+        assert!(get(&m, "rules").is_some(), "proxies-only YAML 也补默认规则");
+        assert!(get(&m, "proxy-groups").is_some(), "proxies-only YAML 也补默认分组");
+        let rs: Vec<&str> = get(&m, "rules")
+            .unwrap()
+            .as_sequence()
+            .unwrap()
+            .iter()
+            .filter_map(|v| v.as_str())
+            .collect();
+        assert_eq!(rs.last(), Some(&"MATCH,GLOBAL"));
     }
 
     fn get<'a>(m: &'a serde_yaml_ng::Mapping, key: &str) -> Option<&'a Value> {
