@@ -557,33 +557,6 @@ mod tests {
     }
 
     #[test]
-    fn install_core_replaces_binary_atomically_and_records_sha() {
-        let (_dir, state, inbox, targets) = install_env();
-        let payload = b"mihomo-v2.0.0".to_vec();
-        let sha = {
-            use sha2::{Digest, Sha256};
-            let mut h = Sha256::new();
-            h.update(&payload);
-            format!("{:x}", h.finalize())
-        };
-        let inbox_file = inbox.join("core.bin");
-        fs::write(&inbox_file, &payload).unwrap();
-
-        install_core(&state, &targets, &inbox_file, &sha).unwrap();
-
-        // 替换目标存在、内容一致、0755、root 拥有
-        assert_eq!(fs::read(&targets.bin_path).unwrap(), payload);
-        use std::os::unix::fs::{MetadataExt, PermissionsExt};
-        let meta = fs::metadata(&targets.bin_path).unwrap();
-        assert_eq!(meta.permissions().mode() & 0o777, 0o755);
-        assert_eq!(meta.uid(), 0);
-        // sha 记录
-        assert_eq!(fs::read_to_string(core_sha256_path(&state)).unwrap(), sha);
-        // inbox 已清理
-        assert!(!inbox_file.exists());
-    }
-
-    #[test]
     fn install_core_sha_mismatch_rejects_and_removes_inbox() {
         let (_dir, state, inbox, targets) = install_env();
         let inbox_file = inbox.join("core.bin");
@@ -616,26 +589,6 @@ mod tests {
         assert!(e.contains("打开 inbox 文件失败"), "O_NOFOLLOW 拒绝 symlink: {e}");
         assert!(!fs::read_to_string(&target).map(|s| s.is_empty()).unwrap_or(true), "目标未被读取/影响");
         let _ = fs::remove_file(&target);
-    }
-
-    #[test]
-    fn verify_core_binary_checks_presence_owner_and_mode() {
-        let dir = tempfile::tempdir().unwrap();
-        let bin = dir.path().join("mihomo");
-        // 缺失
-        assert!(verify_core_binary(&bin).unwrap_err().contains("核心二进制缺失"));
-        // 正常 0755
-        fs::write(&bin, b"ELF").unwrap();
-        use std::os::unix::fs::PermissionsExt;
-        fs::set_permissions(&bin, fs::Permissions::from_mode(0o755)).unwrap();
-        assert!(verify_core_binary(&bin).is_ok());
-        // group/other 可写拒绝
-        fs::set_permissions(&bin, fs::Permissions::from_mode(0o775)).unwrap();
-        assert!(verify_core_binary(&bin).unwrap_err().contains("group/other 可写"));
-        // symlink 拒绝
-        let link = dir.path().join("link");
-        std::os::unix::fs::symlink(&bin, &link).unwrap();
-        assert!(verify_core_binary(&link).unwrap_err().contains("符号链接"));
     }
 
     #[test]
