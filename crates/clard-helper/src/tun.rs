@@ -88,25 +88,23 @@ pub async fn capability_check(tools: &Tools) -> Result<(), String> {
 
 // ---- §6.2 冲突检测 ----
 
-/// 检测其他活跃 TUN 设备（如 clash-verge 的 `Meta`）。两个 TUN 无法共存——
-/// auto-route 抢默认路由、dns-hijack 抢 53。检测到即报错，不静默开。
-pub async fn check_other_tun(tools: &Tools) -> Result<(), String> {
-    let out = run(&tools.ip, &["-o", "link", "show", "type", "tun"]).await;
-    let devices = tun_devices(&out.stdout);
-    let foreign: Vec<&str> = devices.iter().filter(|d| d.as_str() != TUN_DEVICE).map(String::as_str).collect();
-    if !foreign.is_empty() {
-        return Err(format!(
-            "检测到其他工具正在占用 TUN（{}），请先停用，否则 auto-route/dns-hijack 会互相冲突",
-            foreign.join(", ")
-        ));
-    }
-    Ok(())
+/// 检测其他活跃 TUN 设备（如 tailscale0 / clash-verge 的 `Meta`），返回**警告列表**（非错误）。
+/// tap 设备（VM 网卡，如 libvirt `vnet*`）排除——L2 桥接不抢路由/DNS，不构成冲突。
+/// 调用方（TUI）对警告二次确认，确认后带 `force_tun` 强开（doc/01 §6.2）。
+pub async fn check_other_tun(tools: &Tools) -> Vec<String> {
+    let out = run(&tools.ip, &["-d", "-o", "link", "show", "type", "tun"]).await;
+    tun_devices(&out.stdout)
+        .into_iter()
+        .filter(|d| d.as_str() != TUN_DEVICE)
+        .collect()
 }
 
-/// 解析 `ip -o link show type tun` 输出中的设备名：`3: clard0: <...> ...`。
+/// 解析 `ip -d -o link show type tun` 输出中的 tun 设备名（tap 网卡跳过）。
+/// 行格式：`37: vnet1: <...> ... \    link/ether ... \    tun type tap ...`
 fn tun_devices(output: &str) -> Vec<String> {
     output
         .lines()
+        .filter(|line| !line.contains("tun type tap"))
         .filter_map(|line| {
             let rest = line.trim_start();
             let after_idx = rest.find(": ")?;
@@ -228,9 +226,19 @@ async fn residuals(tools: &Tools) -> Vec<String> {
 
 /// TUN 开启前置检查（§5.6/§8.4）：能力探测 + 其他 TUN 占用检测 + 自身残留清理。
 /// `core_running` 时若检测到自身标识占用视为冲突（报错）；核心未运行则先清理残留再继续。
-pub(crate) async fn precheck_tun_enable(core_running: bool, tools: &Tools) -> Result<(), String> {
+/// 返回**其他 TUN 设备警告列表**（`force=true` 时跳过该项检测，§6.2 用户已确认共存）。
+pub(crate) async fn precheck_tun_enable(
+    core_running: bool,
+    force: bool,
+    tools: &Tools,
+) -> Result<Vec<String>, String> {
     capability_check(tools).await?;
-    check_other_tun(tools).await?;
+    // 其他活跃 TUN：默认返回警告（TUI 二次确认后 force 强开）；force 时跳过
+    let warnings = if force {
+        Vec::new()
+    } else {
+        check_other_tun(tools).await
+    };
     // 自身残留（上次崩溃遗留）：核心未运行时清理后再开；核心运行中则视为他人占用
     let link = run(&tools.ip, &["-o", "link", "show", TUN_DEVICE]).await;
     let rule = run(&tools.ip, &["rule"]).await;
@@ -245,7 +253,7 @@ pub(crate) async fn precheck_tun_enable(core_running: bool, tools: &Tools) -> Re
         tracing::warn!("precheck: 检测到自身 TUN 残留，先清理再开启");
         cleanup_tun(tools).await;
     }
-    Ok(())
+    Ok(warnings)
 }
 
 #[cfg(test)]
@@ -255,12 +263,37 @@ mod tests {
     use super::*;
 
     #[test]
-    fn parse_tun_devices() {
+    fn parse_tun_devices_skips_tap() {
         let out = "1: lo: <LOOPBACK,...> \\    link/loopback ...\n\
-                   3: clard0: <POINTOPOINT,UP,LOWER_UP> mtu 1500 qdisc fq_codel state UNKNOWN \\    link/none\n\
-                   4: Meta: <POINTOPOINT,UP> mtu 1500 ... \\    link/none\n";
+                   3: clard0: <POINTOPOINT,UP,LOWER_UP> mtu 1500 qdisc fq_codel state UNKNOWN \\    link/none \\    tun type tun pi off\n\
+                   4: Meta: <POINTOPOINT,UP> mtu 1500 ... \\    link/none \\    tun type tun pi off\n\
+                   37: vnet1: <BROADCAST,UP> mtu 1500 master virbr0 \\    link/ether fe:54:00:47:28:0c \\    tun type tap pi off\n";
         let devs = tun_devices(out);
-        assert_eq!(devs, vec!["lo", "clard0", "Meta"]);
+        assert_eq!(devs, vec!["lo", "clard0", "Meta"], "tap 网卡（vnet1）应被排除");
+    }
+
+    #[tokio::test]
+    async fn check_other_tun_returns_foreign_tun_warnings_skipping_tap_and_self() {
+        use std::os::unix::fs::PermissionsExt;
+        let dir = tempfile::tempdir().unwrap();
+        let ip = dir.path().join("ip");
+        std::fs::write(
+            &ip,
+            "#!/bin/sh\ncat <<'EOF'\n\
+             6: tailscale0: <POINTOPOINT,UP> mtu 1280 \\    link/none \\    tun type tun pi off\n\
+             3: clard0: <POINTOPOINT,UP> mtu 1500 \\    link/none \\    tun type tun pi off\n\
+             37: vnet1: <BROADCAST,UP> mtu 1500 master virbr0 \\    link/ether fe:54:00:47:28:0c \\    tun type tap pi off\n\
+             EOF\n",
+        )
+        .unwrap();
+        std::fs::set_permissions(&ip, std::fs::Permissions::from_mode(0o755)).unwrap();
+        let tools = Tools {
+            ip,
+            nft: "nft".into(),
+            resolvectl: "resolvectl".into(),
+        };
+        let warns = check_other_tun(&tools).await;
+        assert_eq!(warns, vec!["tailscale0"], "只应警告真 TUN，跳过 clard0 自身与 vnet1 tap");
     }
 
     #[test]

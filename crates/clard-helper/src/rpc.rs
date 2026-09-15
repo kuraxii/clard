@@ -124,14 +124,19 @@ pub async fn handle(
                 // §8.4 白名单字段：TUN 开启前置检查（能力/冲突/残留）→ 内存 apply →
                 // regenerate（热重载+回读）→ 成功才持久化；失败恢复内存（§7.2 设置不静默变）。
                 let core_running = core.state() == "running";
+                let force = patch.force_tun == Some(true);
                 let precheck = if patch.tun_enabled == Some(true) {
-                    crate::tun::precheck_tun_enable(core_running, &crate::tun::Tools::system()).await
+                    crate::tun::precheck_tun_enable(core_running, force, &crate::tun::Tools::system()).await
                 } else {
-                    Ok(())
+                    Ok(Vec::new())
                 };
                 match precheck {
                     Err(e) => ("settings.set", Response::err(e), None),
-                    Ok(()) => {
+                    // 其他 TUN 共存警告：不静默开，返回结构化冲突由 TUI 二次确认（§6.2）
+                    Ok(warnings) if !warnings.is_empty() => {
+                        ("settings.set", Response::TunConflict { devices: warnings }, None)
+                    }
+                    Ok(_) => {
                         let backup = settings.get().clone();
                         if let Err(e) = settings.apply_in_memory(&patch) {
                             ("settings.set", Response::err(e.to_string()), None)

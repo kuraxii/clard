@@ -192,6 +192,7 @@ mod tests {
                     mixed_port: Some(7891),
                     test_url: Some("http://x".into()),
                     tun_enabled: Some(true),
+                    force_tun: None,
                     tun_stack: Some("gvisor".into()),
                     tun_dns_mode: Some("redir-host".into()),
                     dns_hijack: Some(vec!["any:53".into()]),
