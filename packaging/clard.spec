@@ -105,3 +105,12 @@ systemctl restart clard-helper.service >/dev/null 2>&1 || :
 %config %{_localstatedir}/clard/lib/runtime/geoip.metadb
 %config %{_localstatedir}/clard/lib/runtime/geosite.dat
 %endif
+
+%changelog
+* Tue Sep 15 2026 zjzhu <zjzhu@kuraxii.dev> - 0.2.0-1
+- 代理模式切换（rule 分流 / global 全代理 / direct 全直连）：设置页 General「Mode」循环切换，白名单 regenerate 热重载
+- geo 数据随 RPM 分发到核心 -d 目录（/var/clard/lib/runtime）安装即用；TUI `g` 更新（inbox 校验 + 原子替换）；`%config` 升级备份旧 .rpmsave 并应用新文件
+- 纯节点列表订阅补默认规则（GEOIP,private/CN,DIRECT + MATCH,GLOBAL + GLOBAL 组），否则 rule 模式空规则全直连
+- TUN 冲突改为警告 + force 二次确认（tap 设备排除，vnet 误报修复）
+- 协议 v10 → v11（Settings 新增 mode）
+- 构建容器钉 fedora:39（EOL 源切 archive + rustup 1.95.0）

@@ -28,16 +28,24 @@ jobs:
     name: Build RPM + assets
     runs-on: ubuntu-latest
     container:
-      # 与 packaging/clard.spec 依赖一致：systemd-rpm-macros 提供 %systemd_post 等宏
-      image: fedora:latest
+      # 与 packaging/clard.spec 依赖一致：systemd-rpm-macros 提供 %systemd_post 等宏。
+      # 钉 fedora:39（EOL，dnf 源需切 archive；自带 rust 1.73 不满足 edition 2024 →
+      # 用 rustup 装 1.95.0，对齐 rust-toolchain.toml / ci.yml）。
+      image: fedora:39
       options: --user root
     steps:
-      - name: Install build dependencies
+      - name: Fix EOL repos + install build dependencies
         run: |
+          # Fedora 39 已 EOL：官方镜像仓库指向已下线的 mirrorlist，切到 archive 源
+          sed -i 's/metalink=/#metalink=/g' /etc/yum.repos.d/*.repo
+          sed -i 's|#baseurl=http://download.example/pub/fedora/linux|baseurl=https://dl.fedoraproject.org/pub/archive/fedora/linux|g' /etc/yum.repos.d/*.repo
           dnf install -y --setopt=install_weak_deps=False \
-            rust cargo git bash curl tar gzip \
+            git bash curl tar gzip \
             rpm-build systemd-rpm-macros \
             perl-core   # native-tls-vendored 源码编译 OpenSSL 需要 FindBin 等 perl 核心模块
+          # rust 1.95.0（Fedora 39 自带 rust 1.73 < edition 2024 下限 1.85）
+          curl -sSf https://sh.rustup.rs | sh -s -- -y --profile minimal --default-toolchain 1.95.0
+          echo "$HOME/.cargo/bin" >> "$GITHUB_PATH"
 
       - name: Checkout
         uses: actions/checkout@v4
