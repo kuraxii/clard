@@ -161,6 +161,28 @@ pub async fn run() -> io::Result<()> {
     // §5.4/§6.5 watchdog：核心崩溃退避重启 + TUN 健康 fail-open
     crate::watchdog::spawn(settings.clone(), core.clone(), audit.clone(), events_tx.clone());
 
+    // §8.4 F：helper.toml 变更感知（30s 轮询 mtime）→ reload → 核心 log-level 字段级 PATCH 热更
+    {
+        let core = core.clone();
+        tokio::spawn(async move {
+            loop {
+                tokio::time::sleep(std::time::Duration::from_secs(30)).await;
+                if !crate::helper_config::reload_if_changed() {
+                    continue;
+                }
+                let level = crate::helper_config::global().log_level;
+                let mut core = core.lock().await;
+                if core.state() == "running" {
+                    let sock = crate::core::core_sock_path();
+                    match crate::core::patch_log_level(&sock, &level).await {
+                        Ok(()) => tracing::info!("helper.toml 变更：核心 log-level 已热更为 {level}"),
+                        Err(e) => tracing::warn!("log-level 热更失败: {e}"),
+                    }
+                }
+            }
+        });
+    }
+
     // §5.2 优雅退出：SIGTERM → 停核心 + cleanup-tun（fail-open）→ 退出。
     // 否则 helper 被 systemctl restart / kill -TERM 时 mihomo 子进程会成孤儿。
     let mut sigterm =

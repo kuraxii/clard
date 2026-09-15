@@ -318,6 +318,26 @@ pub(crate) async fn reload_config(sock: &Path, yaml: &str) -> Result<(), String>
     Ok(())
 }
 
+/// 字段级热更核心日志级别（§8.4 F）：`PATCH /configs` 仅带 `log-level`（doc/04 §3 支持），
+/// 轻量热更，不触发全量 regenerate。
+pub(crate) async fn patch_log_level(sock: &Path, level: &str) -> Result<(), String> {
+    let client = reqwest::Client::builder()
+        .unix_socket(sock)
+        .build()
+        .map_err(|e| e.to_string())?;
+    let resp = client
+        .patch("http://localhost/configs")
+        .json(&serde_json::json!({ "log-level": level }))
+        .send()
+        .await
+        .map_err(|e| e.to_string())?;
+    let status = resp.status().as_u16();
+    if status != 200 && status != 204 {
+        return Err(format!("PATCH log-level 失败: HTTP {status}"));
+    }
+    Ok(())
+}
+
 /// 回读当前生效配置：`GET /configs`（doc/04 §3，回读校验取数点）。
 pub(crate) async fn get_configs(sock: &Path) -> Result<serde_json::Value, String> {
     let client = reqwest::Client::builder()
@@ -629,5 +649,67 @@ mod tests {
         }
         // 第 11 次 → 超限（watchdog fail-open，§5.4）
         assert!(cm.crash_backoff().is_none());
+    }
+}
+
+#[cfg(test)]
+mod log_level_tests {
+    use super::*;
+    use tokio::io::{AsyncReadExt, AsyncWriteExt};
+    use tokio::net::UnixListener;
+
+    fn mock_sock(name: &str) -> std::path::PathBuf {
+        std::env::temp_dir().join(format!("clard-loglvl-{}-{name}.sock", std::process::id()))
+    }
+
+    async fn spawn_mock(path: std::path::PathBuf, status: &str) -> tokio::task::JoinHandle<(String, String)> {
+        let _ = std::fs::remove_file(&path);
+        let listener = UnixListener::bind(&path).unwrap();
+        let status = status.to_string();
+        tokio::spawn(async move {
+            let (mut sock, _) = listener.accept().await.unwrap();
+            let mut buf = Vec::new();
+            let mut tmp = [0u8; 4096];
+            loop {
+                let n = sock.read(&mut tmp).await.unwrap();
+                if n == 0 {
+                    break;
+                }
+                buf.extend_from_slice(&tmp[..n]);
+                if buf.windows(4).any(|w| w == b"\r\n\r\n") {
+                    break;
+                }
+            }
+            let text = String::from_utf8_lossy(&buf);
+            let req_line = text.lines().next().unwrap_or_default().to_string();
+            let method = req_line.split(' ').next().unwrap_or("").to_string();
+            let resp = format!(
+                "HTTP/1.1 {status}\r\nContent-Length: 0\r\nConnection: close\r\n\r\n"
+            );
+            sock.write_all(resp.as_bytes()).await.unwrap();
+            let _ = sock.shutdown().await;
+            let has_log_level = text.contains("log-level");
+            (method, format!("{has_log_level}"))
+        })
+    }
+
+    #[tokio::test]
+    async fn patch_log_level_patches_configs() {
+        let path = mock_sock("patch");
+        let handle = spawn_mock(path.clone(), "204 No Content").await;
+        patch_log_level(&path, "debug").await.unwrap();
+        let (method, has_field) = handle.await.unwrap();
+        assert_eq!(method, "PATCH");
+        assert_eq!(has_field, "true", "payload 应含 log-level");
+        let _ = std::fs::remove_file(&path);
+    }
+
+    #[tokio::test]
+    async fn patch_log_level_non_204_errors() {
+        let path = mock_sock("patch500");
+        let handle = spawn_mock(path.clone(), "400 Bad Request").await;
+        assert!(patch_log_level(&path, "debug").await.is_err());
+        let _ = handle.await.unwrap();
+        let _ = std::fs::remove_file(&path);
     }
 }

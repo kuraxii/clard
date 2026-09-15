@@ -96,8 +96,6 @@ pub enum Request {
     StartCore,
     StopCore,
     RestartCore,
-    /// 开/关 TUN（托管字段注入 + 热重载 + 回读校验）
-    SetTun { enable: bool },
     /// 手动兜底清理 TUN 残留（幂等）
     CleanupTun,
     /// 审计日志分页查询
@@ -360,11 +358,6 @@ pub enum Response {
     CleanupResult {
         clean: bool,
         residuals: Vec<String>,
-    },
-    /// SetTun 结果：hot_reloaded=false = 核心未运行，仅落盘待启动生效（§5.6）
-    TunSet {
-        hot_reloaded: bool,
-        verified: bool,
     },
     /// 无额外载荷的成功
     Ok,

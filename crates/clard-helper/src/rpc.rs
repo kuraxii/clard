@@ -121,37 +121,47 @@ pub async fn handle(
         }
         Request::SettingsSet(patch) => {
             if patch_affects_config(&patch) {
-                // §8.4 白名单字段：内存 apply → regenerate（热重载+回读）→ 成功才持久化；
-                // 失败恢复内存（§7.2 设置不静默变；config.yaml 已由 regenerate R7 回滚）。
-                let backup = settings.get().clone();
-                if let Err(e) = settings.apply_in_memory(&patch) {
-                    ("settings.set", Response::err(e.to_string()), None)
+                // §8.4 白名单字段：TUN 开启前置检查（能力/冲突/残留）→ 内存 apply →
+                // regenerate（热重载+回读）→ 成功才持久化；失败恢复内存（§7.2 设置不静默变）。
+                let core_running = core.state() == "running";
+                let precheck = if patch.tun_enabled == Some(true) {
+                    crate::tun::precheck_tun_enable(core_running, &crate::tun::Tools::system()).await
                 } else {
-                    let core_running = core.state() == "running";
-                    let ctx = if core_running { Ctx::Runtime } else { Ctx::Startup };
-                    match crate::config::regenerate(
-                        store,
-                        settings.get(),
-                        core,
-                        core_running,
-                        audit,
-                        events,
-                        actor,
-                        "settings",
-                        ctx,
-                    )
-                    .await
-                    {
-                        Ok(_) => match settings.save() {
-                            Ok(()) => ("settings.set", Response::Ok, None),
-                            Err(e) => {
-                                settings.restore(backup);
-                                ("settings.set", Response::err(e.to_string()), None)
+                    Ok(())
+                };
+                match precheck {
+                    Err(e) => ("settings.set", Response::err(e), None),
+                    Ok(()) => {
+                        let backup = settings.get().clone();
+                        if let Err(e) = settings.apply_in_memory(&patch) {
+                            ("settings.set", Response::err(e.to_string()), None)
+                        } else {
+                            let ctx = if core_running { Ctx::Runtime } else { Ctx::Startup };
+                            match crate::config::regenerate(
+                                store,
+                                settings.get(),
+                                core,
+                                core_running,
+                                audit,
+                                events,
+                                actor,
+                                "settings",
+                                ctx,
+                            )
+                            .await
+                            {
+                                Ok(_) => match settings.save() {
+                                    Ok(()) => ("settings.set", Response::Ok, None),
+                                    Err(e) => {
+                                        settings.restore(backup);
+                                        ("settings.set", Response::err(e.to_string()), None)
+                                    }
+                                },
+                                Err(e) => {
+                                    settings.restore(backup);
+                                    ("settings.set", Response::err(e), None)
+                                }
                             }
-                        },
-                        Err(e) => {
-                            settings.restore(backup);
-                            ("settings.set", Response::err(e), None)
                         }
                     }
                 }
@@ -375,42 +385,6 @@ pub async fn handle(
             Ok((cursor, records)) => ("audit.query", Response::AuditQuery { cursor, records }, None),
             Err(e) => ("audit.query", Response::err(e.to_string()), None),
         },
-        Request::SetTun { enable } => {
-            let s = settings.get().clone();
-            let path = core.runtime_config_path();
-            let sock = crate::core::core_sock_path();
-            let running = core.state() == "running";
-            match crate::tun::set_tun(
-                enable,
-                &s,
-                &path,
-                &sock,
-                running,
-                &crate::tun::Tools::system(),
-            )
-            .await
-            {
-                Ok(apply) => {
-                    // 设置持久化（失败时 tun 块已回退，设置不落盘：§7.2 设置不被静默修改）
-                    let patch = SettingsPatch {
-                        tun_enabled: Some(enable),
-                        ..Default::default()
-                    };
-                    match settings.patch(&patch) {
-                        Ok(()) => (
-                            "tun.enable",
-                            Response::TunSet {
-                                hot_reloaded: apply.hot_reloaded,
-                                verified: apply.verified,
-                            },
-                            None,
-                        ),
-                        Err(e) => ("tun.enable", Response::err(e.to_string()), None),
-                    }
-                }
-                Err(e) => ("tun.enable", Response::err(e), None),
-            }
-        }
         Request::CleanupTun => {
             let (clean, residuals) = crate::tun::cleanup_tun(&crate::tun::Tools::system()).await;
             ("cleanup.tun", Response::CleanupResult { clean, residuals }, None)
@@ -493,10 +467,6 @@ fn op_and_intent(req: &Request) -> (&'static str, &'static str) {
         Request::StartCore => ("core.start", "start core"),
         Request::StopCore => ("core.stop", "stop core"),
         Request::RestartCore => ("core.restart", "restart core"),
-        Request::SetTun { enable } => (
-            "tun.enable",
-            if *enable { "enable TUN" } else { "disable TUN" },
-        ),
         Request::CleanupTun => ("cleanup.tun", "cleanup TUN residuals"),
         Request::AuditQuery { .. } => ("audit.query", "query audit log"),
         Request::LogTail { .. } => ("log.tail", "tail log file"),

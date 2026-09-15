@@ -761,20 +761,21 @@ impl APP {
         });
     }
 
-    /// TUN 开关（R7.2）：经 helper `SetTun`（托管注入 + 热重载 + 读回校验，失败已回退）。
+    /// TUN 开关（R7.2，§8.4）：经 `SettingsSet{tun_enabled}` → helper 白名单 regenerate
+    /// （前置能力/冲突检查 + 托管注入 + 热重载 + 回读校验，失败已回退，设置不落盘）。
     pub fn toggle_tun(&mut self, enable: bool) {
         let sender = self.event_sender.clone();
         tokio::spawn(async move {
-            match rpc::call(&Request::SetTun { enable }).await {
-                Ok(Response::TunSet { hot_reloaded, .. }) => {
-                    let msg = if hot_reloaded {
-                        if enable {
-                            "TUN on (verified)".to_string()
-                        } else {
-                            "TUN off (verified)".to_string()
-                        }
+            let patch = clard_proto::SettingsPatch {
+                tun_enabled: Some(enable),
+                ..Default::default()
+            };
+            match rpc::call(&Request::SettingsSet(patch)).await {
+                Ok(Response::Ok) => {
+                    let msg = if enable {
+                        "TUN on (verified)".to_string()
                     } else {
-                        "TUN setting saved; core not running, takes effect on start".to_string()
+                        "TUN off".to_string()
                     };
                     let _ = sender.send(ClardEvent::Notify(msg));
                 }

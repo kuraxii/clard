@@ -1,12 +1,13 @@
 //! helper 系统配置（`/etc/clard/helper.toml`，root 0644；doc/01 §4 / doc/05 R7.5）。
 //!
 //! 与用户设置（clard.toml）分离：日志轮转/双写/核心日志级别是系统级运维参数。
-//! 启动时读取一次（`init`），改动需重启 helper 生效（TUI 提示 sudo 编辑命令，不直写）。
-//! 文件不存在 → 用默认值。`CLARD_HELPER_TOML` 可覆盖（开发/测试）。
+//! 启动时读取一次（`init`）；此后每 30s 检测文件 mtime，变更即 reload（§8.4 F：
+//! 核心 log-level 字段级 PATCH 热更）。文件不存在 → 用默认值。`CLARD_HELPER_TOML`
+//! 可覆盖（开发/测试）。
 
 use std::{
     path::{Path, PathBuf},
-    sync::OnceLock,
+    sync::{LazyLock, RwLock},
 };
 
 use serde::Deserialize;
@@ -25,6 +26,9 @@ pub struct HelperConfig {
     pub audit_keep: usize,
     /// 审计是否双写 journald（stdout KEY=VALUE）
     pub audit_dual_write: bool,
+    /// 配置文件 mtime（内部：变更检测；不参与 toml）
+    #[serde(skip)]
+    mtime: Option<std::time::SystemTime>,
 }
 
 impl Default for HelperConfig {
@@ -35,6 +39,7 @@ impl Default for HelperConfig {
             app_log_keep: 5,
             audit_keep: 5,
             audit_dual_write: true,
+            mtime: None,
         }
     }
 }
@@ -57,23 +62,42 @@ impl HelperConfig {
 
     /// 从指定路径读取（测试注入；逻辑同 [`Self::load`]）。
     pub fn load_at(path: &Path) -> Self {
+        let mtime = std::fs::metadata(path).and_then(|m| m.modified()).ok();
         match std::fs::read_to_string(path) {
-            Ok(text) => toml::from_str(&text).unwrap_or_default(),
+            Ok(text) => {
+                let mut c: Self = toml::from_str(&text).unwrap_or_default();
+                c.mtime = mtime;
+                c
+            }
             Err(_) => Self::default(),
         }
     }
 }
 
-static CFG: OnceLock<HelperConfig> = OnceLock::new();
+static CFG: LazyLock<RwLock<HelperConfig>> = LazyLock::new(|| RwLock::new(HelperConfig::default()));
 
 /// 启动时初始化（daemon::run 早期调用；单进程单次）。
 pub fn init() {
-    let _ = CFG.set(HelperConfig::load());
+    *CFG.write().unwrap() = HelperConfig::load();
 }
 
-/// 全局配置访问（logs/audit/rpc 用）。
-pub fn global() -> &'static HelperConfig {
-    CFG.get().expect("helper config 未初始化（daemon::run 应先调用 init）")
+/// 全局配置快照（logs/audit/rpc/regenerate 用；clone 避免长期持锁）。
+pub fn global() -> HelperConfig {
+    CFG.read().unwrap().clone()
+}
+
+/// 配置文件 mtime 变化则重载，返回是否变化（§8.4 F：daemon 每 30s 调用，
+/// 变化后由调用方对核心做 log-level 字段级 PATCH 热更）。
+pub fn reload_if_changed() -> bool {
+    let mut cfg = CFG.write().unwrap();
+    let cur_mtime = std::fs::metadata(HelperConfig::path())
+        .and_then(|m| m.modified())
+        .ok();
+    if cur_mtime == cfg.mtime {
+        return false;
+    }
+    *cfg = HelperConfig::load_at(&HelperConfig::path());
+    true
 }
 
 #[cfg(test)]
@@ -81,6 +105,23 @@ mod tests {
     use tempfile::tempdir;
 
     use super::*;
+
+    #[test]
+    fn reload_if_changed_detects_mtime() {
+        let _g = crate::testutil::env_guard();
+        let dir = tempdir().unwrap();
+        let path = dir.path().join("helper.toml");
+        std::fs::write(&path, "log_level = \"info\"\n").unwrap();
+        crate::testutil::set_env("CLARD_HELPER_TOML", &path);
+        init();
+        assert_eq!(global().log_level, "info");
+        assert!(!reload_if_changed(), "mtime 未变不应重载");
+        std::thread::sleep(std::time::Duration::from_millis(20)); // 确保 mtime 变化
+        std::fs::write(&path, "log_level = \"debug\"\n").unwrap();
+        assert!(reload_if_changed(), "mtime 变化应重载");
+        assert_eq!(global().log_level, "debug");
+        crate::testutil::rm_env("CLARD_HELPER_TOML");
+    }
 
     #[test]
     fn default_values_match_docs() {
