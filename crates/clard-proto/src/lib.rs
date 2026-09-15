@@ -268,6 +268,7 @@ pub struct ProfileImport {
     pub name: Option<String>,
     pub url: String,
     pub interval: u64,
+    /// 订阅**原始内容**（raw，可能 base64/节点列表；helper 侧经 clard-config 转换，§8.3 A）
     pub yaml: String,
     /// 订阅流量/到期（可选，`subscription-userinfo`）。
     #[serde(default)]

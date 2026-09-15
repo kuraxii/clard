@@ -5,11 +5,12 @@
 
 use std::path::Path;
 
-use clard_proto::{Event, ProfileItem, Request, Response};
+use clard_proto::{Event, ProfileItem, Request, Response, SettingsPatch};
 use sha2::{Digest, Sha256};
 use tokio::sync::broadcast;
 
 use crate::audit::{Actor, Audit};
+use crate::config::Ctx;
 use crate::core::CoreManager;
 use crate::profiles::{ImportOutcome, ProfilesError, ProfilesStore};
 use crate::settings::SettingsStore;
@@ -118,10 +119,49 @@ pub async fn handle(
             let settings = settings.get().clone();
             ("settings.get", Response::Settings { settings }, None)
         }
-        Request::SettingsSet(patch) => match settings.patch(&patch) {
-            Ok(()) => ("settings.set", Response::Ok, None),
-            Err(e) => ("settings.set", Response::err(e.to_string()), None),
-        },
+        Request::SettingsSet(patch) => {
+            if patch_affects_config(&patch) {
+                // §8.4 白名单字段：内存 apply → regenerate（热重载+回读）→ 成功才持久化；
+                // 失败恢复内存（§7.2 设置不静默变；config.yaml 已由 regenerate R7 回滚）。
+                let backup = settings.get().clone();
+                if let Err(e) = settings.apply_in_memory(&patch) {
+                    ("settings.set", Response::err(e.to_string()), None)
+                } else {
+                    let core_running = core.state() == "running";
+                    let ctx = if core_running { Ctx::Runtime } else { Ctx::Startup };
+                    match crate::config::regenerate(
+                        store,
+                        settings.get(),
+                        core,
+                        core_running,
+                        audit,
+                        events,
+                        actor,
+                        "settings",
+                        ctx,
+                    )
+                    .await
+                    {
+                        Ok(_) => match settings.save() {
+                            Ok(()) => ("settings.set", Response::Ok, None),
+                            Err(e) => {
+                                settings.restore(backup);
+                                ("settings.set", Response::err(e.to_string()), None)
+                            }
+                        },
+                        Err(e) => {
+                            settings.restore(backup);
+                            ("settings.set", Response::err(e), None)
+                        }
+                    }
+                }
+            } else {
+                match settings.patch(&patch) {
+                    Ok(()) => ("settings.set", Response::Ok, None),
+                    Err(e) => ("settings.set", Response::err(e.to_string()), None),
+                }
+            }
+        }
         Request::ProfileList => {
             let items = store
                 .list()
@@ -153,18 +193,88 @@ pub async fn handle(
             )
         }
         Request::ProfileImport(import) => {
-            match store.import(&import.url, import.name.as_deref(), import.interval, &import.yaml, import.info) {
-                Ok(ImportOutcome::Created { uid }) => (
-                    "profile.import",
-                    Response::ProfileImported { uid, updated: false },
-                    None,
-                ),
-                Ok(ImportOutcome::Updated { uid }) => (
-                    "profile.import",
-                    Response::ProfileImported { uid, updated: true },
-                    None,
-                ),
-                Err(e) => ("profile.import", Response::err(e.to_string()), None),
+            // §8.3 A：订阅原始内容（raw）→ clard-config 转换 → 标准 yaml 落盘
+            match clard_config::config_gen::subscription_to_yaml(&import.yaml) {
+                Err(e) => ("profile.import", Response::err(format!("订阅解析失败: {e}")), None),
+                Ok(converted) => {
+                    // 命中 current 判定：同 URL 覆盖更新且目标即 current → 事务化（§8.3 A：
+                    // regenerate 成功才正式替换原始层，失败恢复旧内容+索引，防污染）
+                    let existing = store
+                        .list()
+                        .iter()
+                        .find(|p| p.url == import.url)
+                        .map(|p| p.uid.clone());
+                    let hitting_current = existing.as_deref().is_some_and(|uid| {
+                        store.current().is_some_and(|c| c.uid == *uid)
+                    });
+                    if hitting_current {
+                        let idx_backup = store.index_snapshot();
+                        let old_content = existing.as_deref().and_then(|uid| store.content(uid).ok());
+                        match store.import(
+                            &import.url,
+                            import.name.as_deref(),
+                            import.interval,
+                            &converted,
+                            import.info,
+                        ) {
+                            Ok(ImportOutcome::Updated { uid }) => {
+                                let core_running = core.state() == "running";
+                                let ctx = if core_running { Ctx::Runtime } else { Ctx::Startup };
+                                match crate::config::regenerate(
+                                    store,
+                                    settings.get(),
+                                    core,
+                                    core_running,
+                                    audit,
+                                    events,
+                                    actor,
+                                    "import",
+                                    ctx,
+                                )
+                                .await
+                                {
+                                    Ok(_) => (
+                                        "profile.import",
+                                        Response::ProfileImported { uid, updated: true },
+                                        None,
+                                    ),
+                                    Err(e) => {
+                                        if let Some(old) = old_content {
+                                            let _ = store.set_content(&uid, &old);
+                                        }
+                                        let _ = store.restore_index(idx_backup);
+                                        ("profile.import", Response::err(e), None)
+                                    }
+                                }
+                            }
+                            Ok(other) => {
+                                let _ = store.restore_index(idx_backup);
+                                ("profile.import", Response::err(format!("意外结果: {other:?}")), None)
+                            }
+                            Err(e) => ("profile.import", Response::err(e.to_string()), None),
+                        }
+                    } else {
+                        match store.import(
+                            &import.url,
+                            import.name.as_deref(),
+                            import.interval,
+                            &converted,
+                            import.info,
+                        ) {
+                            Ok(ImportOutcome::Created { uid }) => (
+                                "profile.import",
+                                Response::ProfileImported { uid, updated: false },
+                                None,
+                            ),
+                            Ok(ImportOutcome::Updated { uid }) => (
+                                "profile.import",
+                                Response::ProfileImported { uid, updated: true },
+                                None,
+                            ),
+                            Err(e) => ("profile.import", Response::err(e.to_string()), None),
+                        }
+                    }
+                }
             }
         }
         Request::ProfileGet { uid } => match get_item_and_content(store, &uid) {
@@ -179,10 +289,38 @@ pub async fn handle(
             Ok(()) => ("profile.remove", Response::Ok, None),
             Err(e) => ("profile.remove", Response::err(e.to_string()), None),
         },
-        Request::ProfileSetCurrent { uid } => match store.set_current(&uid) {
-            Ok(()) => ("profile.switch", Response::Ok, None),
-            Err(e) => ("profile.switch", Response::err(e.to_string()), None),
-        },
+        Request::ProfileSetCurrent { uid } => {
+            // §8.3 C：标记 current（事务）→ regenerate 拼装应用 → 失败回滚 current
+            let previous = store.current().map(|p| p.uid.clone());
+            match store.set_current(&uid) {
+                Ok(()) => {
+                    let core_running = core.state() == "running";
+                    let ctx = if core_running { Ctx::Runtime } else { Ctx::Startup };
+                    match crate::config::regenerate(
+                        store,
+                        settings.get(),
+                        core,
+                        core_running,
+                        audit,
+                        events,
+                        actor,
+                        "switch",
+                        ctx,
+                    )
+                    .await
+                    {
+                        Ok(_) => ("profile.switch", Response::Ok, None),
+                        Err(e) => {
+                            if let Some(prev) = previous {
+                                let _ = store.set_current(&prev);
+                            }
+                            ("profile.switch", Response::err(e), None)
+                        }
+                    }
+                }
+                Err(e) => ("profile.switch", Response::err(e.to_string()), None),
+            }
+        }
         Request::ProfileRename { uid, name } => match store.rename(&uid, &name) {
             Ok(()) => ("profile.rename", Response::Ok, None),
             Err(e) => ("profile.rename", Response::err(e.to_string()), None),
@@ -254,7 +392,7 @@ pub async fn handle(
             {
                 Ok(apply) => {
                     // 设置持久化（失败时 tun 块已回退，设置不落盘：§7.2 设置不被静默修改）
-                    let patch = clard_proto::SettingsPatch {
+                    let patch = SettingsPatch {
                         tun_enabled: Some(enable),
                         ..Default::default()
                     };
@@ -369,6 +507,22 @@ fn op_and_intent(req: &Request) -> (&'static str, &'static str) {
     }
 }
 
+/// §8.4 设置白名单：影响 yaml 的字段（触发 regenerate）。非白名单（language/theme/
+/// interval/test_url）仅落盘。
+fn patch_affects_config(patch: &SettingsPatch) -> bool {
+    patch.mixed_port.is_some()
+        || patch.tun_enabled.is_some()
+        || patch.tun_stack.is_some()
+        || patch.tun_dns_mode.is_some()
+        || patch.dns_hijack.is_some()
+        || patch.route_exclude_address.is_some()
+        || patch.exclude_uid.is_some()
+        || patch.exclude_interface.is_some()
+        || patch.exclude_dst_port.is_some()
+        || patch.strict_route.is_some()
+        || patch.auto_redirect.is_some()
+}
+
 /// 响应 → (result 分类, 错误信息)。
 fn classify(resp: &Response) -> (&'static str, Option<&str>) {
     match resp {
@@ -404,3 +558,240 @@ fn get_item_and_content(
     let yaml = store.content(uid)?;
     Ok((item, yaml))
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use clard_proto::ProfileImport;
+    use crate::testutil::{env_guard, rm_env, set_env};
+    use tokio::io::{AsyncReadExt, AsyncWriteExt};
+    use tokio::net::UnixListener;
+
+    const URL_A: &str = "https://example.com/a";
+    const URL_B: &str = "https://example.com/b";
+    const YAML_A: &str = "proxies:\n  - name: n1\n    type: socks5\n    server: 1.2.3.4\n    port: 1080\n";
+    const YAML_B: &str = "proxies:\n  - name: n2\n    type: socks5\n    server: 9.9.9.9\n    port: 1080\n";
+
+    fn tmp_state(tag: &str) -> std::path::PathBuf {
+        let dir = std::env::temp_dir().join(format!("clard-rpc-test-{}-{tag}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        dir
+    }
+
+    /// store：A（current）+ B 两条配置。
+    fn make_store(state: &std::path::Path) -> ProfilesStore {
+        let mut store = ProfilesStore::open(state).unwrap();
+        store.import(URL_A, Some("p1"), 3600, YAML_A, None).unwrap();
+        store.import(URL_B, Some("p2"), 3600, YAML_B, None).unwrap();
+        let uid_a = store.list().iter().find(|p| p.url == URL_A).unwrap().uid.clone();
+        store.set_current(&uid_a).unwrap();
+        store
+    }
+
+    fn uid_of(store: &ProfilesStore, url: &str) -> String {
+        store.list().iter().find(|p| p.url == url).unwrap().uid.clone()
+    }
+
+    /// mock core.sock：GET 返回 get_body，PUT 返回 put_status（"204" / "500"）。
+    fn spawn_mock_sock(sock: &std::path::Path, get_body: &'static str, put_status: &'static str) -> tokio::task::JoinHandle<()> {
+        let _ = std::fs::remove_file(sock);
+        let listener = std::sync::Arc::new(tokio::net::UnixListener::bind(sock).unwrap());
+        tokio::spawn(async move {
+            loop {
+                let (mut s, _) = match listener.accept().await {
+                    Ok(x) => x,
+                    Err(_) => break,
+                };
+                let mut buf = Vec::new();
+                let mut tmp = [0u8; 4096];
+                loop {
+                    let n = s.read(&mut tmp).await.unwrap();
+                    if n == 0 {
+                        break;
+                    }
+                    buf.extend_from_slice(&tmp[..n]);
+                    if buf.windows(4).any(|w| w == b"\r\n\r\n") {
+                        break;
+                    }
+                }
+                let text = String::from_utf8_lossy(&buf);
+                let method = text.lines().next().unwrap_or_default().split(' ').next().unwrap_or("");
+                let resp = if method == "GET" {
+                    format!(
+                        "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{get_body}",
+                        get_body.len()
+                    )
+                } else if put_status == "204" {
+                    "HTTP/1.1 204 No Content\r\nContent-Length: 0\r\nConnection: close\r\n\r\n".to_string()
+                } else {
+                    format!(
+                        "HTTP/1.1 500 Internal Server Error\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{{\"error\":\"boom\"}}",
+                        16usize
+                    )
+                };
+                s.write_all(resp.as_bytes()).await.unwrap();
+                let _ = s.shutdown().await;
+            }
+        })
+    }
+
+    fn general_body(mixed_port: u16, tun: bool) -> String {
+        format!(r#"{{"mixed-port":{mixed_port},"log-level":"info","tun":{{"enable":{tun}}}}}"#)
+    }
+
+    async fn dispatch(
+        req: Request,
+        state: &std::path::Path,
+        store: &mut ProfilesStore,
+        settings: &mut SettingsStore,
+    ) -> Response {
+        crate::helper_config::init(); // log_level 读取（OnceLock 幂等）
+        let mut core = CoreManager::new(state);
+        let audit = Audit::open();
+        let (tx, _rx) = broadcast::channel::<Event>(8);
+        handle(req, store, settings, &mut core, &audit, &tx, &Actor::system()).await
+    }
+
+    #[tokio::test]
+    async fn switch_success_updates_current_and_applies() {
+        let _g = env_guard();
+        let state = tmp_state("switch-ok");
+        set_env("CLARD_LOG_DIR", state.join("log"));
+        let sock = std::env::temp_dir().join(format!("clard-rpc-switch-ok-{}.sock", std::process::id()));
+        set_env("CLARD_CORE_SOCK", &sock);
+        let srv = spawn_mock_sock(&sock, Box::leak(general_body(7890, false).into_boxed_str()), "204");
+
+        let mut store = make_store(&state);
+        let mut settings = SettingsStore::open(&state).unwrap();
+        let uid_b = uid_of(&store, URL_B);
+        let resp = dispatch(Request::ProfileSetCurrent { uid: uid_b.clone() }, &state, &mut store, &mut settings).await;
+        assert!(matches!(resp, Response::Ok), "{resp:?}");
+        assert_eq!(store.current().unwrap().uid, uid_b);
+        assert!(state.join("runtime/config.yaml").exists());
+
+        srv.abort();
+        rm_env("CLARD_LOG_DIR");
+        rm_env("CLARD_CORE_SOCK");
+    }
+
+    #[tokio::test]
+    async fn switch_failure_rolls_back_current() {
+        let _g = env_guard();
+        let state = tmp_state("switch-fail");
+        set_env("CLARD_LOG_DIR", state.join("log"));
+
+        let mut store = make_store(&state);
+        let mut settings = SettingsStore::open(&state).unwrap();
+        let uid_a = uid_of(&store, URL_A);
+        let uid_b = uid_of(&store, URL_B);
+        // 目标配置内容非法 → regenerate 拼装失败 → current 应回滚
+        store.set_content(&uid_b, "").unwrap();
+        let resp = dispatch(
+            Request::ProfileSetCurrent { uid: uid_b },
+            &state,
+            &mut store,
+            &mut settings,
+        )
+        .await;
+        assert!(matches!(resp, Response::Error { .. }), "{resp:?}");
+        assert_eq!(store.current().unwrap().uid, uid_a, "current 应回滚");
+        rm_env("CLARD_LOG_DIR");
+    }
+
+    #[tokio::test]
+    async fn settings_whitelist_persists_after_regen() {
+        let _g = env_guard();
+        let state = tmp_state("settings-ok");
+        set_env("CLARD_LOG_DIR", state.join("log"));
+        let sock = std::env::temp_dir().join(format!("clard-rpc-settings-ok-{}.sock", std::process::id()));
+        set_env("CLARD_CORE_SOCK", &sock);
+        let srv = spawn_mock_sock(&sock, Box::leak(general_body(8080, false).into_boxed_str()), "204");
+
+        let mut store = make_store(&state);
+        let mut settings = SettingsStore::open(&state).unwrap();
+        let patch = SettingsPatch { mixed_port: Some(8080), ..Default::default() };
+        let resp = dispatch(Request::SettingsSet(patch), &state, &mut store, &mut settings).await;
+        assert!(matches!(resp, Response::Ok), "{resp:?}");
+        assert_eq!(settings.get().mixed_port, 8080, "内存已更新");
+        let disk = std::fs::read_to_string(state.join("clard.toml")).unwrap();
+        assert!(disk.contains("mixed_port = 8080"), "已持久化: {disk}");
+        assert!(state.join("runtime/config.yaml").exists());
+
+        srv.abort();
+        rm_env("CLARD_LOG_DIR");
+        rm_env("CLARD_CORE_SOCK");
+    }
+
+    #[tokio::test]
+    async fn settings_whitelist_failure_restores_memory() {
+        let _g = env_guard();
+        let state = tmp_state("settings-fail");
+        set_env("CLARD_LOG_DIR", state.join("log"));
+
+        let mut store = make_store(&state);
+        let mut settings = SettingsStore::open(&state).unwrap();
+        // current 内容非法 → 白名单设置触发 regenerate 拼装失败 → 设置恢复内存（§7.2）
+        let uid_a = uid_of(&store, URL_A);
+        store.set_content(&uid_a, "").unwrap();
+        let patch = SettingsPatch { mixed_port: Some(8080), ..Default::default() };
+        let resp = dispatch(Request::SettingsSet(patch), &state, &mut store, &mut settings).await;
+        assert!(matches!(resp, Response::Error { .. }), "{resp:?}");
+        assert_eq!(settings.get().mixed_port, 7890, "失败恢复内存（§7.2）");
+        let disk = std::fs::read_to_string(state.join("clard.toml")).unwrap_or_default();
+        assert!(!disk.contains("mixed_port = 8080"), "磁盘未写入新值: {disk}");
+        rm_env("CLARD_LOG_DIR");
+    }
+
+    #[tokio::test]
+    async fn settings_non_whitelist_only_persists() {
+        let _g = env_guard();
+        let state = tmp_state("settings-non");
+        set_env("CLARD_LOG_DIR", state.join("log"));
+        // 不设 CLARD_CORE_SOCK：若误触发 regenerate 会连默认 /run/clard/core.sock（不存在→失败）
+        let mut store = make_store(&state);
+        let mut settings = SettingsStore::open(&state).unwrap();
+        let patch = SettingsPatch { language: Some("zh".into()), ..Default::default() };
+        let resp = dispatch(Request::SettingsSet(patch), &state, &mut store, &mut settings).await;
+        assert!(matches!(resp, Response::Ok), "{resp:?}");
+        assert_eq!(settings.get().language, "zh");
+        rm_env("CLARD_LOG_DIR");
+    }
+
+    #[tokio::test]
+    async fn import_current_success_updates_content() {
+        let _g = env_guard();
+        let state = tmp_state("import-ok");
+        set_env("CLARD_LOG_DIR", state.join("log"));
+        let sock = std::env::temp_dir().join(format!("clard-rpc-import-ok-{}.sock", std::process::id()));
+        set_env("CLARD_CORE_SOCK", &sock);
+        let srv = spawn_mock_sock(&sock, Box::leak(general_body(7890, false).into_boxed_str()), "204");
+
+        let mut store = make_store(&state);
+        let mut settings = SettingsStore::open(&state).unwrap();
+        let uid_a = uid_of(&store, URL_A);
+        // raw 订阅（节点列表）→ helper 转换 → 落盘
+        let raw = "n2: socks5://9.9.9.9:1080";
+        let resp = dispatch(
+            Request::ProfileImport(ProfileImport {
+                name: Some("p1".into()),
+                url: URL_A.into(),
+                interval: 3600,
+                yaml: raw.into(),
+                info: None,
+            }),
+            &state,
+            &mut store,
+            &mut settings,
+        )
+        .await;
+        assert!(matches!(resp, Response::ProfileImported { updated: true, .. }), "{resp:?}");
+        let content = store.content(&uid_a).unwrap();
+        assert!(content.contains("9.9.9.9"), "内容已更新: {content}");
+
+        srv.abort();
+        rm_env("CLARD_LOG_DIR");
+        rm_env("CLARD_CORE_SOCK");
+    }
+}
+

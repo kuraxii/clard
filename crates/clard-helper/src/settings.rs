@@ -76,8 +76,15 @@ impl SettingsStore {
         Ok(())
     }
 
-    /// 应用补丁并原子落盘。
+    /// 应用补丁并原子落盘（非 yaml 白名单字段 / 无需 regenerate 的路径）。
     pub fn patch(&mut self, patch: &SettingsPatch) -> Result<(), SettingsError> {
+        self.apply_in_memory(patch)?;
+        self.save()
+    }
+
+    /// 仅应用到内存（不落盘）。yaml 白名单字段（§8.4）由 rpc 先 apply → regenerate
+    /// 成功 → [`Self::save`] 持久化；失败 → [`Self::restore`] 恢复内存（§7.2 设置不静默变）。
+    pub(crate) fn apply_in_memory(&mut self, patch: &SettingsPatch) -> Result<(), SettingsError> {
         if let Some(v) = patch.auto_update_interval_hours {
             self.settings.auto_update_interval_hours = v;
         }
@@ -131,10 +138,11 @@ impl SettingsStore {
         if let Some(v) = patch.auto_redirect {
             self.settings.auto_redirect = v;
         }
-        self.save()
+        Ok(())
     }
 
-    fn save(&self) -> Result<(), SettingsError> {
+    /// 原子落盘当前内存设置（tmp + rename）。
+    pub(crate) fn save(&self) -> Result<(), SettingsError> {
         if let Some(parent) = self.path.parent() {
             fs::create_dir_all(parent)?;
         }
@@ -143,6 +151,11 @@ impl SettingsStore {
         fs::write(&tmp, text)?;
         fs::rename(&tmp, &self.path)?;
         Ok(())
+    }
+
+    /// 恢复内存设置（不落盘；用于 regenerate 失败后的回滚，磁盘从未写入新值）。
+    pub(crate) fn restore(&mut self, s: Settings) {
+        self.settings = s;
     }
 }
 

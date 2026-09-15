@@ -250,21 +250,9 @@ fn write_yaml_atomic(path: &std::path::Path, yaml: &str) -> std::io::Result<()> 
 
 #[cfg(test)]
 mod tests {
-    #![allow(unsafe_code)] // 测试设置 env（edition 2024 set_var/remove_var 为 unsafe fn）
     use super::*;
-    use std::sync::Mutex;
+    use crate::testutil::{env_guard, rm_env, set_env};
     use tokio::io::{AsyncReadExt, AsyncWriteExt};
-
-    /// 串行化依赖环境变量（CLARD_CORE_SOCK / CLARD_LOG_DIR）的测试，避免并行互踩。
-    static ENV_LOCK: Mutex<()> = Mutex::new(());
-
-    /// edition 2024：env 可变 API 为 unsafe，集中封装（unsafe 仅限测试）。
-    fn set_env(k: &str, v: impl AsRef<std::ffi::OsStr>) {
-        unsafe { std::env::set_var(k, v) };
-    }
-    fn rm_env(k: &str) {
-        unsafe { std::env::remove_var(k) };
-    }
 
     fn tmp_state(tag: &str) -> std::path::PathBuf {
         let dir = std::env::temp_dir().join(format!(
@@ -351,7 +339,7 @@ mod tests {
 
     #[tokio::test]
     async fn regenerate_startup_writes_runtime_config() {
-        let _g = ENV_LOCK.lock().unwrap_or_else(|e| e.into_inner());
+        let _g = env_guard();
         let state = tmp_state("startup");
         set_env("CLARD_LOG_DIR", state.join("log"));
         let store = make_store(&state);
@@ -384,7 +372,7 @@ mod tests {
 
     #[tokio::test]
     async fn regenerate_startup_with_tun_enabled_injects_block() {
-        let _g = ENV_LOCK.lock().unwrap_or_else(|e| e.into_inner());
+        let _g = env_guard();
         let state = tmp_state("tun");
         set_env("CLARD_LOG_DIR", state.join("log"));
         let store = make_store(&state);
@@ -417,7 +405,7 @@ mod tests {
 
     #[tokio::test]
     async fn regenerate_no_current_errors() {
-        let _g = ENV_LOCK.lock().unwrap_or_else(|e| e.into_inner());
+        let _g = env_guard();
         let state = tmp_state("nocurrent");
         set_env("CLARD_LOG_DIR", state.join("log"));
         let store = ProfilesStore::open(&state).unwrap(); // 空，无 current
@@ -444,7 +432,7 @@ mod tests {
 
     #[tokio::test]
     async fn regenerate_runtime_reloads_and_verifies() {
-        let _g = ENV_LOCK.lock().unwrap_or_else(|e| e.into_inner());
+        let _g = env_guard();
         let state = tmp_state("runtime");
         set_env("CLARD_LOG_DIR", state.join("log"));
         let sock = std::env::temp_dir().join(format!("clard-config-mock-{}.sock", std::process::id()));
@@ -519,7 +507,7 @@ mod tests {
 
     #[tokio::test]
     async fn regenerate_runtime_failure_rolls_back() {
-        let _g = ENV_LOCK.lock().unwrap_or_else(|e| e.into_inner());
+        let _g = env_guard();
         let state = tmp_state("rollback");
         set_env("CLARD_LOG_DIR", state.join("log"));
         let sock = std::env::temp_dir().join(format!("clard-config-mock-fail-{}.sock", std::process::id()));

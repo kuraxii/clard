@@ -161,6 +161,25 @@ impl ProfilesStore {
         Ok(std::fs::read_to_string(path)?)
     }
 
+    /// 索引快照（A/B 事务回滚用；§8.3）。
+    pub(crate) fn index_snapshot(&self) -> ProfilesIndex {
+        self.index.clone()
+    }
+
+    /// 恢复索引快照并落盘（A/B 事务回滚用）。
+    pub(crate) fn restore_index(&mut self, idx: ProfilesIndex) -> Result<(), ProfilesError> {
+        self.index = idx;
+        self.save_index()
+    }
+
+    /// 覆盖写某条配置内容（A/B 事务回滚用；不轮转备份）。
+    pub(crate) fn set_content(&mut self, uid: &str, yaml: &str) -> Result<(), ProfilesError> {
+        let path = self
+            .content_path(uid)
+            .ok_or_else(|| ProfilesError::NotFound { uid: uid.into() })?;
+        write_file(&path, yaml)
+    }
+
     /// 切换当前配置；uid 必须存在。
     pub fn set_current(&mut self, uid: &str) -> Result<(), ProfilesError> {
         if self.get(uid).is_none() {
@@ -506,6 +525,32 @@ mod tests {
         assert_eq!(p.name, "改名");
         assert_eq!(p.interval, 3600);
         assert_eq!(store.content(&first_uid).unwrap(), "v2");
+    }
+
+    #[test]
+    fn snapshot_restore_rolls_back_update() {
+        // A/B 事务（§8.3）：更新 current 失败时恢复旧内容 + 旧索引（uid/name/interval/updated_at）
+        let (_dir, mut store) = store_in_tempdir();
+        let uid = match store.import(URL_A, Some("订阅A"), 3600, "v1", None).unwrap() {
+            ImportOutcome::Created { uid } => uid,
+            other => panic!("{other:?}"),
+        };
+        store.set_current(&uid).unwrap();
+
+        let snapshot = store.index_snapshot();
+        let old_content = store.content(&uid).unwrap();
+        // 模拟 import 更新（新内容 + 改名 + 刷新 updated_at）
+        store.import(URL_A, Some("新名"), 7200, "v2", None).unwrap();
+        assert_eq!(store.content(&uid).unwrap(), "v2");
+        assert_eq!(store.get(&uid).unwrap().name, "新名");
+
+        // 回滚：恢复索引 + 旧内容
+        store.restore_index(snapshot).unwrap();
+        store.set_content(&uid, &old_content).unwrap();
+        assert_eq!(store.content(&uid).unwrap(), "v1");
+        assert_eq!(store.get(&uid).unwrap().name, "订阅A");
+        assert_eq!(store.get(&uid).unwrap().interval, 3600);
+        assert_eq!(store.current().unwrap().uid, uid);
     }
 
     #[test]

@@ -9,10 +9,12 @@
 
 use std::{sync::Arc, time::Duration};
 
-use clard_proto::SubscriptionInfo;
-use tokio::sync::Mutex;
+use clard_proto::{Event, SubscriptionInfo};
+use tokio::sync::{broadcast, Mutex};
 
 use crate::audit::{Actor, Audit};
+use crate::config::Ctx;
+use crate::core::CoreManager;
 use crate::profiles::{ProfileKind, ProfilesStore};
 use crate::settings::SettingsStore;
 
@@ -22,18 +24,30 @@ const TICK_SECS: u64 = 60;
 const FETCH_TIMEOUT: Duration = Duration::from_secs(30);
 
 /// 启动自动更新后台任务（daemon 常驻期间一直运行）。
-pub fn spawn(store: Arc<Mutex<ProfilesStore>>, settings: Arc<Mutex<SettingsStore>>, audit: Arc<Audit>) {
+pub fn spawn(
+    store: Arc<Mutex<ProfilesStore>>,
+    settings: Arc<Mutex<SettingsStore>>,
+    core: Arc<Mutex<CoreManager>>,
+    audit: Arc<Audit>,
+    events: broadcast::Sender<Event>,
+) {
     tokio::spawn(async move {
         let mut ticker = tokio::time::interval(Duration::from_secs(TICK_SECS));
         ticker.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
         loop {
             ticker.tick().await;
-            run_once(&store, &settings, &audit).await;
+            run_once(&store, &settings, &core, &audit, &events).await;
         }
     });
 }
 
-async fn run_once(store: &Mutex<ProfilesStore>, settings: &Mutex<SettingsStore>, audit: &Audit) {
+async fn run_once(
+    store: &Mutex<ProfilesStore>,
+    settings: &Mutex<SettingsStore>,
+    core: &Mutex<CoreManager>,
+    audit: &Audit,
+    events: &broadcast::Sender<Event>,
+) {
     let interval_hours = {
         let s = settings.lock().await;
         s.get().auto_update_interval_hours
@@ -57,12 +71,67 @@ async fn run_once(store: &Mutex<ProfilesStore>, settings: &Mutex<SettingsStore>,
     for (url, name) in due {
         let op_id = audit.intent("profile.update", &Actor::system(), &format!("auto update {name}"));
         match fetch_subscription(&url).await {
-            Ok((yaml, info)) => {
+            Ok((raw, info)) => {
+                // §8.3 B：raw → clard-config 转换（不再原样落盘）
+                let converted = match clard_config::config_gen::subscription_to_yaml(&raw) {
+                    Ok(y) => y,
+                    Err(e) => {
+                        tracing::warn!("auto update {name} 转换失败: {e}");
+                        audit.result("profile.update", &op_id, &Actor::system(), "error", Some(&e.to_string()), None);
+                        continue;
+                    }
+                };
                 let mut st = store.lock().await;
-                match st.auto_update(&url, &yaml, Some(info)) {
-                    Ok(true) => audit.result("profile.update", &op_id, &Actor::system(), "ok", None, None),
-                    Ok(false) => audit.result("profile.update", &op_id, &Actor::system(), "missing", None, None),
-                    Err(e) => audit.result("profile.update", &op_id, &Actor::system(), "error", Some(&e.to_string()), None),
+                let hitting_current = st.list().iter().find(|p| p.url == url).is_some_and(|p| {
+                    st.current().is_some_and(|c| c.uid == p.uid)
+                });
+                if hitting_current {
+                    // current 事务化：regenerate 成功才正式替换，失败恢复旧内容+索引（防污染）
+                    let idx_backup = st.index_snapshot();
+                    let uid = st.list().iter().find(|p| p.url == url).map(|p| p.uid.clone());
+                    let old_content = uid.as_deref().and_then(|u| st.content(u).ok());
+                    match st.auto_update(&url, &converted, Some(info)) {
+                        Ok(true) => {
+                            let settings = settings.lock().await;
+                            let mut core = core.lock().await;
+                            let core_running = core.state() == "running";
+                            let ctx = if core_running { Ctx::Runtime } else { Ctx::Startup };
+                            match crate::config::regenerate(
+                                &st,
+                                settings.get(),
+                                &mut core,
+                                core_running,
+                                audit,
+                                events,
+                                &Actor::system(),
+                                "autoupdate",
+                                ctx,
+                            )
+                            .await
+                            {
+                                Ok(_) => {
+                                    audit.result("profile.update", &op_id, &Actor::system(), "ok", None, None);
+                                }
+                                Err(e) => {
+                                    if let Some(uid) = uid {
+                                        if let Some(old) = old_content {
+                                            let _ = st.set_content(&uid, &old);
+                                        }
+                                    }
+                                    let _ = st.restore_index(idx_backup);
+                                    audit.result("profile.update", &op_id, &Actor::system(), "error", Some(&e), None);
+                                }
+                            }
+                        }
+                        Ok(false) => audit.result("profile.update", &op_id, &Actor::system(), "missing", None, None),
+                        Err(e) => audit.result("profile.update", &op_id, &Actor::system(), "error", Some(&e.to_string()), None),
+                    }
+                } else {
+                    match st.auto_update(&url, &converted, Some(info)) {
+                        Ok(true) => audit.result("profile.update", &op_id, &Actor::system(), "ok", None, None),
+                        Ok(false) => audit.result("profile.update", &op_id, &Actor::system(), "missing", None, None),
+                        Err(e) => audit.result("profile.update", &op_id, &Actor::system(), "error", Some(&e.to_string()), None),
+                    }
                 }
             }
             Err(e) => {

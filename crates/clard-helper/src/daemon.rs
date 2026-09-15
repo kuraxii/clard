@@ -156,7 +156,7 @@ pub async fn run() -> io::Result<()> {
     }
 
     // 订阅自动更新定时器（R2.8；0=关，见 clard.toml）
-    autoupdate::spawn(store.clone(), settings.clone(), audit.clone());
+    autoupdate::spawn(store.clone(), settings.clone(), core.clone(), audit.clone(), events_tx.clone());
 
     // §5.4/§6.5 watchdog：核心崩溃退避重启 + TUN 健康 fail-open
     crate::watchdog::spawn(settings.clone(), core.clone(), audit.clone(), events_tx.clone());

@@ -31,6 +31,25 @@ mod settings;
 mod tun;
 mod watchdog;
 
+#[cfg(test)]
+pub(crate) mod testutil {
+    #![allow(unsafe_code)] // 测试设置 env（edition 2024 set_var/remove_var 为 unsafe fn）
+    use std::sync::Mutex;
+
+    /// 串行化依赖环境变量（CLARD_CORE_SOCK/CLARD_LOG_DIR/...）的测试，避免并行互踩。
+    pub static ENV_LOCK: Mutex<()> = Mutex::new(());
+
+    pub fn set_env(k: &str, v: impl AsRef<std::ffi::OsStr>) {
+        unsafe { std::env::set_var(k, v) };
+    }
+    pub fn rm_env(k: &str) {
+        unsafe { std::env::remove_var(k) };
+    }
+    pub fn env_guard() -> std::sync::MutexGuard<'static, ()> {
+        ENV_LOCK.lock().unwrap_or_else(|e| e.into_inner())
+    }
+}
+
 use clap::{Parser, Subcommand};
 
 #[derive(Debug, Parser)]
