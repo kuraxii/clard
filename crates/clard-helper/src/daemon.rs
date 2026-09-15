@@ -104,10 +104,10 @@ pub async fn run() -> io::Result<()> {
         let settings = settings.clone();
         let events = events_tx.clone();
         tokio::spawn(async move {
-            // §6.3 geo 数据检查：随 RPM 分发（/var/clard/geodata），缺失时告警——
-            // GEOIP/geosite 规则会失效，且 mihomo 自更新已关闭（防 github 被墙时启动卡死）
+            // §6.3 geo 数据检查：随 RPM 分发到核心 -d 目录（/var/clard/lib/runtime），缺失时
+            // 告警——GEOIP/geosite 规则会失效，且 mihomo 自更新已关闭（防 github 被墙卡启动）
             for name in ["geoip.metadb", "geosite.dat"] {
-                let p = std::path::Path::new("/var/clard/geodata").join(name);
+                let p = std::path::Path::new("/var/clard/lib/runtime").join(name);
                 if !p.exists() {
                     tracing::warn!(
                         "启动自检：geo 数据缺失 {}（GEOIP/geosite 规则不可用，可在 TUI Core 页更新）",

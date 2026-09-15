@@ -166,15 +166,8 @@ mod tests {
             get(&m, "external-controller-unix").unwrap().as_str(),
             Some("/run/clard/core.sock")
         );
-        // geo 数据路径 + 关闭 mihomo 自更新（防 github 被墙时启动卡死）
-        assert_eq!(
-            get(&m, "geodata-path").unwrap().as_str(),
-            Some("/var/clard/geodata/geoip.metadb")
-        );
-        assert_eq!(
-            get(&m, "geosite-path").unwrap().as_str(),
-            Some("/var/clard/geodata/geosite.dat")
-        );
+        // geo 数据随包分发到核心 -d 目录（mihomo 只在 -d 目录找 MMDB）；关闭 mihomo 自更新
+        // （防 github 被墙时启动卡死，改由 TUI g 更新）
         assert_eq!(get(&m, "geo-auto-update").unwrap().as_bool(), Some(false));
         // 用户配置的 proxies 原样保留
         assert!(get(&m, "proxies").unwrap().is_sequence());

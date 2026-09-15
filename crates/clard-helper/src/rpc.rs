@@ -426,7 +426,7 @@ pub async fn handle(
             inbox_path,
             sha256,
         } => {
-            let geodata_dir = std::path::Path::new("/var/clard/geodata");
+            let geodata_dir = std::path::Path::new("/var/clard/lib/runtime");
             let inbox_root = std::path::Path::new("/run/clard/inbox");
             match crate::core::install_geodata(geodata_dir, inbox_root, kind, Path::new(&inbox_path), &sha256) {
                 Ok(()) => {

@@ -63,8 +63,9 @@ install -d -m 0755 %{buildroot}%{_sysconfdir}/clard
 install -Dm755 %{SOURCE4} %{buildroot}%{_localstatedir}/clard/bin/mihomo
 %endif
 %if %{geodata_present}
-install -Dm644 %{SOURCE5} %{buildroot}%{_localstatedir}/clard/geodata/geoip.metadb
-install -Dm644 %{SOURCE6} %{buildroot}%{_localstatedir}/clard/geodata/geosite.dat
+# mihomo 只在 -d 目录找 geoip.metadb（geodata-path 不生效）；regenerate 不清理 runtime 目录
+install -Dm644 %{SOURCE5} %{buildroot}%{_localstatedir}/clard/lib/runtime/geoip.metadb
+install -Dm644 %{SOURCE6} %{buildroot}%{_localstatedir}/clard/lib/runtime/geosite.dat
 %endif
 
 %post
@@ -73,8 +74,7 @@ install -d -m 0700 %{_localstatedir}/clard/lib \
                  %{_localstatedir}/clard/cache \
                  %{_localstatedir}/clard/log \
                  %{_localstatedir}/clard/backups \
-                 %{_localstatedir}/clard/bin \
-                 %{_localstatedir}/clard/geodata
+                 %{_localstatedir}/clard/bin
 %systemd_post clard-helper.service
 # 兜底：部分环境（容器/最小化 systemd）file-trigger 不生效导致 enable 缺失，
 # 显式 enable + restart（幂等，失败不阻塞事务）。
@@ -101,6 +101,6 @@ systemctl restart clard-helper.service >/dev/null 2>&1 || :
 %endif
 %if %{geodata_present}
 # noreplace：用户经 TUI 更新过的 geo 数据不被 rpm 升级覆盖
-%config(noreplace) %{_localstatedir}/clard/geodata/geoip.metadb
-%config(noreplace) %{_localstatedir}/clard/geodata/geosite.dat
+%config(noreplace) %{_localstatedir}/clard/lib/runtime/geoip.metadb
+%config(noreplace) %{_localstatedir}/clard/lib/runtime/geosite.dat
 %endif
