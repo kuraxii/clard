@@ -1307,6 +1307,25 @@ impl APP {
             GeneralRow::MixedPort => {
                 self.input = Some(InputState::new("Mixed port (1-65535)", InputPurpose::EditMixedPort));
             }
+            GeneralRow::Mode => {
+                // 循环切换 rule → global → direct（doc/05 §7 R7.1）
+                let cur = self
+                    .settings
+                    .settings
+                    .as_ref()
+                    .map(|s| s.mode.clone())
+                    .unwrap_or_else(|| "rule".into());
+                let next = match cur.as_str() {
+                    "global" => "direct",
+                    "direct" => "rule",
+                    _ => "global",
+                };
+                let patch = clard_proto::SettingsPatch {
+                    mode: Some(next.to_string()),
+                    ..Default::default()
+                };
+                self.set_setting(patch);
+            }
             GeneralRow::AutoUpdateHours => {
                 self.input = Some(InputState::new(
                     "Auto update interval (hours, 0=off)",

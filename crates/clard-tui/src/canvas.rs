@@ -749,6 +749,9 @@ fn draw_settings_general(f: &mut Frame<'_>, area: Rect, state: &SettingsState, t
                 GeneralRow::MixedPort => settings
                     .map(|s| s.mixed_port.to_string())
                     .unwrap_or_else(|| "-".to_string()),
+                GeneralRow::Mode => settings
+                    .map(|s| format!("[{}]", s.mode))
+                    .unwrap_or_else(|| "[rule]".to_string()),
                 GeneralRow::AutoUpdateHours => settings
                     .map(|s| s.auto_update_interval_hours.to_string())
                     .unwrap_or_else(|| "-".to_string()),

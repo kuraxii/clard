@@ -25,6 +25,8 @@ pub enum SettingsTab {
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum GeneralRow {
     MixedPort,
+    /// 代理模式：rule（分流）/ global（全代理）/ direct（全直连），循环切换
+    Mode,
     AutoUpdateHours,
     Language,
     Theme,
@@ -32,8 +34,9 @@ pub enum GeneralRow {
 }
 
 impl GeneralRow {
-    pub const ALL: [Self; 5] = [
+    pub const ALL: [Self; 6] = [
         Self::MixedPort,
+        Self::Mode,
         Self::AutoUpdateHours,
         Self::Language,
         Self::Theme,
@@ -43,6 +46,7 @@ impl GeneralRow {
     pub fn label(self) -> &'static str {
         match self {
             Self::MixedPort => "Mixed port",
+            Self::Mode => "Mode",
             Self::AutoUpdateHours => "Auto update (h)",
             Self::Language => "Language",
             Self::Theme => "Theme",
@@ -347,12 +351,13 @@ mod tests {
         s.set_tab(SettingsTab::General);
         assert_eq!(s.selected_general_row(), Some(GeneralRow::MixedPort));
         s.on_down_key(10);
+        assert_eq!(s.selected_general_row(), Some(GeneralRow::Mode));
         s.on_down_key(10);
-        assert_eq!(s.selected_general_row(), Some(GeneralRow::Language));
-        for _ in 0..3 {
+        assert_eq!(s.selected_general_row(), Some(GeneralRow::AutoUpdateHours));
+        for _ in 0..4 {
             s.on_down_key(10);
         }
-        assert_eq!(s.selected_general_row(), Some(GeneralRow::MixedPort), "5 行循环回到 MixedPort");
+        assert_eq!(s.selected_general_row(), Some(GeneralRow::MixedPort), "6 行循环回到 MixedPort");
     }
 
     #[test]
