@@ -21,7 +21,7 @@
 use serde::{Deserialize, Serialize};
 
 /// 当前协议版本。任何不兼容变更都必须递增并在 `Hello` 握手中核对。
-pub const PROTO_VERSION: u32 = 10;
+pub const PROTO_VERSION: u32 = 11;
 
 /// 协议层错误
 #[derive(Debug, thiserror::Error)]
@@ -418,7 +418,7 @@ mod tests {
 
     #[test]
     fn proto_version_is_current() {
-        assert_eq!(PROTO_VERSION, 10);
+        assert_eq!(PROTO_VERSION, 11);
     }
 
     #[test]
