@@ -287,6 +287,10 @@ pub async fn start_clard() -> Result<()> {
                         app.message = Some(msg.clone());
                         app.submit_app_log(format!("[Error] {msg}"));
                     }
+                    ClardEvent::TunConflict { devices } => {
+                        // §6.2 其他 TUN 共存：弹二次确认，确认后强开
+                        app.open_tun_conflict_confirm(devices);
+                    }
                     ClardEvent::Terminal => {
                         break;
                     }

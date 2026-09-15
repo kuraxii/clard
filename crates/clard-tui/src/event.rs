@@ -29,6 +29,8 @@ pub enum ClardEvent {
     /// 日志分页结果：source=tui/core
     LogLinesReady { source: String, cursor: u64, lines: Vec<String> },
     AuditRecordsReady { cursor: u64, records: Vec<clard_proto::AuditRecord> },
+    /// 开启 TUN 时检测到其他活跃 TUN（§6.2）：TUI 弹确认，确认后 force 强开
+    TunConflict { devices: Vec<String> },
     SettingsReady(clard_proto::Settings),
     CoreStatusReady {
         state: String,

@@ -156,6 +156,8 @@ pub enum ConfirmPurpose {
     RestoreBackup { name: String },
     /// TUN 开关（doc/05 §7 R7.2，确认后热重载 + 读回校验）
     SetTun { enable: bool },
+    /// 检测到其他 TUN 共存时强开（用户已确认风险，doc/01 §6.2）
+    SetTunForce,
     /// 开启 strict-route（二次确认 + 风险提示，doc/01 §6.3）
     EnableStrictRoute,
     /// 开启 auto-redirect（二次确认 + 风险提示，doc/01 §6.3）

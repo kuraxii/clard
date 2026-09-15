@@ -559,6 +559,7 @@ impl APP {
             ConfirmPurpose::DeleteBackup { name } => self.delete_backup(name),
             ConfirmPurpose::RestoreBackup { name } => self.restore_backup(name),
             ConfirmPurpose::SetTun { enable } => self.toggle_tun(enable),
+            ConfirmPurpose::SetTunForce => self.toggle_tun_force(),
             ConfirmPurpose::EnableStrictRoute => {
                 let patch = clard_proto::SettingsPatch {
                     strict_route: Some(true),
@@ -779,6 +780,10 @@ impl APP {
                     };
                     let _ = sender.send(ClardEvent::Notify(msg));
                 }
+                Ok(Response::TunConflict { devices }) => {
+                    // §6.2 其他 TUN 共存：不静默开，弹确认
+                    let _ = sender.send(ClardEvent::TunConflict { devices });
+                }
                 Ok(other) => {
                     let _ = sender.send(ClardEvent::Error(rpc::unexpected(other).to_string()));
                 }
@@ -789,6 +794,51 @@ impl APP {
             send_settings(&sender).await;
             send_core_status(&sender).await;
         });
+    }
+
+    /// 用户确认其他 TUN 共存后强开（§6.2）：带 force_tun 重发，跳过占用警告。
+    pub fn toggle_tun_force(&mut self) {
+        let sender = self.event_sender.clone();
+        tokio::spawn(async move {
+            let patch = clard_proto::SettingsPatch {
+                tun_enabled: Some(true),
+                force_tun: Some(true),
+                ..Default::default()
+            };
+            match rpc::call(&Request::SettingsSet(patch)).await {
+                Ok(Response::Ok) => {
+                    let _ = sender.send(ClardEvent::Notify(
+                        "TUN on (coexisting TUNs accepted)".to_string(),
+                    ));
+                }
+                Ok(Response::TunConflict { .. }) => {
+                    let _ = sender.send(ClardEvent::Error(
+                        "TUN conflict still present; aborting".to_string(),
+                    ));
+                }
+                Ok(other) => {
+                    let _ = sender.send(ClardEvent::Error(rpc::unexpected(other).to_string()));
+                }
+                Err(e) => {
+                    let _ = sender.send(ClardEvent::Error(e.to_string()));
+                }
+            }
+            send_settings(&sender).await;
+            send_core_status(&sender).await;
+        });
+    }
+
+    /// 开启 TUN 遇其他 TUN 共存（§6.2）：弹确认，确认后强开。
+    pub fn open_tun_conflict_confirm(&mut self, devices: Vec<String>) {
+        self.confirm = Some(ConfirmState::new(
+            "Enable TUN with coexisting TUNs?",
+            format!(
+                "Active TUN devices: {}. auto-route/dns-hijack may conflict with them \
+                 (e.g. tailscale MagicDNS). Enable anyway?",
+                devices.join(", ")
+            ),
+            ConfirmPurpose::SetTunForce,
+        ));
     }
 
     /// 紧急恢复直连（§6.4）：幂等清理 TUN 残留（ip rule / route / 网卡）。
