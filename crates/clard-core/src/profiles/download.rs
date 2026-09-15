@@ -59,16 +59,17 @@ impl HttpFetcher {
 
 impl SubscriptionFetcher for HttpFetcher {
     async fn fetch(&self, url: &str) -> Result<String, DownloadError> {
-        self.fetch_with_info(url).await.map(|(body, _)| body)
+        self.fetch_with_info(url).await.map(|(body, _, _)| body)
     }
 }
 
 impl HttpFetcher {
-    /// 下载并同时解析 `subscription-userinfo` 响应头（R2.7）。
+    /// 下载并同时解析 `subscription-userinfo`（R2.7）与 `Content-Disposition` 文件名（R2.1
+    /// 缺省名，对齐 clash-verge-rev：`filename*` → `filename`）。
     pub async fn fetch_with_info(
         &self,
         url: &str,
-    ) -> Result<(String, SubscriptionInfo), DownloadError> {
+    ) -> Result<(String, SubscriptionInfo, Option<String>), DownloadError> {
         let resp = self
             .client
             .get(url)
@@ -85,6 +86,11 @@ impl HttpFetcher {
             .and_then(|v| v.to_str().ok())
             .map(parse_subscription_userinfo)
             .unwrap_or_default();
+        let filename = resp
+            .headers()
+            .get("content-disposition")
+            .and_then(|v| v.to_str().ok())
+            .and_then(parse_content_disposition);
         let bytes = resp
             .bytes()
             .await
@@ -96,8 +102,59 @@ impl HttpFetcher {
             return Err(DownloadError::TooLarge(self.max_bytes));
         }
         let body = String::from_utf8(bytes.to_vec()).map_err(|_| DownloadError::InvalidUtf8)?;
-        Ok((body, info))
+        Ok((body, info, filename))
     }
+}
+
+/// 解析 `Content-Disposition` 文件名（对齐 clash-verge-rev `PrfItem::from_url`）：
+/// 优先 `filename*`（RFC 5987：`UTF-8''<percent-encoded>`，取 `''` 后并 percent-decode），
+/// 其次 `filename`（字面量，去包裹引号）。
+fn parse_content_disposition(header: &str) -> Option<String> {
+    if let Some(v) = header.split(';').map(str::trim).find_map(|s| {
+        let (k, v) = s.split_once('=')?;
+        (k.trim() == "filename*").then(|| v.trim().to_string())
+    }) {
+        let encoded = v.rsplit("''").next().unwrap_or(&v);
+        if let Ok(decoded) = urlencoding::decode(encoded) {
+            return Some(decoded.into_owned());
+        }
+    }
+    header.split(';').map(str::trim).find_map(|s| {
+        let (k, v) = s.split_once('=')?;
+        if k.trim() != "filename" {
+            return None;
+        }
+        Some(v.trim().trim_matches('"').to_string())
+    })
+}
+
+/// 缺省配置名（对齐 clash-verge-rev）：`Content-Disposition` 文件名 →
+/// URL 最后一段路径（percent-decode）→ "订阅"。
+pub fn default_name(filename: Option<&str>, url: &str) -> String {
+    filename
+        .map(str::trim)
+        .filter(|s| !s.is_empty())
+        .map(str::to_string)
+        .unwrap_or_else(|| url_last_segment(url).unwrap_or_else(|| "订阅".to_string()))
+}
+
+/// URL 最后一段路径（去 query、按 `/` 切取最后一段、percent-decode），无则 `None`。
+/// 仅接受带 scheme 的 URL（对齐 clash-verge-rev `get_last_part_and_decode`，额外要求 `://`
+/// 以防非 URL 乱串被当成名字）。
+fn url_last_segment(url: &str) -> Option<String> {
+    if !url.contains("://") {
+        return None;
+    }
+    let path = url.split('?').next()?;
+    let last = path.rsplit('/').next()?;
+    if last.is_empty() {
+        return None;
+    }
+    Some(
+        urlencoding::decode(last)
+            .map(|c| c.into_owned())
+            .unwrap_or_else(|_| last.to_string()),
+    )
 }
 
 /// 解析 `subscription-userinfo`：`upload=…; download=…; total=…; expire=…`。
@@ -130,9 +187,15 @@ mod tests {
 
     /// 起一个本地 HTTP 服务，单次响应后关闭；返回地址。
     async fn serve_once(status_line: &str, body: &[u8]) -> SocketAddr {
+        serve_once_headers(status_line, "", body).await
+    }
+
+    /// 带额外响应头（每个以 `\r\n` 结尾）的单次 HTTP 服务。
+    async fn serve_once_headers(status_line: &str, extra_headers: &str, body: &[u8]) -> SocketAddr {
         let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
         let addr = listener.local_addr().unwrap();
         let status = status_line.to_string();
+        let extra = extra_headers.to_string();
         let body = body.to_vec();
         tokio::spawn(async move {
             let (mut sock, _) = listener.accept().await.unwrap();
@@ -149,7 +212,7 @@ mod tests {
                 }
             }
             let head = format!(
-                "HTTP/1.1 {status}\r\nContent-Length: {}\r\nConnection: close\r\n\r\n",
+                "HTTP/1.1 {status}\r\nContent-Length: {}\r\n{extra}Connection: close\r\n\r\n",
                 body.len()
             );
             sock.write_all(head.as_bytes()).await.unwrap();
@@ -168,6 +231,83 @@ mod tests {
         let addr = serve_once("200 OK", b"proxies: []\n").await;
         let out = fetcher().fetch(&format!("http://{addr}/sub")).await.unwrap();
         assert_eq!(out, "proxies: []\n");
+    }
+
+    #[tokio::test]
+    async fn fetch_with_info_parses_filename_star() {
+        let addr = serve_once_headers(
+            "200 OK",
+            "Content-Disposition: attachment; filename*=UTF-8''My%20Sub.yaml\r\n",
+            b"proxies: []\n",
+        )
+        .await;
+        let (body, info, filename) = fetcher()
+            .fetch_with_info(&format!("http://{addr}/sub"))
+            .await
+            .unwrap();
+        assert_eq!(body, "proxies: []\n");
+        assert_eq!(info, SubscriptionInfo::default());
+        assert_eq!(filename.as_deref(), Some("My Sub.yaml"));
+    }
+
+    #[tokio::test]
+    async fn fetch_with_info_parses_plain_filename() {
+        let addr = serve_once_headers(
+            "200 OK",
+            "Content-Disposition: attachment; filename=\"sub.yaml\"\r\n",
+            b"proxies: []\n",
+        )
+        .await;
+        let (_, _, filename) = fetcher()
+            .fetch_with_info(&format!("http://{addr}/sub"))
+            .await
+            .unwrap();
+        assert_eq!(filename.as_deref(), Some("sub.yaml"));
+    }
+
+    #[tokio::test]
+    async fn fetch_with_info_no_disposition_is_none() {
+        let addr = serve_once("200 OK", b"proxies: []\n").await;
+        let (_, _, filename) = fetcher()
+            .fetch_with_info(&format!("http://{addr}/sub"))
+            .await
+            .unwrap();
+        assert_eq!(filename, None);
+    }
+
+    #[test]
+    fn parse_content_disposition_prefers_filename_star() {
+        assert_eq!(
+            parse_content_disposition("attachment; filename=\"a.yaml\"; filename*=UTF-8''My%20Sub.yaml"),
+            Some("My Sub.yaml".to_string()),
+        );
+        assert_eq!(
+            parse_content_disposition("attachment; filename*=UTF-8''%E6%B5%8B%E8%AF%95%20%E8%8A%82%E7%82%B9.yaml"),
+            Some("测试 节点.yaml".to_string()),
+        );
+    }
+
+    #[test]
+    fn parse_content_disposition_missing_is_none() {
+        assert_eq!(parse_content_disposition("attachment"), None);
+        assert_eq!(parse_content_disposition(""), None);
+    }
+
+    #[test]
+    fn default_name_uses_filename_first() {
+        assert_eq!(default_name(Some("机场A.yaml"), "https://example.com/sub"), "机场A.yaml");
+        // 空/空白 filename 视为缺失，回退 URL 最后一段
+        assert_eq!(default_name(Some("   "), "https://example.com/sub-a"), "sub-a");
+    }
+
+    #[test]
+    fn default_name_falls_back_to_url_last_segment() {
+        assert_eq!(default_name(None, "https://example.com/sub-a?x=1"), "sub-a");
+        // percent-decode 最后一段（对齐 clash-verge-rev get_last_part_and_decode）
+        assert_eq!(default_name(None, "https://example.com/My%20Sub"), "My Sub");
+        // 无路径段 → 兜底
+        assert_eq!(default_name(None, "not a url"), "订阅");
+        assert_eq!(default_name(None, "https://example.com/"), "订阅");
     }
 
     #[tokio::test]
