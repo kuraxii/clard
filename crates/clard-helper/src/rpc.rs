@@ -421,6 +421,31 @@ pub async fn handle(
                 Err(e) => ("core.install", Response::err(e), None),
             }
         }
+        Request::UpdateGeoData {
+            kind,
+            inbox_path,
+            sha256,
+        } => {
+            let geodata_dir = std::path::Path::new("/var/clard/geodata");
+            let inbox_root = std::path::Path::new("/run/clard/inbox");
+            match crate::core::install_geodata(geodata_dir, inbox_root, kind, Path::new(&inbox_path), &sha256) {
+                Ok(()) => {
+                    // geo 数据在核心启动/重载时读入；更新后重启核心生效（与 InstallCore 一致）
+                    if core.state() == "running"
+                        && let Err(e) = core.restart().await
+                    {
+                        (
+                            "geodata.update",
+                            Response::err(format!("geo 数据已更新，但重启核心失败: {e}")),
+                            None,
+                        )
+                    } else {
+                        ("geodata.update", Response::Ok, None)
+                    }
+                }
+                Err(e) => ("geodata.update", Response::err(e), None),
+            }
+        }
         other => {
             let op = "rpc.unimplemented";
             (op, Response::err(format!("方法未实现: {other:?}")), None)
@@ -478,6 +503,7 @@ fn op_and_intent(req: &Request) -> (&'static str, &'static str) {
         Request::LogSubmit { .. } => ("log.submit", "submit app log line"),
         Request::Subscribe => ("rpc.subscribe", "subscribe to events"),
         Request::InstallCore { .. } => ("core.install", "install/upgrade core binary"),
+        Request::UpdateGeoData { .. } => ("geodata.update", "update geo data (geoip/geosite)"),
         _ => ("rpc.unimplemented", "unimplemented request"),
     }
 }

@@ -20,6 +20,7 @@ use std::{
     time::{Duration, Instant},
 };
 
+use clard_proto::GeoKind;
 use sha2::{Digest, Sha256};
 use std::process::Stdio;
 use tokio::process::{Child, Command};
@@ -404,7 +405,36 @@ pub fn install_core(
         ));
     }
 
-    // O_NOFOLLOW 打开 + 流式 sha256
+    // O_NOFOLLOW 打开 + 流式 sha256（与 install_geodata 共用）
+    let mut f = verify_inbox_sha256(inbox_path, expected_sha256)?;
+    let expected = expected_sha256.trim().to_ascii_lowercase();
+
+    // 原子替换：copy → tmp → fsync → rename → chmod 0755
+    let bin = &targets.bin_path;
+    let parent = bin.parent().ok_or("核心二进制路径无父目录")?;
+    fs::create_dir_all(parent).map_err(|e| e.to_string())?;
+    let tmp = parent.join("mihomo.tmp");
+    {
+        let mut out = fs::File::create(&tmp).map_err(|e| format!("写临时文件失败: {e}"))?;
+        f.seek(io::SeekFrom::Start(0)).map_err(|e| e.to_string())?;
+        io::copy(&mut f, &mut out).map_err(|e| format!("拷贝安装包失败: {e}"))?;
+        out.sync_all().map_err(|e| format!("fsync 失败: {e}"))?;
+    }
+    use std::os::unix::fs::PermissionsExt;
+    fs::set_permissions(&tmp, fs::Permissions::from_mode(0o755)).map_err(|e| e.to_string())?;
+    fs::rename(&tmp, &bin).map_err(|e| format!("原子替换失败: {e}"))?;
+
+    // 记录（供展示与下次安装对比）
+    atomic_write(&core_sha256_path(state), expected.as_bytes()).map_err(|e| e.to_string())?;
+
+    // 清理 inbox
+    let _ = fs::remove_file(inbox_path);
+    Ok(())
+}
+
+/// O_NOFOLLOW 打开 inbox 文件并流式校验 sha256（install_core / install_geodata 共用）。
+/// 失败删除 inbox 并返回错误；成功返回已打开的文件（EOF，调用方 seek(0) 后拷贝）。
+fn verify_inbox_sha256(inbox_path: &Path, expected_sha256: &str) -> Result<fs::File, String> {
     let f = nix::fcntl::open(
         inbox_path,
         nix::fcntl::OFlag::O_RDONLY | nix::fcntl::OFlag::O_NOFOLLOW,
@@ -429,26 +459,41 @@ pub fn install_core(
         let _ = fs::remove_file(inbox_path);
         return Err(format!("校验和失败：期望 {expected}，实际 {actual}（已删除 inbox 文件）"));
     }
+    Ok(f)
+}
 
-    // 原子替换：copy → tmp → fsync → rename → chmod 0755
-    let bin = &targets.bin_path;
-    let parent = bin.parent().ok_or("核心二进制路径无父目录")?;
+/// geo 数据更新（geoip.metadb / geosite.dat，§6.3）：inbox 校验 → 原子替换
+/// `/var/clard/geodata/<file>`（RPM 分发同路径，`%config(noreplace)` 用户更新不被覆盖）。
+pub fn install_geodata(
+    geodata_dir: &Path,
+    inbox_root: &Path,
+    kind: GeoKind,
+    inbox_path: &Path,
+    expected_sha256: &str,
+) -> Result<(), String> {
+    if !inbox_path.starts_with(inbox_root) {
+        return Err(format!(
+            "inbox 路径越界（{} 不在 {} 下）",
+            inbox_path.display(),
+            inbox_root.display()
+        ));
+    }
+    let file_name = match kind {
+        GeoKind::Geoip => "geoip.metadb",
+        GeoKind::Geosite => "geosite.dat",
+    };
+    let dest = geodata_dir.join(file_name);
+    let mut f = verify_inbox_sha256(inbox_path, expected_sha256)?;
+    let parent = dest.parent().ok_or("geodata 路径无父目录")?;
     fs::create_dir_all(parent).map_err(|e| e.to_string())?;
-    let tmp = parent.join("mihomo.tmp");
+    let tmp = parent.join(format!("{file_name}.tmp"));
     {
         let mut out = fs::File::create(&tmp).map_err(|e| format!("写临时文件失败: {e}"))?;
         f.seek(io::SeekFrom::Start(0)).map_err(|e| e.to_string())?;
-        io::copy(&mut f, &mut out).map_err(|e| format!("拷贝安装包失败: {e}"))?;
+        io::copy(&mut f, &mut out).map_err(|e| format!("拷贝 geo 数据失败: {e}"))?;
         out.sync_all().map_err(|e| format!("fsync 失败: {e}"))?;
     }
-    use std::os::unix::fs::PermissionsExt;
-    fs::set_permissions(&tmp, fs::Permissions::from_mode(0o755)).map_err(|e| e.to_string())?;
-    fs::rename(&tmp, &bin).map_err(|e| format!("原子替换失败: {e}"))?;
-
-    // 记录（供展示与下次安装对比）
-    atomic_write(&core_sha256_path(state), expected.as_bytes()).map_err(|e| e.to_string())?;
-
-    // 清理 inbox
+    fs::rename(&tmp, &dest).map_err(|e| format!("原子替换失败: {e}"))?;
     let _ = fs::remove_file(inbox_path);
     Ok(())
 }
@@ -589,6 +634,56 @@ mod tests {
         assert!(e.contains("打开 inbox 文件失败"), "O_NOFOLLOW 拒绝 symlink: {e}");
         assert!(!fs::read_to_string(&target).map(|s| s.is_empty()).unwrap_or(true), "目标未被读取/影响");
         let _ = fs::remove_file(&target);
+    }
+
+    #[test]
+    fn install_geodata_replaces_atomically_and_removes_inbox() {
+        let dir = tempfile::tempdir().unwrap();
+        let geodata = dir.path().join("geodata");
+        let inbox = dir.path().join("inbox");
+        fs::create_dir_all(&geodata).unwrap();
+        fs::create_dir_all(&inbox).unwrap();
+        let payload = b"geoip-bytes-v1".to_vec();
+        let sha = {
+            use sha2::{Digest, Sha256};
+            let mut h = Sha256::new();
+            h.update(&payload);
+            format!("{:x}", h.finalize())
+        };
+        let inbox_file = inbox.join("geo.bin");
+        fs::write(&inbox_file, &payload).unwrap();
+
+        install_geodata(&geodata, &inbox, GeoKind::Geoip, &inbox_file, &sha).unwrap();
+
+        assert_eq!(fs::read(geodata.join("geoip.metadb")).unwrap(), payload);
+        assert!(!inbox_file.exists(), "inbox 已清理");
+    }
+
+    #[test]
+    fn install_geodata_sha_mismatch_rejects_and_removes_inbox() {
+        let dir = tempfile::tempdir().unwrap();
+        let geodata = dir.path().join("geodata");
+        let inbox = dir.path().join("inbox");
+        fs::create_dir_all(&geodata).unwrap();
+        fs::create_dir_all(&inbox).unwrap();
+        let inbox_file = inbox.join("geo.bin");
+        fs::write(&inbox_file, b"bad").unwrap();
+
+        let e = install_geodata(&geodata, &inbox, GeoKind::Geosite, &inbox_file, &"0".repeat(64)).unwrap_err();
+        assert!(e.contains("校验和失败"), "{e}");
+        assert!(!inbox_file.exists(), "哈希不符 → 删除 inbox 文件");
+    }
+
+    #[test]
+    fn install_geodata_rejects_path_traversal_outside_inbox() {
+        let dir = tempfile::tempdir().unwrap();
+        let geodata = dir.path().join("geodata");
+        let inbox = dir.path().join("inbox");
+        let outside = std::env::temp_dir().join(format!("clard-geo-outside-{}.bin", std::process::id()));
+        fs::write(&outside, b"x").unwrap();
+        let e = install_geodata(&geodata, &inbox, GeoKind::Geoip, &outside, &"0".repeat(64)).unwrap_err();
+        assert!(e.contains("inbox 路径越界"), "{e}");
+        let _ = fs::remove_file(&outside);
     }
 
     #[test]
