@@ -1,7 +1,7 @@
 //! 订阅内容下载：HTTP(S) GET，带超时、大小上限、文本校验。
 //!
 //! 边界：`fetch` 只负责「拿到合法文本」；「是否是合法 mihomo 配置」由
-//! `config_gen`（后续里程碑）校验。`HttpFetcher` 之外的实现（测试 mock）
+//! `clard-config`（后续里程碑）校验。`HttpFetcher` 之外的实现（测试 mock）
 //! 通过 [`SubscriptionFetcher`] trait 注入，store 逻辑不感知传输层。
 
 use std::time::Duration;

@@ -25,10 +25,10 @@ use settings::{GeneralRow, SettingsState, SettingsTab, TunRow};
 use tokio::sync::mpsc::UnboundedSender;
 
 use clard_core::{
-    config_gen::{self, subscription_to_yaml, ConfigGenOptions, TunOptions},
     mihomo::{backend::Backend, models::Traffic, websocket::get_websocket_url},
     profiles::HttpFetcher,
 };
+use clard_config::config_gen::{self, subscription_to_yaml, ConfigGenOptions, TunOptions};
 use clard_proto::{ProfileImport, ProfileItem, Request, Response};
 
 use crate::{event::ClardEvent, rpc};

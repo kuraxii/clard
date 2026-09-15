@@ -23,7 +23,7 @@ pub enum ClardError {
     Download(#[from] clard_core::profiles::DownloadError),
 
     #[error("配置生成失败: {0}")]
-    ConfigGen(#[from] clard_core::config_gen::ConfigGenError),
+    ConfigGen(#[from] clard_config::config_gen::ConfigGenError),
 
     #[error("helper 调用失败: {0}")]
     Rpc(#[from] crate::rpc::RpcError),

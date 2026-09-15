@@ -187,6 +187,17 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "a1d728cc89cf3aee9ff92b05e62b19ee65a02b5702cff7d5a377e32c6ae29d8d"
 
 [[package]]
+name = "clard-config"
+version = "0.1.0"
+dependencies = [
+ "base64",
+ "serde_json",
+ "serde_yaml_ng",
+ "thiserror 1.0.69",
+ "urlencoding",
+]
+
+[[package]]
 name = "clard-core"
 version = "0.1.0"
 dependencies = [
@@ -248,6 +259,7 @@ name = "clard-tui"
 version = "0.1.0"
 dependencies = [
  "clap",
+ "clard-config",
  "clard-core",
  "clard-proto",
  "crossterm 0.29.0",

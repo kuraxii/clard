@@ -3,7 +3,7 @@
 #![deny(warnings, missing_docs, trivial_casts, unused_qualifications)]
 
 use clap::Parser;
-use clard_core::config_gen::{ConfigGenOptions, subscription_to_yaml};
+use clard_config::config_gen::{ConfigGenOptions, subscription_to_yaml};
 use clard_core::profiles::{HttpFetcher, SubscriptionFetcher};
 use clard_proto::{ProfileImport, Request, Response};
 use clard_tui::{
@@ -144,7 +144,7 @@ async fn run_profiles_cmd(cmd: ProfilesSub) -> Result<()> {
                 Response::ProfileContent { yaml, .. } => yaml,
                 other => return Err(rpc::unexpected(other).into()),
             };
-            let runtime = clard_core::config_gen::generate(&yaml, None, &ConfigGenOptions::default())?;
+            let runtime = clard_config::config_gen::generate(&yaml, None, &ConfigGenOptions::default())?;
             println!("{runtime}");
         }
     }

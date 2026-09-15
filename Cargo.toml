@@ -1,6 +1,7 @@
 [workspace]
 resolver = "2"
 members = [
+    "crates/clard-config",
     "crates/clard-core",
     "crates/clard-proto",
     "crates/clard-helper",

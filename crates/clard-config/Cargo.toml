@@ -1,0 +1,14 @@
+[package]
+name = "clard-config"
+description = "Clard 配置解析/生成：config_gen（归一化、协议转换、托管注入；无特权、无持久文件）"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+
+[dependencies]
+serde_json.workspace = true
+thiserror.workspace = true
+
+base64 = "0.22.1"
+urlencoding = "2.1.3"
+serde_yaml_ng = "0.10"
