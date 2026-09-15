@@ -28,7 +28,6 @@ use clard_core::{
     mihomo::{backend::Backend, models::Traffic, websocket::get_websocket_url},
     profiles::HttpFetcher,
 };
-use clard_config::config_gen::{self, subscription_to_yaml, ConfigGenOptions, TunOptions};
 use clard_proto::{ProfileImport, ProfileItem, Request, Response};
 
 use crate::{event::ClardEvent, rpc};
@@ -351,21 +350,14 @@ impl APP {
     }
 
     /// 切换当前配置（R2.2，事务）：标记 current → 取回原始 yaml → config_gen 生成
-    /// 运行态配置 → ApplyConfig 落盘+热重载 → 核心未运行则启动；任一步失败回滚 current。
+    /// 切换当前配置（R2.2，§8.3 C）：helper 内完成标记 current + regenerate 拼装应用
+    /// （失败已回滚 current）；本侧仅补充：核心未运行则启动 + 记忆节点恢复。
     pub fn set_current_profile(&mut self, uid: String) {
-        let previous = self.profiles.current.clone();
-        let settings = self.settings.settings.clone().unwrap_or_default();
-        let log_level = self
-            .settings
-            .helper_config
-            .as_ref()
-            .map(|c| c.log_level.clone())
-            .unwrap_or_else(|| "info".to_string());
         let backend = self.backend.clone();
         self.message = Some(format!("switching to {uid}…"));
         let sender = self.event_sender.clone();
         tokio::spawn(async move {
-            match switch_profile_flow(&uid, previous, &settings, &log_level).await {
+            match switch_profile_flow(&uid).await {
                 Ok(msg) => {
                     // R2.2 记忆节点恢复：新配置的 selected → 逐个 PUT /proxies/:name
                     if let Err(e) = restore_memorized_nodes(&backend, &uid).await {
@@ -826,17 +818,10 @@ impl APP {
         });
     }
 
-    /// TUN 可配字段改动（R7.2）：存 helper → 用最新设置重新应用当前配置（热重载生效）。
+    /// TUN 可配字段改动（R7.2）：存 helper → helper 白名单字段自动 regenerate 生效（§8.4）。
     /// 无 current 配置时仅保存。
     pub fn set_tun_setting(&mut self, patch: clard_proto::SettingsPatch) {
         let sender = self.event_sender.clone();
-        let uid = self.profiles.current.clone();
-        let log_level = self
-            .settings
-            .helper_config
-            .as_ref()
-            .map(|c| c.log_level.clone())
-            .unwrap_or_else(|| "info".to_string());
         tokio::spawn(async move {
             match rpc::call(&Request::SettingsSet(patch)).await {
                 Ok(Response::Ok) => {
@@ -850,19 +835,6 @@ impl APP {
                 }
             }
             send_settings(&sender).await;
-            // 用最新设置重新应用当前配置（使 TUN 字段生效）
-            if let Some(uid) = uid {
-                if let Ok(Response::Settings { settings }) = rpc::call(&Request::SettingsGet).await {
-                    match switch_profile_flow(&uid, None, &settings, &log_level).await {
-                        Ok(msg) => {
-                            let _ = sender.send(ClardEvent::Notify(msg));
-                        }
-                        Err(e) => {
-                            let _ = sender.send(ClardEvent::Error(e));
-                        }
-                    }
-                }
-            }
         });
     }
 
@@ -1850,97 +1822,23 @@ async fn send_backups(sender: &UnboundedSender<ClardEvent>) {
 
 /// 切换配置事务（R2.2）：标记 current → 取回原始 yaml → config_gen（注入 TUN 设置）→
 /// ApplyConfig → 启动核心。任一步失败回滚 current 到 previous。
-async fn switch_profile_flow(
-    uid: &str,
-    previous: Option<String>,
-    settings: &clard_proto::Settings,
-    log_level: &str,
-) -> Result<String, String> {
+/// 切换配置（R2.2，§8.3 C）：helper 内完成标记 current + regenerate 拼装应用
+/// （失败已回滚 current）；本侧仅补充：核心未运行则启动（helper 已落盘运行态配置）。
+async fn switch_profile_flow(uid: &str) -> Result<String, String> {
     rpc::call(&Request::ProfileSetCurrent {
         uid: uid.to_string(),
     })
     .await
-    .map_err(|e| format!("标记 current 失败: {e}"))?;
-
-    let result: Result<String, String> = async {
-        let yaml = match rpc::call(&Request::ProfileGet {
-            uid: uid.to_string(),
-        })
-        .await
-        {
-            Ok(Response::ProfileContent { yaml, .. }) => yaml,
-            Ok(other) => return Err(rpc::unexpected(other).to_string()),
-            Err(e) => return Err(e.to_string()),
-        };
-        let runtime = config_gen::generate(&yaml, None, &config_options(settings, log_level))
-            .map_err(|e| format!("生成运行态配置失败: {e}"))?;
-        rpc::call(&Request::ApplyConfig { yaml: runtime })
-            .await
-            .map_err(|e| format!("应用配置失败: {e}"))?;
-        // 核心未运行则启动
-        if let Ok(Response::Status { core_state, .. }) = rpc::call(&Request::Status).await {
-            if core_state != "running" {
-                rpc::call(&Request::StartCore)
-                    .await
-                    .map_err(|e| format!("启动核心失败: {e}"))?;
-            }
+    .map_err(|e| format!("切换配置失败: {e}"))?;
+    // 核心未运行则启动（regenerate Startup 仅落盘，启动后生效）
+    if let Ok(Response::Status { core_state, .. }) = rpc::call(&Request::Status).await {
+        if core_state != "running" {
+            rpc::call(&Request::StartCore)
+                .await
+                .map_err(|e| format!("启动核心失败: {e}"))?;
         }
-        Ok(format!("switched to {uid}"))
     }
-    .await;
-
-    if result.is_err()
-        && let Some(prev) = previous
-    {
-        let _ = rpc::call(&Request::ProfileSetCurrent { uid: prev }).await;
-    }
-    result
-}
-
-/// 从系统设置构造 config_gen 托管选项（doc/01 §6.3）：TUN 开关 + 可配字段 + 混合端口。
-/// 空列表语义 = 用默认值（与 helper tun::build_tun_block 的约定一致）。
-fn config_options(settings: &clard_proto::Settings, log_level: &str) -> ConfigGenOptions {
-    let mut base = ConfigGenOptions::default();
-    base.mixed_port = settings.mixed_port;
-    base.log_level = if log_level.trim().is_empty() {
-        "info".to_string()
-    } else {
-        log_level.trim().to_string()
-    };
-    base.tun = if settings.tun_enabled {
-        let default_tun = TunOptions::default();
-        Some(TunOptions {
-            stack: if settings.tun_stack.is_empty() {
-                default_tun.stack
-            } else {
-                settings.tun_stack.clone()
-            },
-            dns_hijack: if settings.dns_hijack.is_empty() {
-                default_tun.dns_hijack
-            } else {
-                settings.dns_hijack.clone()
-            },
-            dns_mode: if settings.tun_dns_mode.is_empty() {
-                default_tun.dns_mode
-            } else {
-                settings.tun_dns_mode.clone()
-            },
-            route_exclude_address: if settings.route_exclude_address.is_empty() {
-                default_tun.route_exclude_address
-            } else {
-                settings.route_exclude_address.clone()
-            },
-            exclude_uid: settings.exclude_uid.clone(),
-            exclude_interface: settings.exclude_interface.clone(),
-            exclude_dst_port: settings.exclude_dst_port.clone(),
-            strict_route: settings.strict_route,
-            auto_redirect: settings.auto_redirect,
-            ..default_tun
-        })
-    } else {
-        None
-    };
-    base
+    Ok(format!("switched to {uid}"))
 }
 
 /// 逗号分隔字符串 → 非空条目列表（trim + 去空，R7.2 列表项输入）。
@@ -2065,18 +1963,18 @@ async fn import_profile_flow(url: String) -> Result<String, String> {
         .fetch_with_info(&url)
         .await
         .map_err(|e| format!("download failed: {e}"))?;
-    let yaml = subscription_to_yaml(&raw).map_err(|e| format!("parse failed: {e}"))?;
     let info = clard_proto::SubscriptionInfo {
         upload: info.upload,
         download: info.download,
         total: info.total,
         expire: info.expire,
     };
+    // §8.3 A：提交原始订阅 raw，helper 侧 clard-config 转换
     let resp = rpc::call(&Request::ProfileImport(ProfileImport {
         name: None,
         url,
         interval: 0,
-        yaml,
+        yaml: raw,
         info: Some(info),
     }))
     .await
@@ -2104,18 +2002,18 @@ async fn update_profile_flow(uid: String) -> Result<String, String> {
         .fetch_with_info(&url)
         .await
         .map_err(|e| format!("download failed: {e}"))?;
-    let yaml = subscription_to_yaml(&raw).map_err(|e| format!("parse failed: {e}"))?;
     let info = clard_proto::SubscriptionInfo {
         upload: info.upload,
         download: info.download,
         total: info.total,
         expire: info.expire,
     };
+    // §8.3 A：提交原始订阅 raw，helper 侧 clard-config 转换
     let resp = rpc::call(&Request::ProfileImport(ProfileImport {
         name: None,
         url,
         interval,
-        yaml,
+        yaml: raw,
         info: Some(info),
     }))
     .await

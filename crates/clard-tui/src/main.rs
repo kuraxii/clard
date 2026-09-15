@@ -3,7 +3,7 @@
 #![deny(warnings, missing_docs, trivial_casts, unused_qualifications)]
 
 use clap::Parser;
-use clard_config::config_gen::{ConfigGenOptions, subscription_to_yaml};
+use clard_config::config_gen::ConfigGenOptions;
 use clard_core::profiles::{HttpFetcher, SubscriptionFetcher};
 use clard_proto::{ProfileImport, Request, Response};
 use clard_tui::{
@@ -46,14 +46,13 @@ async fn run_profiles_cmd(cmd: ProfilesSub) -> Result<()> {
             name,
             interval,
         } => {
-            // 下载 → 归一化/转换 → 提交 helper 存储
+            // 下载 → 提交原始订阅 raw，helper 侧 clard-config 转换（§8.3 A）
             let raw = HttpFetcher::new(reqwest::Client::new()).fetch(&url).await?;
-            let yaml = subscription_to_yaml(&raw)?;
             let resp = rpc::call(&Request::ProfileImport(ProfileImport {
                 name,
                 url,
                 interval,
-                yaml,
+                yaml: raw,
                 info: None,
             }))
             .await?;
@@ -94,12 +93,11 @@ async fn run_profiles_cmd(cmd: ProfilesSub) -> Result<()> {
                 other => return Err(rpc::unexpected(other).into()),
             };
             let raw = HttpFetcher::new(reqwest::Client::new()).fetch(&url).await?;
-            let new_yaml = subscription_to_yaml(&raw)?;
             let resp = rpc::call(&Request::ProfileImport(ProfileImport {
                 name: None,
                 url,
                 interval,
-                yaml: new_yaml,
+                yaml: raw,
                 info: None,
             }))
             .await?;

@@ -6,6 +6,7 @@
 use std::{
     io,
     path::PathBuf,
+    time::Duration,
 };
 
 use clard_proto::{Request, Response};
@@ -22,27 +23,35 @@ pub fn socket_path() -> PathBuf {
     PathBuf::from("/run/clard/helper.sock")
 }
 
+/// RPC 调用超时（§8.5：变更类操作含热重载+回读校验约 1~3s，留足余量）。
+const RPC_TIMEOUT: Duration = Duration::from_secs(10);
+
 /// 调用一次请求，返回对端响应（`Response::Error` 已转为 [`RpcError::Helper`]）。
 pub async fn call(req: &Request) -> Result<Response, RpcError> {
-    let mut stream = tokio::net::UnixStream::connect(socket_path())
+    let fut = async {
+        let mut stream = tokio::net::UnixStream::connect(socket_path())
+            .await
+            .map_err(|e| RpcError::Connect(e.to_string()))?;
+
+        let buf = serde_json::to_vec(req).map_err(|e| RpcError::Encode(e.to_string()))?;
+        stream.write_all(&(buf.len() as u32).to_be_bytes()).await?;
+        stream.write_all(&buf).await?;
+
+        let mut len_buf = [0u8; 4];
+        stream.read_exact(&mut len_buf).await?;
+        let len = u32::from_be_bytes(len_buf) as usize;
+        let mut buf = vec![0u8; len];
+        stream.read_exact(&mut buf).await?;
+        let resp: Response =
+            serde_json::from_slice(&buf).map_err(|e| RpcError::Decode(e.to_string()))?;
+        match resp {
+            Response::Error { message } => Err(RpcError::Helper(message)),
+            other => Ok(other),
+        }
+    };
+    tokio::time::timeout(RPC_TIMEOUT, fut)
         .await
-        .map_err(|e| RpcError::Connect(e.to_string()))?;
-
-    let buf = serde_json::to_vec(req).map_err(|e| RpcError::Encode(e.to_string()))?;
-    stream.write_all(&(buf.len() as u32).to_be_bytes()).await?;
-    stream.write_all(&buf).await?;
-
-    let mut len_buf = [0u8; 4];
-    stream.read_exact(&mut len_buf).await?;
-    let len = u32::from_be_bytes(len_buf) as usize;
-    let mut buf = vec![0u8; len];
-    stream.read_exact(&mut buf).await?;
-    let resp: Response =
-        serde_json::from_slice(&buf).map_err(|e| RpcError::Decode(e.to_string()))?;
-    match resp {
-        Response::Error { message } => Err(RpcError::Helper(message)),
-        other => Ok(other),
-    }
+        .map_err(|_| RpcError::Timeout)?
 }
 
 /// 期望无载荷成功；载荷不符视为协议错误。
@@ -93,4 +102,6 @@ pub enum RpcError {
     Io(#[from] io::Error),
     #[error("helper 返回错误: {0}")]
     Helper(String),
+    #[error("后台处理超时（>10s；变更类操作含热重载与回读校验）")]
+    Timeout,
 }
