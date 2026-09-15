@@ -225,14 +225,17 @@ impl ProfilesStore {
     ) -> Result<ImportOutcome, ProfilesError> {
         let now = now_unix();
         if let Some(idx) = self.index.items.iter().position(|p| p.url == url) {
-            let (uid, file) = {
-                let item = &self.index.items[idx];
-                (item.uid.clone(), item.file.clone())
+            let Some(item) = self.index.items.get(idx) else {
+                return Err(ProfilesError::NotFound { uid: url.into() });
             };
+            let uid = item.uid.clone();
+            let file = item.file.clone();
             // 覆盖前先把旧内容轮转为备份（R2.9）
             self.rotate_backups(&self.root.join(&file))?;
-            write_file(&self.root.join(file), yaml)?;
-            let item = &mut self.index.items[idx];
+            write_file(&self.root.join(&file), yaml)?;
+            let Some(item) = self.index.items.get_mut(idx) else {
+                return Err(ProfilesError::NotFound { uid: url.into() });
+            };
             // 更新保留原名（对齐 clash-verge-rev `update_item`：仅更新内容/流量/间隔；
             // 改名走独立 `ProfileRename`，R2.5）
             item.interval = interval;
@@ -282,9 +285,14 @@ impl ProfilesStore {
         let Some(idx) = self.index.items.iter().position(|p| p.url == url) else {
             return Ok(false);
         };
-        let file = self.index.items[idx].file.clone();
-        write_file(&self.root.join(file), yaml)?;
-        let item = &mut self.index.items[idx];
+        let Some(item) = self.index.items.get(idx) else {
+            return Ok(false);
+        };
+        let file = item.file.clone();
+        write_file(&self.root.join(&file), yaml)?;
+        let Some(item) = self.index.items.get_mut(idx) else {
+            return Ok(false);
+        };
         item.updated_at = Some(now_unix());
         if let Some(info) = info {
             item.upload = info.upload;
@@ -381,7 +389,7 @@ impl ProfilesStore {
             .items
             .iter_mut()
             .find(|p| p.uid == uid)
-            .expect("uid 已校验存在");
+            .ok_or_else(|| ProfilesError::NotFound { uid: uid.into() })?;
         item.updated_at = Some(now_unix());
         self.save_index()
     }

@@ -202,7 +202,7 @@ fn validate_runtime(runtime: &str, settings: &Settings) -> Result<(), String> {
 async fn verify_runtime(sock: &std::path::Path, settings: &Settings, log_level: &str) -> Result<(), String> {
     let cfg = crate::core::get_configs(sock).await?;
     let mut errs = Vec::new();
-    if cfg["mixed-port"].as_i64() != Some(i64::from(settings.mixed_port)) {
+    if cfg.get("mixed-port").and_then(|v| v.as_i64()) != Some(i64::from(settings.mixed_port)) {
         errs.push(format!("mixed-port 不一致（期望 {}）", settings.mixed_port));
     }
     let want_lvl = if log_level.trim().is_empty() {
@@ -210,10 +210,15 @@ async fn verify_runtime(sock: &std::path::Path, settings: &Settings, log_level: 
     } else {
         log_level.trim()
     };
-    if cfg["log-level"].as_str() != Some(want_lvl) {
+    if cfg.get("log-level").and_then(|v| v.as_str()) != Some(want_lvl) {
         errs.push(format!("log-level 不一致（期望 {want_lvl}）"));
     }
-    if cfg["tun"]["enable"].as_bool() != Some(settings.tun_enabled) {
+    if cfg
+        .get("tun")
+        .and_then(|t| t.get("enable"))
+        .and_then(|v| v.as_bool())
+        != Some(settings.tun_enabled)
+    {
         errs.push(format!("tun.enable 不一致（期望 {}）", settings.tun_enabled));
     }
     if !errs.is_empty() {

@@ -7,6 +7,7 @@
 //! helper 用 `SO_PEERCRED` 记录 actor uid/pid 写审计，不做准入。
 
 #![forbid(unsafe_code)]
+#![cfg_attr(test, allow(clippy::panic, clippy::unwrap_used, clippy::expect_used, clippy::indexing_slicing))]
 #![warn(
     rust_2018_idioms,
     trivial_casts,

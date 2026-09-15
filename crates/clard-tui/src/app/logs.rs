@@ -287,7 +287,9 @@ impl Default for LogsState {
 fn parse_text_line(line: String, source: &str) -> LogLine {
     let ts = line
         .get(..8)
-        .filter(|s| s.len() == 8 && s.as_bytes()[2] == b':' && s.as_bytes()[5] == b':')
+        .filter(|s| {
+            s.len() == 8 && s.as_bytes().get(2) == Some(&b':') && s.as_bytes().get(5) == Some(&b':')
+        })
         .map(|_| 0);
     LogLine {
         ts,
@@ -340,10 +342,11 @@ fn pair_records(recs: &[&AuditRecord]) -> Vec<AuditRow> {
     }
     let mut out: Vec<AuditRow> = by_id
         .values()
-        .map(|(intent, result)| {
+        .filter_map(|(intent, result)| {
             let intent = *intent;
             let result = *result;
-            row_from_rec(intent.unwrap_or_else(|| result.unwrap()), result)
+            let rec = intent.or(result)?;
+            Some(row_from_rec(rec, result))
         })
         .collect();
     out.sort_by_key(|r| std::cmp::Reverse(r.ts));

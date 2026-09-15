@@ -1,6 +1,7 @@
 //! clard 入口：无子命令/`--tui` 进 TUI；`profiles` 子命令为 CLI 订阅管理。
 
 #![deny(warnings, missing_docs, trivial_casts, unused_qualifications)]
+#![cfg_attr(test, allow(clippy::panic, clippy::unwrap_used, clippy::expect_used, clippy::indexing_slicing))]
 
 use clap::Parser;
 use clard_config::config_gen::ConfigGenOptions;

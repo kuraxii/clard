@@ -48,11 +48,11 @@ pub fn convert(line: &str) -> Result<Value, ConfigGenError> {
     // encryption=method;password（trojan + ss 混淆）
     if let Some(enc) = q.get("encryption") {
         let parts: Vec<&str> = enc.split(';').collect();
-        if parts.len() == 3 {
+        if let [_, method, password] = parts.as_slice() {
             let mut so = Mapping::new();
             kv(&mut so, "enabled", true);
-            kv(&mut so, "method", parts[1]);
-            kv(&mut so, "password", parts[2]);
+            kv(&mut so, "method", *method);
+            kv(&mut so, "password", *password);
             kv(&mut m, "ss-opts", Value::Mapping(so));
         }
     }

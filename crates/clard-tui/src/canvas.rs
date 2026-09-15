@@ -49,20 +49,24 @@ impl Painter {
                 )
                 .split(area);
 
-            draw_header(f, shell[0], app, theme);
-            draw_navigation(f, shell[1], app, theme);
+            let [header, nav, body, footer] = shell.as_ref() else {
+                return;
+            };
+
+            draw_header(f, *header, app, theme);
+            draw_navigation(f, *nav, app, theme);
 
             match app.current_page {
-                Page::Home => HomeLayout::draw(f, shell[2], app, theme),
-                Page::Profiles => ProfilesLayout::draw(f, shell[2], &app.profiles, theme),
-                Page::Proxies => ProxyLayout::draw(f, shell[2], &app.proxies, theme),
-                Page::Connections => ConnectionsLayout::draw(f, shell[2], &app.connections, theme),
-                Page::Logs => LogsLayout::draw(f, shell[2], &app.logs, theme),
-                Page::Settings => SettingsLayout::draw(f, shell[2], &app.settings, theme),
-                Page::Rules => RulesLayout::draw(f, shell[2], &app.rules, theme),
+                Page::Home => HomeLayout::draw(f, *body, app, theme),
+                Page::Profiles => ProfilesLayout::draw(f, *body, &app.profiles, theme),
+                Page::Proxies => ProxyLayout::draw(f, *body, &app.proxies, theme),
+                Page::Connections => ConnectionsLayout::draw(f, *body, &app.connections, theme),
+                Page::Logs => LogsLayout::draw(f, *body, &app.logs, theme),
+                Page::Settings => SettingsLayout::draw(f, *body, &app.settings, theme),
+                Page::Rules => RulesLayout::draw(f, *body, &app.rules, theme),
             }
 
-            draw_footer(f, shell[3], app, theme);
+            draw_footer(f, *footer, app, theme);
 
             if let Some(input) = &app.input {
                 draw_input_modal(f, area, input, theme);
@@ -274,19 +278,29 @@ impl HomeLayout {
             .direction(Direction::Horizontal)
             .constraints([Constraint::Percentage(50), Constraint::Percentage(50)].as_ref())
             .split(area);
+        let [left_col, right_col] = cols.as_ref() else {
+            return;
+        };
         let left = Layout::default()
             .direction(Direction::Vertical)
             .constraints([Constraint::Percentage(50), Constraint::Percentage(50)].as_ref())
-            .split(cols[0]);
+            .split(*left_col);
         let right = Layout::default()
             .direction(Direction::Vertical)
             .constraints([Constraint::Percentage(50), Constraint::Percentage(50)].as_ref())
-            .split(cols[1]);
+            .split(*right_col);
 
-        draw_home_core(f, left[0], app, theme);
-        draw_home_profile(f, left[1], app, theme);
-        draw_home_traffic(f, right[0], app, theme);
-        draw_home_service(f, right[1], app, theme);
+        let [left_top, left_bottom] = left.as_ref() else {
+            return;
+        };
+        let [right_top, right_bottom] = right.as_ref() else {
+            return;
+        };
+
+        draw_home_core(f, *left_top, app, theme);
+        draw_home_profile(f, *left_bottom, app, theme);
+        draw_home_traffic(f, *right_top, app, theme);
+        draw_home_service(f, *right_bottom, app, theme);
     }
 }
 
@@ -405,8 +419,12 @@ impl ProfilesLayout {
             .constraints([Constraint::Percentage(45), Constraint::Min(0)].as_ref())
             .split(area);
 
-        draw_profile_list(f, columns[0], state, theme);
-        draw_profile_detail(f, columns[1], state, theme);
+        let [list, detail] = columns.as_ref() else {
+            return;
+        };
+
+        draw_profile_list(f, *list, state, theme);
+        draw_profile_detail(f, *detail, state, theme);
     }
 }
 
@@ -516,10 +534,14 @@ impl LogsLayout {
             .constraints([Constraint::Length(3), Constraint::Min(0)].as_ref())
             .split(area);
 
-        draw_logs_tabs(f, rows[0], state, theme);
+        let [tabs, body] = rows.as_ref() else {
+            return;
+        };
+
+        draw_logs_tabs(f, *tabs, state, theme);
         match state.tab {
-            LogsTab::Audit => draw_audit_table(f, rows[1], state, theme),
-            _ => draw_log_lines(f, rows[1], state, theme),
+            LogsTab::Audit => draw_audit_table(f, *body, state, theme),
+            _ => draw_log_lines(f, *body, state, theme),
         }
     }
 }
@@ -682,15 +704,19 @@ impl SettingsLayout {
             .constraints([Constraint::Length(3), Constraint::Min(0)].as_ref())
             .split(area);
 
-        draw_settings_tabs(f, rows[0], state, theme);
+        let [tabs, body] = rows.as_ref() else {
+            return;
+        };
+
+        draw_settings_tabs(f, *tabs, state, theme);
         match state.tab {
-            SettingsTab::General => draw_settings_general(f, rows[1], state, theme),
-            SettingsTab::Tun => draw_settings_tun(f, rows[1], state, theme),
-            SettingsTab::Core => draw_settings_core(f, rows[1], state, theme),
-            SettingsTab::Service => draw_settings_service(f, rows[1], state, theme),
-            SettingsTab::Backup => draw_settings_backup(f, rows[1], state, theme),
-            SettingsTab::Logs => draw_settings_logs(f, rows[1], state, theme),
-            SettingsTab::About => draw_settings_about(f, rows[1], theme),
+            SettingsTab::General => draw_settings_general(f, *body, state, theme),
+            SettingsTab::Tun => draw_settings_tun(f, *body, state, theme),
+            SettingsTab::Core => draw_settings_core(f, *body, state, theme),
+            SettingsTab::Service => draw_settings_service(f, *body, state, theme),
+            SettingsTab::Backup => draw_settings_backup(f, *body, state, theme),
+            SettingsTab::Logs => draw_settings_logs(f, *body, state, theme),
+            SettingsTab::About => draw_settings_about(f, *body, theme),
         }
     }
 }
@@ -1060,10 +1086,14 @@ impl RulesLayout {
             .constraints([Constraint::Length(3), Constraint::Min(0)].as_ref())
             .split(area);
 
-        draw_rules_tabs(f, rows[0], state, theme);
+        let [tabs, body] = rows.as_ref() else {
+            return;
+        };
+
+        draw_rules_tabs(f, *tabs, state, theme);
         match state.tab {
-            RulesTab::Rules => draw_rules_table(f, rows[1], state, theme),
-            RulesTab::Providers => draw_rule_providers_table(f, rows[1], state, theme),
+            RulesTab::Rules => draw_rules_table(f, *body, state, theme),
+            RulesTab::Providers => draw_rule_providers_table(f, *body, state, theme),
         }
     }
 }
@@ -1195,9 +1225,13 @@ impl ProxyLayout {
                 )
                 .split(area);
 
-            draw_group_list(f, chunks[0], state, theme);
-            draw_proxy_list(f, chunks[1], state, theme);
-            draw_proxy_detail(f, chunks[2], state, theme);
+            let [group, list, detail] = chunks.as_ref() else {
+                return;
+            };
+
+            draw_group_list(f, *group, state, theme);
+            draw_proxy_list(f, *list, state, theme);
+            draw_proxy_detail(f, *detail, state, theme);
             return;
         }
 
@@ -1205,14 +1239,21 @@ impl ProxyLayout {
             .direction(Direction::Vertical)
             .constraints([Constraint::Min(0), Constraint::Length(8)].as_ref())
             .split(area);
+        let [top_row, detail_row] = rows.as_ref() else {
+            return;
+        };
         let top = Layout::default()
             .direction(Direction::Horizontal)
             .constraints([Constraint::Percentage(38), Constraint::Percentage(62)].as_ref())
-            .split(rows[0]);
+            .split(*top_row);
 
-        draw_group_list(f, top[0], state, theme);
-        draw_proxy_list(f, top[1], state, theme);
-        draw_proxy_detail(f, rows[1], state, theme);
+        let [group, list] = top.as_ref() else {
+            return;
+        };
+
+        draw_group_list(f, *group, state, theme);
+        draw_proxy_list(f, *list, state, theme);
+        draw_proxy_detail(f, *detail_row, state, theme);
     }
 }
 
@@ -1367,15 +1408,22 @@ impl ConnectionsLayout {
             .direction(Direction::Vertical)
             .constraints([Constraint::Length(5), Constraint::Min(0)].as_ref())
             .split(area);
-        draw_connection_metrics(f, rows[0], state, theme);
+        let [metrics_row, body] = rows.as_ref() else {
+            return;
+        };
+        draw_connection_metrics(f, *metrics_row, state, theme);
 
         let columns = Layout::default()
             .direction(Direction::Horizontal)
             .constraints([Constraint::Percentage(70), Constraint::Percentage(30)].as_ref())
-            .split(rows[1]);
+            .split(*body);
 
-        draw_connections_table(f, columns[0], state, theme);
-        draw_connection_detail(f, columns[1], state, theme);
+        let [table, detail] = columns.as_ref() else {
+            return;
+        };
+
+        draw_connections_table(f, *table, state, theme);
+        draw_connection_detail(f, *detail, state, theme);
     }
 }
 
@@ -1417,9 +1465,13 @@ fn draw_connection_metrics(f: &mut Frame<'_>, area: Rect, state: &ConnectionsSta
         )
         .split(area);
 
+    let [active_metric, upload_metric, download_metric, memory_metric] = chunks.as_ref() else {
+        return;
+    };
+
     draw_metric(
         f,
-        chunks[0],
+        *active_metric,
         "Active",
         &active,
         "live connections",
@@ -1428,7 +1480,7 @@ fn draw_connection_metrics(f: &mut Frame<'_>, area: Rect, state: &ConnectionsSta
     );
     draw_metric(
         f,
-        chunks[1],
+        *upload_metric,
         "Upload / s",
         &upload_rate,
         &upload_caption,
@@ -1437,14 +1489,14 @@ fn draw_connection_metrics(f: &mut Frame<'_>, area: Rect, state: &ConnectionsSta
     );
     draw_metric(
         f,
-        chunks[2],
+        *download_metric,
         "Download / s",
         &download_rate,
         &download_caption,
         theme.primary,
         theme,
     );
-    draw_metric(f, chunks[3], "Memory", &memory, "backend usage", theme.secondary, theme);
+    draw_metric(f, *memory_metric, "Memory", &memory, "backend usage", theme.secondary, theme);
 }
 
 fn draw_connections_table(f: &mut Frame<'_>, area: Rect, state: &ConnectionsState, theme: Theme) {
@@ -2103,13 +2155,13 @@ fn format_network_bytes(bytes: u64) -> String {
     }
 
     if unit == 0 {
-        return format!("{} {}", bytes, UNITS[unit]);
+        return format!("{} {}", bytes, UNITS.get(unit).copied().unwrap_or("B"));
     }
 
     let formatted = format!("{:.1}", value);
     let formatted = formatted.strip_suffix(".0").unwrap_or(&formatted);
 
-    format!("{} {}", formatted, UNITS[unit])
+    format!("{} {}", formatted, UNITS.get(unit).copied().unwrap_or("B"))
 }
 
 fn sparkline_history(history: &[DelayHistory]) -> String {
@@ -2129,16 +2181,16 @@ fn sparkline_u64(values: &[u64]) -> String {
     }
 
     let start = values.len().saturating_sub(18);
-    let visible = &values[start..];
-    let min = visible.iter().min().copied().unwrap_or(0);
-    let max = visible.iter().max().copied().unwrap_or(min);
+    let min = values.iter().skip(start).min().copied().unwrap_or(0);
+    let max = values.iter().skip(start).max().copied().unwrap_or(min);
     let span = max.saturating_sub(min).max(1);
 
-    visible
+    values
         .iter()
+        .skip(start)
         .map(|value| {
             let idx = (value.saturating_sub(min) * 7 / span) as usize;
-            BARS[idx]
+            BARS.get(idx).copied().unwrap_or('█')
         })
         .collect()
 }
@@ -2156,7 +2208,8 @@ fn centered_rect(percent_x: u16, percent_y: u16, area: Rect) -> Rect {
         )
         .split(area);
 
-    Layout::default()
+    let center_y = vertical.get(1).copied().unwrap_or_default();
+    let horizontal = Layout::default()
         .direction(Direction::Horizontal)
         .constraints(
             [
@@ -2166,11 +2219,12 @@ fn centered_rect(percent_x: u16, percent_y: u16, area: Rect) -> Rect {
             ]
             .as_ref(),
         )
-        .split(vertical[1])[1]
-        .inner(Margin {
-            horizontal: 1,
-            vertical: 0,
-        })
+        .split(center_y);
+    let center = horizontal.get(1).copied().unwrap_or_default();
+    center.inner(Margin {
+        horizontal: 1,
+        vertical: 0,
+    })
 }
 
 #[cfg(test)]

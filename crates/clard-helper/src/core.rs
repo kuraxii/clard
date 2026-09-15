@@ -421,7 +421,7 @@ pub fn install_core(
         if n == 0 {
             break;
         }
-        hasher.update(&buf[..n]);
+        hasher.update(buf.get(..n).unwrap_or(&[]));
     }
     let actual = format!("{:x}", hasher.finalize());
     let expected = expected_sha256.trim().to_ascii_lowercase();

@@ -59,9 +59,10 @@ pub fn convert(line: &str) -> Result<Value, ConfigGenError> {
         Some((c, p)) => (Some(c), Some(p)),
         None => (None, None),
     };
-    if password.is_none() || password == Some("") {
-        return Err(ConfigGenError::InvalidNode("缺少密码".into()));
-    }
+    let password = match password {
+        Some(p) if !p.is_empty() => p,
+        _ => return Err(ConfigGenError::InvalidNode("缺少密码".into())),
+    };
 
     let mut m = Mapping::new();
     kv(
@@ -73,14 +74,14 @@ pub fn convert(line: &str) -> Result<Value, ConfigGenError> {
     kv(&mut m, "server", server);
     kv(&mut m, "port", i64::from(port));
     kv(&mut m, "cipher", get_cipher(cipher_raw).as_str());
-    kv(&mut m, "password", password.unwrap());
+    kv(&mut m, "password", password);
 
     // plugin=...（obfs / v2ray-plugin）
     if let Some(plugin_param) = query.get("plugin") {
-        let parts: Vec<&str> = plugin_param.split(';').collect();
-        let plugin_name = parts[0];
+        let mut parts = plugin_param.split(';');
+        let plugin_name = parts.next().unwrap_or_default();
         let mut opts = std::collections::HashMap::new();
-        for raw in &parts[1..] {
+        for raw in parts {
             if raw.is_empty() {
                 continue;
             }

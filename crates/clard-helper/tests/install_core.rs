@@ -8,6 +8,8 @@
 //!
 //! 每个用例独立 TempDir，测试结束自动删除；helper 子进程 kill_on_drop。
 
+#![allow(clippy::panic, clippy::unwrap_used, clippy::expect_used, clippy::indexing_slicing)]
+
 use std::{
     io::Read,
     path::Path,

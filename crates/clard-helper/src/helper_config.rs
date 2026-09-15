@@ -78,18 +78,18 @@ static CFG: LazyLock<RwLock<HelperConfig>> = LazyLock::new(|| RwLock::new(Helper
 
 /// 启动时初始化（daemon::run 早期调用；单进程单次）。
 pub fn init() {
-    *CFG.write().unwrap() = HelperConfig::load();
+    *CFG.write().unwrap_or_else(|e| e.into_inner()) = HelperConfig::load();
 }
 
 /// 全局配置快照（logs/audit/rpc/regenerate 用；clone 避免长期持锁）。
 pub fn global() -> HelperConfig {
-    CFG.read().unwrap().clone()
+    CFG.read().unwrap_or_else(|e| e.into_inner()).clone()
 }
 
 /// 配置文件 mtime 变化则重载，返回是否变化（§8.4 F：daemon 每 30s 调用，
 /// 变化后由调用方对核心做 log-level 字段级 PATCH 热更）。
 pub fn reload_if_changed() -> bool {
-    let mut cfg = CFG.write().unwrap();
+    let mut cfg = CFG.write().unwrap_or_else(|e| e.into_inner());
     let cur_mtime = std::fs::metadata(HelperConfig::path())
         .and_then(|m| m.modified())
         .ok();
