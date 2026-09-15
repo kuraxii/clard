@@ -233,9 +233,8 @@ impl ProfilesStore {
             self.rotate_backups(&self.root.join(&file))?;
             write_file(&self.root.join(file), yaml)?;
             let item = &mut self.index.items[idx];
-            if let Some(name) = name {
-                item.name = name.to_string();
-            }
+            // 更新保留原名（对齐 clash-verge-rev `update_item`：仅更新内容/流量/间隔；
+            // 改名走独立 `ProfileRename`，R2.5）
             item.interval = interval;
             item.updated_at = Some(now);
             if let Some(info) = info {
@@ -446,16 +445,27 @@ fn gen_uid() -> String {
     format!("R{:08x}{:04x}", ts, rand)
 }
 
-/// 缺省配置名：URL host。
+/// 缺省配置名（仅兜底：正常路径 TUI 已按 Content-Disposition/URL 最后段派生后传入）：
+/// URL 最后一段路径（percent-decode）→ "订阅"。
 fn default_name(url: &str) -> String {
-    reqwest_url_host(url).unwrap_or_else(|| "订阅".to_string())
+    url_last_segment(url).unwrap_or_else(|| "订阅".to_string())
 }
 
-fn reqwest_url_host(url: &str) -> Option<String> {
-    // 避免 helper 引入 reqwest 依赖：轻量提取 host
-    let after = url.split("://").nth(1)?;
-    let host = after.split(['/', '?', '#']).next()?;
-    Some(host.to_string())
+/// URL 最后一段路径（去 query、percent-decode），仅接受带 scheme 的 URL。
+fn url_last_segment(url: &str) -> Option<String> {
+    if !url.contains("://") {
+        return None;
+    }
+    let path = url.split('?').next()?;
+    let last = path.rsplit('/').next()?;
+    if last.is_empty() {
+        return None;
+    }
+    Some(
+        urlencoding::decode(last)
+            .map(|c| c.into_owned())
+            .unwrap_or_else(|_| last.to_string()),
+    )
 }
 
 fn now_unix() -> i64 {
@@ -507,7 +517,7 @@ mod tests {
         assert_eq!(store.list().len(), 1);
         let p = store.get(&uid).unwrap();
         assert_eq!(p.kind, ProfileKind::Remote);
-        assert_eq!(p.name, "example.com", "缺省名取 URL host");
+        assert_eq!(p.name, "sub-a", "缺省名取 URL 最后一段路径（对齐 clash-verge-rev）");
         assert_eq!(store.content(&uid).unwrap(), "proxies: []\n");
     }
 
@@ -522,7 +532,7 @@ mod tests {
         assert_eq!(second, ImportOutcome::Updated { uid: first_uid.clone() });
         assert_eq!(store.list().len(), 1, "同 URL 不得重复");
         let p = store.get(&first_uid).unwrap();
-        assert_eq!(p.name, "改名");
+        assert_eq!(p.name, "订阅A", "更新保留原名；改名走独立 ProfileRename");
         assert_eq!(p.interval, 3600);
         assert_eq!(store.content(&first_uid).unwrap(), "v2");
     }
@@ -539,10 +549,10 @@ mod tests {
 
         let snapshot = store.index_snapshot();
         let old_content = store.content(&uid).unwrap();
-        // 模拟 import 更新（新内容 + 改名 + 刷新 updated_at）
+        // 模拟 import 更新（新内容 + 刷新 updated_at；名字保持不变）
         store.import(URL_A, Some("新名"), 7200, "v2", None).unwrap();
         assert_eq!(store.content(&uid).unwrap(), "v2");
-        assert_eq!(store.get(&uid).unwrap().name, "新名");
+        assert_eq!(store.get(&uid).unwrap().name, "订阅A", "更新不改名");
 
         // 回滚：恢复索引 + 旧内容
         store.restore_index(snapshot).unwrap();
@@ -738,7 +748,8 @@ mod tests {
 
     #[test]
     fn default_name_from_url_without_reqwest() {
-        assert_eq!(default_name("https://link.xingvoy.com/api/sub?x=1"), "link.xingvoy.com");
+        assert_eq!(default_name("https://link.xingvoy.com/api/sub?x=1"), "sub");
+        assert_eq!(default_name("https://example.com/My%20Sub"), "My Sub");
         assert_eq!(default_name("not a url"), "订阅");
     }
 }
