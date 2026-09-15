@@ -133,6 +133,8 @@ pub struct Settings {
     pub theme: String,
     /// 混合端口（默认 7890，仅绑 127.0.0.1）
     pub mixed_port: u16,
+    /// 代理模式：rule（分流，默认）/ global（全代理）/ direct（全直连，doc/05 §7 R7.1）
+    pub mode: String,
     /// 自定义测速 URL（空 = 用 mihomo 内置，doc/05 §3 R3.4）
     pub test_url: String,
     // ---- TUN（doc/05 §7 R7.2，托管固定值见 doc/01 §6.2）----
@@ -165,6 +167,7 @@ impl Default for Settings {
             language: "en".into(),
             theme: "dark".into(),
             mixed_port: 7890,
+            mode: "rule".into(),
             test_url: String::new(),
             tun_enabled: false,
             tun_stack: "gvisor".into(),
@@ -188,6 +191,8 @@ pub struct SettingsPatch {
     pub language: Option<String>,
     pub theme: Option<String>,
     pub mixed_port: Option<u16>,
+    /// 代理模式：rule / global / direct（白名单字段，触发 regenerate 热重载）
+    pub mode: Option<String>,
     pub test_url: Option<String>,
     // ---- TUN（doc/05 §7 R7.2）----
     pub tun_enabled: Option<bool>,

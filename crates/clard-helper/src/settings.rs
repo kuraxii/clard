@@ -33,9 +33,10 @@ pub struct SettingsStore {
     settings: Settings,
 }
 
-/// 设置归一化扩展：tun_dns_mode 空/非法 → fake-ip。
+/// 设置归一化扩展：tun_dns_mode 空/非法 → fake-ip；mode 空/非法 → rule。
 trait SettingsNormalize {
     fn normalize_dns_mode(&mut self);
+    fn normalize_mode(&mut self);
 }
 
 impl SettingsNormalize for Settings {
@@ -43,6 +44,14 @@ impl SettingsNormalize for Settings {
         match self.tun_dns_mode.as_str() {
             "fake-ip" | "redir-host" => {}
             _ => self.tun_dns_mode = "fake-ip".into(),
+        }
+    }
+
+    fn normalize_mode(&mut self) {
+        match self.mode.as_str() {
+            "rule" | "global" | "direct" => {}
+            // 空或非法值归一化为 rule（向后兼容旧 clard.toml / 手改坏值）
+            _ => self.mode = "rule".into(),
         }
     }
 }
@@ -56,8 +65,9 @@ impl SettingsStore {
             Err(e) if e.kind() == io::ErrorKind::NotFound => Settings::default(),
             Err(e) => return Err(e.into()),
         };
-        // 归一化：旧 clard.toml 无 tun_dns_mode（空串）→ fake-ip
+        // 归一化：旧 clard.toml 无 tun_dns_mode（空串）→ fake-ip；mode 空/非法 → rule
         settings.normalize_dns_mode();
+        settings.normalize_mode();
         Ok(Self { path, settings })
     }
 
@@ -99,6 +109,14 @@ impl SettingsStore {
                 return Err(SettingsError::InvalidPort(v));
             }
             self.settings.mixed_port = v;
+        }
+        if let Some(v) = &patch.mode {
+            // 仅接受 rule / global / direct；空或非法值归一化为 rule（向后兼容）
+            self.settings.mode = match v.as_str() {
+                "global" => "global".into(),
+                "direct" => "direct".into(),
+                _ => "rule".into(),
+            };
         }
         if let Some(v) = &patch.test_url {
             self.settings.test_url = v.clone();
@@ -190,6 +208,7 @@ mod tests {
                     language: Some("zh".into()),
                     theme: None,
                     mixed_port: Some(7891),
+                    mode: Some("global".into()),
                     test_url: Some("http://x".into()),
                     tun_enabled: Some(true),
                     force_tun: None,
@@ -211,6 +230,7 @@ mod tests {
         assert_eq!(s.language, "zh");
         assert_eq!(s.theme, "dark", "未补丁字段保持默认");
         assert_eq!(s.mixed_port, 7891);
+        assert_eq!(s.mode, "global");
         assert!(s.tun_enabled);
         assert_eq!(s.tun_stack, "gvisor");
         assert_eq!(s.tun_dns_mode, "redir-host");
@@ -221,6 +241,27 @@ mod tests {
         assert_eq!(s.exclude_dst_port, vec![5353]);
         assert!(!s.strict_route);
         assert!(s.auto_redirect);
+    }
+
+    #[test]
+    fn mode_normalized_on_patch() {
+        let dir = tempdir().unwrap();
+        let mut store = SettingsStore::open(dir.path()).unwrap();
+        // 合法值直通
+        store.patch(&SettingsPatch { mode: Some("global".into()), ..Default::default() }).unwrap();
+        assert_eq!(store.get().mode, "global");
+        // 空/非法归一化为 rule（向后兼容）
+        store.patch(&SettingsPatch { mode: Some("bogus".into()), ..Default::default() }).unwrap();
+        assert_eq!(store.get().mode, "rule");
+    }
+
+    #[test]
+    fn mode_normalized_on_open() {
+        let dir = tempdir().unwrap();
+        // 手改 clard.toml 为非法值 → open 归一化为 rule
+        std::fs::write(dir.path().join("clard.toml"), "mode = \"bogus\"\n").unwrap();
+        let store = SettingsStore::open(dir.path()).unwrap();
+        assert_eq!(store.get().mode, "rule");
     }
 
     #[test]

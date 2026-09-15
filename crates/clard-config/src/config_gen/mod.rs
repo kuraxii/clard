@@ -174,6 +174,19 @@ mod tests {
     }
 
     #[test]
+    fn generate_injects_mode_from_options() {
+        // mode 为托管注入：settings.mode 三种取值直达 yaml（global/direct 生效，见 doc/05 §7 R7.1）
+        let profile = "proxies:\n  - name: n1\n    type: socks5\n    server: 1.2.3.4\n    port: 1080\n";
+        for m in ["rule", "global", "direct"] {
+            let mut o = opts();
+            o.mode = m.into();
+            let out = generate(profile, None, &o).unwrap();
+            let m_out = as_mapping(&out);
+            assert_eq!(get(&m_out, "mode").unwrap().as_str(), Some(m), "mode={m} 注入");
+        }
+    }
+
+    #[test]
     fn generate_managed_beats_profile() {
         let profile = "mixed-port: 8888\nmode: direct\nproxies: []\n";
         let out = generate(profile, None, &opts()).unwrap();

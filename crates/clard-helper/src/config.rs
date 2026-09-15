@@ -40,6 +40,11 @@ pub struct Regen {
 /// 空列表字段 = 用 clard-config 默认值（与托管约定一致）。
 pub fn options_from(settings: &Settings, log_level: &str) -> ConfigGenOptions {
     ConfigGenOptions {
+        mode: if settings.mode.trim().is_empty() {
+            "rule".to_string()
+        } else {
+            settings.mode.trim().to_string()
+        },
         mixed_port: settings.mixed_port,
         log_level: if log_level.trim().is_empty() {
             "info".to_string()
@@ -322,6 +327,20 @@ mod tests {
         assert_eq!(o.stack, "system");
         assert_eq!(o.dns_mode, "redir-host");
         assert_eq!(o.route_exclude_address, vec!["10.0.0.0/8"]);
+    }
+
+    #[test]
+    fn options_from_mode_passthrough() {
+        // 默认 rule；settings.mode 三种取值原样进入托管选项（config_gen 注入 yaml）
+        let mut s = Settings::default();
+        assert_eq!(options_from(&s, "").mode, "rule");
+        for m in ["global", "direct"] {
+            s.mode = m.into();
+            assert_eq!(options_from(&s, "").mode, m);
+        }
+        // 空/非法值兜底 rule（防御手改 clard.toml）
+        s.mode = String::new();
+        assert_eq!(options_from(&s, "").mode, "rule");
     }
 
     // ---- validate_runtime ----

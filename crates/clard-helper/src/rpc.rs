@@ -512,6 +512,7 @@ fn op_and_intent(req: &Request) -> (&'static str, &'static str) {
 /// interval/test_url）仅落盘。
 fn patch_affects_config(patch: &SettingsPatch) -> bool {
     patch.mixed_port.is_some()
+        || patch.mode.is_some()
         || patch.tun_enabled.is_some()
         || patch.tun_stack.is_some()
         || patch.tun_dns_mode.is_some()
@@ -698,6 +699,15 @@ mod tests {
         assert!(matches!(resp, Response::Error { .. }), "{resp:?}");
         assert_eq!(store.current().unwrap().uid, uid_a, "current 应回滚");
         rm_env("CLARD_LOG_DIR");
+    }
+
+    #[test]
+    fn patch_affects_config_matches_mode() {
+        // mode 为白名单字段：变更需 regenerate 热重载（yaml 受影响）
+        assert!(patch_affects_config(&SettingsPatch { mode: Some("global".into()), ..Default::default() }));
+        assert!(!patch_affects_config(&SettingsPatch { mode: None, ..Default::default() }));
+        // 非白名单字段（language/theme/interval/test_url）不受影响
+        assert!(!patch_affects_config(&SettingsPatch { language: Some("zh".into()), ..Default::default() }));
     }
 
     #[tokio::test]
