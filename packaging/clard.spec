@@ -16,7 +16,7 @@ Release:        1
 Summary:        Clard — Linux transparent proxy manager (system helper + TUI client)
 
 License:        MIT
-URL:            https://github.com/clard/clard
+URL:            https://github.com/kuraxii/clard
 Source0:        %{name}-%{version}.tar.gz
 Source1:        clard
 Source2:        clard-helper

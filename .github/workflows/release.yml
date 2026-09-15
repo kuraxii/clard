@@ -1,0 +1,73 @@
+# Clard GitHub Release 流水线：打 v* 标签（或手动触发）→ Fedora 容器内
+# 走本地同款 packaging/build-rpm.sh → 产出 RPM + 二进制 tarball → 创建 GitHub Release。
+#
+# 触发方式：
+#   git tag v0.1.0 && git push origin v0.1.0     # 自动构建并发布
+#   Actions 页手动 Run workflow（需填 tag 名）
+#
+# 注意：与本地构建环境一致（Fedora + systemd-rpm-macros），避免跨发行版 rpm 宏缺失。
+name: release
+
+on:
+  push:
+    tags:
+      - 'v*'
+  workflow_dispatch:
+    inputs:
+      tag_name:
+        description: '发布 tag 名（例如 v0.2.0）'
+        required: true
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    name: Build & Release (${{ github.ref_name }})
+    runs-on: ubuntu-latest
+    container:
+      # 与 packaging/clard.spec 依赖一致：systemd-rpm-macros 提供 %systemd_post 等宏
+      image: fedora:latest
+      options: --user root
+    steps:
+      - name: Install build dependencies
+        run: |
+          dnf install -y --setopt=install_weak_deps=False \
+            rust cargo git bash curl tar gzip \
+            rpm-build systemd-rpm-macros
+
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Build RPM (cargo build --release → 下载 mihomo → rpmbuild)
+        run: |
+          cd "$GITHUB_WORKSPACE"
+          bash packaging/build-rpm.sh
+
+      - name: Stage release assets
+        run: |
+          set -euo pipefail
+          cd "$GITHUB_WORKSPACE"
+          VERSION=$(grep -m1 '^version' Cargo.toml | sed -E 's/.*= *"([^"]+)"/\1/')
+          mkdir -p dist pkg
+          # RPM
+          cp ~/rpmbuild/RPMS/*/clard-*.rpm dist/
+          # 二进制 tarball（非 RPM 发行版/免安装场景可用）
+          cp target/release/clard target/release/clard-helper pkg/
+          cp packaging/clard-helper.service README.md pkg/
+          tar -czf "dist/clard-${VERSION}-x86_64-linux.tar.gz" \
+            -C pkg clard clard-helper clard-helper.service README.md
+          (cd dist && sha256sum clard-* > sha256sums.txt)
+          echo "==> release assets:"
+          ls -lh dist
+
+      - name: Publish GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ github.ref_type == 'tag' && github.ref_name || inputs.tag_name }}
+          files: |
+            ${{ github.workspace }}/dist/*.rpm
+            ${{ github.workspace }}/dist/*.tar.gz
+            ${{ github.workspace }}/dist/*.txt
+          generate_release_notes: true
+          draft: false
