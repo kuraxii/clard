@@ -195,7 +195,7 @@ pub async fn cleanup_tun(tools: &Tools) -> (bool, Vec<String>) {
     }
 
     // 6. 校验
-    let residuals = residuals(&tools).await;
+    let residuals = residuals(tools).await;
     (residuals.is_empty(), residuals)
 }
 

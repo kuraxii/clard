@@ -238,11 +238,10 @@ impl SettingsState {
 
     pub fn set_tab(&mut self, tab: SettingsTab) {
         self.tab = tab;
-        self.list_state.select(if tab == SettingsTab::General {
-            Some(0)
-        } else if tab == SettingsTab::Tun {
-            Some(0)
-        } else if tab == SettingsTab::Logs {
+        self.list_state.select(if matches!(
+            tab,
+            SettingsTab::General | SettingsTab::Tun | SettingsTab::Logs
+        ) {
             Some(0)
         } else {
             None

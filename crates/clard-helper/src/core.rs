@@ -422,7 +422,7 @@ pub fn install_core(
     }
     use std::os::unix::fs::PermissionsExt;
     fs::set_permissions(&tmp, fs::Permissions::from_mode(0o755)).map_err(|e| e.to_string())?;
-    fs::rename(&tmp, &bin).map_err(|e| format!("原子替换失败: {e}"))?;
+    fs::rename(&tmp, bin).map_err(|e| format!("原子替换失败: {e}"))?;
 
     // 记录（供展示与下次安装对比）
     atomic_write(&core_sha256_path(state), expected.as_bytes()).map_err(|e| e.to_string())?;

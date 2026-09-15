@@ -426,8 +426,8 @@ pub async fn handle(
             inbox_path,
             sha256,
         } => {
-            let geodata_dir = std::path::Path::new("/var/clard/lib/runtime");
-            let inbox_root = std::path::Path::new("/run/clard/inbox");
+            let geodata_dir = Path::new("/var/clard/lib/runtime");
+            let inbox_root = Path::new("/run/clard/inbox");
             match crate::core::install_geodata(geodata_dir, inbox_root, kind, Path::new(&inbox_path), &sha256) {
                 Ok(()) => {
                     // geo 数据在核心启动/重载时读入；更新后重启核心生效（与 InstallCore 一致）
