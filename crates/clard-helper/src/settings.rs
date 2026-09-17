@@ -4,8 +4,7 @@
 //! 写操作原子替换索引式落盘。
 
 use std::{
-    fs,
-    io,
+    fs, io,
     path::{Path, PathBuf},
 };
 
@@ -37,6 +36,7 @@ pub struct SettingsStore {
 trait SettingsNormalize {
     fn normalize_dns_mode(&mut self);
     fn normalize_mode(&mut self);
+    fn normalize_dns_filter_mode(&mut self);
 }
 
 impl SettingsNormalize for Settings {
@@ -54,6 +54,13 @@ impl SettingsNormalize for Settings {
             _ => self.mode = "rule".into(),
         }
     }
+
+    fn normalize_dns_filter_mode(&mut self) {
+        match self.dns_fake_ip_filter_mode.as_str() {
+            "blacklist" | "whitelist" | "rule" => {}
+            _ => self.dns_fake_ip_filter_mode = "blacklist".into(),
+        }
+    }
 }
 
 impl SettingsStore {
@@ -68,6 +75,7 @@ impl SettingsStore {
         // 归一化：旧 clard.toml 无 tun_dns_mode（空串）→ fake-ip；mode 空/非法 → rule
         settings.normalize_dns_mode();
         settings.normalize_mode();
+        settings.normalize_dns_filter_mode();
         Ok(Self { path, settings })
     }
 
@@ -77,11 +85,7 @@ impl SettingsStore {
 
     /// 从磁盘重新载入（备份恢复后调用）。
     pub fn reload(&mut self) -> Result<(), SettingsError> {
-        let root = self
-            .path
-            .parent()
-            .map(Path::to_path_buf)
-            .unwrap_or_default();
+        let root = self.path.parent().map(Path::to_path_buf).unwrap_or_default();
         *self = Self::open(&root)?;
         Ok(())
     }
@@ -147,6 +151,39 @@ impl SettingsStore {
         if let Some(v) = patch.auto_redirect {
             self.settings.auto_redirect = v;
         }
+        // DNS 页签（R7.2.1）
+        if let Some(v) = patch.dns_enable {
+            self.settings.dns_enable = v;
+        }
+        if let Some(v) = &patch.dns_fake_ip_filter_mode {
+            // 仅接受 blacklist / whitelist / rule；空或非法值归一化为 blacklist
+            self.settings.dns_fake_ip_filter_mode = match v.as_str() {
+                "whitelist" => "whitelist".into(),
+                "rule" => "rule".into(),
+                _ => "blacklist".into(),
+            };
+        }
+        if let Some(v) = &patch.dns_fake_ip_filter {
+            self.settings.dns_fake_ip_filter = v.clone();
+        }
+        if let Some(v) = patch.dns_use_hosts {
+            self.settings.dns_use_hosts = v;
+        }
+        if let Some(v) = patch.dns_use_system_hosts {
+            self.settings.dns_use_system_hosts = v;
+        }
+        if let Some(v) = &patch.dns_nameserver_policy {
+            self.settings.dns_nameserver_policy = v.clone();
+        }
+        if let Some(v) = &patch.dns_hosts {
+            self.settings.dns_hosts = v.clone();
+        }
+        if let Some(v) = &patch.dns_nameserver {
+            self.settings.dns_nameserver = v.clone();
+        }
+        if let Some(v) = &patch.dns_default_nameserver {
+            self.settings.dns_default_nameserver = v.clone();
+        }
         Ok(())
     }
 
@@ -186,6 +223,14 @@ mod tests {
         assert!(!s.tun_enabled, "TUN 默认关");
         assert_eq!(s.tun_stack, "gvisor");
         assert!(s.route_exclude_address.is_empty(), "空 = 用默认私网段");
+        assert!(!s.dns_enable, "DNS 开关默认关");
+        assert_eq!(s.dns_fake_ip_filter_mode, "blacklist");
+        assert!(s.dns_use_hosts);
+        assert!(s.dns_use_system_hosts);
+        assert!(s.dns_nameserver_policy.is_empty());
+        assert!(s.dns_hosts.is_empty());
+        assert!(s.dns_nameserver.is_empty());
+        assert!(s.dns_default_nameserver.is_empty());
     }
 
     #[test]
@@ -209,6 +254,15 @@ mod tests {
                     route_exclude_address: Some(vec!["10.0.0.0/8".into()]),
                     strict_route: Some(false),
                     auto_redirect: Some(true),
+                    dns_enable: Some(true),
+                    dns_fake_ip_filter_mode: Some("whitelist".into()),
+                    dns_fake_ip_filter: Some(vec!["*.lan".into(), "oa.x".into()]),
+                    dns_use_hosts: Some(false),
+                    dns_use_system_hosts: Some(true),
+                    dns_nameserver_policy: Some(vec!["+.corp=10.10.0.2".into()]),
+                    dns_hosts: Some(vec!["oa.x=10.20.30.40".into()]),
+                    dns_nameserver: Some(vec!["tls://1.1.1.1".into()]),
+                    dns_default_nameserver: Some(vec!["223.5.5.5".into()]),
                 })
                 .unwrap();
         }
@@ -226,6 +280,15 @@ mod tests {
         assert_eq!(s.route_exclude_address, vec!["10.0.0.0/8"]);
         assert!(!s.strict_route);
         assert!(s.auto_redirect);
+        assert!(s.dns_enable);
+        assert_eq!(s.dns_fake_ip_filter_mode, "whitelist");
+        assert_eq!(s.dns_fake_ip_filter, vec!["*.lan", "oa.x"]);
+        assert!(!s.dns_use_hosts);
+        assert!(s.dns_use_system_hosts);
+        assert_eq!(s.dns_nameserver_policy, vec!["+.corp=10.10.0.2"]);
+        assert_eq!(s.dns_hosts, vec!["oa.x=10.20.30.40"]);
+        assert_eq!(s.dns_nameserver, vec!["tls://1.1.1.1"]);
+        assert_eq!(s.dns_default_nameserver, vec!["223.5.5.5"]);
     }
 
     #[test]
@@ -233,10 +296,20 @@ mod tests {
         let dir = tempdir().unwrap();
         let mut store = SettingsStore::open(dir.path()).unwrap();
         // 合法值直通
-        store.patch(&SettingsPatch { mode: Some("global".into()), ..Default::default() }).unwrap();
+        store
+            .patch(&SettingsPatch {
+                mode: Some("global".into()),
+                ..Default::default()
+            })
+            .unwrap();
         assert_eq!(store.get().mode, "global");
         // 空/非法归一化为 rule（向后兼容）
-        store.patch(&SettingsPatch { mode: Some("bogus".into()), ..Default::default() }).unwrap();
+        store
+            .patch(&SettingsPatch {
+                mode: Some("bogus".into()),
+                ..Default::default()
+            })
+            .unwrap();
         assert_eq!(store.get().mode, "rule");
     }
 
@@ -250,11 +323,29 @@ mod tests {
     }
 
     #[test]
+    fn dns_filter_mode_normalized_on_patch_and_open() {
+        let dir = tempdir().unwrap();
+        let mut store = SettingsStore::open(dir.path()).unwrap();
+        // 非法值归一化为 blacklist
+        store.patch(&SettingsPatch { dns_fake_ip_filter_mode: Some("bogus".into()), ..Default::default() }).unwrap();
+        assert_eq!(store.get().dns_fake_ip_filter_mode, "blacklist");
+        store.patch(&SettingsPatch { dns_fake_ip_filter_mode: Some("rule".into()), ..Default::default() }).unwrap();
+        assert_eq!(store.get().dns_fake_ip_filter_mode, "rule");
+        // 手改 clard.toml 非法值 → open 归一化
+        std::fs::write(dir.path().join("clard.toml"), "dns_fake_ip_filter_mode = \"bogus\"\n").unwrap();
+        let store = SettingsStore::open(dir.path()).unwrap();
+        assert_eq!(store.get().dns_fake_ip_filter_mode, "blacklist");
+    }
+
+    #[test]
     fn zero_port_rejected() {
         let dir = tempdir().unwrap();
         let mut store = SettingsStore::open(dir.path()).unwrap();
         assert!(matches!(
-            store.patch(&SettingsPatch { mixed_port: Some(0), ..Default::default() }),
+            store.patch(&SettingsPatch {
+                mixed_port: Some(0),
+                ..Default::default()
+            }),
             Err(SettingsError::InvalidPort(0))
         ));
     }

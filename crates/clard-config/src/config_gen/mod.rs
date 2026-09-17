@@ -13,7 +13,7 @@ pub mod normalize;
 use serde_yaml_ng::{Mapping, Value};
 use thiserror::Error;
 
-pub use managed::{ConfigGenOptions, TunOptions};
+pub use managed::{ConfigGenOptions, DnsOptions, TunOptions};
 pub use merge::deep_merge;
 
 /// 配置生成失败
@@ -36,11 +36,7 @@ pub enum ConfigGenError {
 /// - `profile`：订阅原始内容（可能为 base64）；
 /// - `base`：全局基础配置（可空；将来来自 `clard.toml` 的全局 merge，§8）；
 /// - `options`：托管字段（§6.3，覆盖用户值）。
-pub fn generate(
-    profile: &str,
-    base: Option<&str>,
-    options: &ConfigGenOptions,
-) -> Result<String, ConfigGenError> {
+pub fn generate(profile: &str, base: Option<&str>, options: &ConfigGenOptions) -> Result<String, ConfigGenError> {
     let text = normalize::normalize(profile)?;
     let mut doc = parse_subscription(&text)?;
     if let Some(base) = base {
@@ -136,8 +132,7 @@ fn parse_subscription(text: &str) -> Result<Value, ConfigGenError> {
 }
 
 fn parse_yaml(text: &str, what: &str) -> Result<Value, ConfigGenError> {
-    serde_yaml_ng::from_str::<Value>(text)
-        .map_err(|e| ConfigGenError::Yaml(format!("{what}: {e}")))
+    serde_yaml_ng::from_str::<Value>(text).map_err(|e| ConfigGenError::Yaml(format!("{what}: {e}")))
 }
 
 #[cfg(test)]
@@ -191,7 +186,11 @@ mod tests {
         let profile = "mixed-port: 8888\nmode: direct\nproxies: []\n";
         let out = generate(profile, None, &opts()).unwrap();
         let m = as_mapping(&out);
-        assert_eq!(get(&m, "mixed-port").unwrap().as_i64(), Some(7890), "托管字段覆盖用户值");
+        assert_eq!(
+            get(&m, "mixed-port").unwrap().as_i64(),
+            Some(7890),
+            "托管字段覆盖用户值"
+        );
         assert_eq!(get(&m, "mode").unwrap().as_str(), Some("rule"));
     }
 
@@ -215,7 +214,11 @@ mod tests {
         assert_eq!(get(dns, "enhanced-mode").unwrap().as_str(), Some("fake-ip"));
         assert_eq!(get(dns, "fake-ip-range").unwrap().as_str(), Some("198.18.0.1/16"));
         let ns = get(dns, "nameserver").unwrap().as_sequence().unwrap();
-        assert_eq!(ns[0].as_str(), Some("tls://223.5.5.5"), "TUN 下必须有上游 nameserver（劫持 53 后解析依赖）");
+        assert_eq!(
+            ns[0].as_str(),
+            Some("tls://223.5.5.5"),
+            "TUN 下必须有上游 nameserver（劫持 53 后解析依赖）"
+        );
         let dn = get(dns, "default-nameserver").unwrap().as_sequence().unwrap();
         assert_eq!(dn[0].as_str(), Some("223.5.5.5"));
     }
@@ -242,6 +245,87 @@ mod tests {
         let tun = get(&m, "tun").unwrap().as_mapping().unwrap();
         assert_eq!(get(tun, "enable").unwrap().as_bool(), Some(false));
         assert!(get(&m, "dns").is_none(), "TUN 关闭时不强制 fake-ip dns");
+        assert!(get(&m, "hosts").is_none(), "DNS 页签未配置时不注入 hosts");
+    }
+
+    #[test]
+    fn generate_tun_injects_user_dns_fields_and_hosts() {
+        let mut options = opts();
+        let mut dns = DnsOptions::default();
+        dns.fake_ip_filter_mode = "whitelist".into();
+        dns.fake_ip_filter = vec!["*.lan".into(), "oa.x".into()];
+        dns.use_system_hosts = false;
+        dns.nameserver_policy = vec!["+.corp=10.10.0.2".into(), "+.multi=1.1.1.1,8.8.8.8".into()];
+        dns.hosts = vec!["oa.x=10.20.30.40".into()];
+        options.dns = dns;
+        let out = generate("proxies: []\n", None, &options).unwrap();
+        let m = as_mapping(&out);
+        let dns = get(&m, "dns").unwrap().as_mapping().unwrap();
+        assert_eq!(get(dns, "enable").unwrap().as_bool(), Some(true), "TUN 下强制 enable");
+        assert_eq!(
+            get(dns, "fake-ip-filter-mode").unwrap().as_str(),
+            Some("whitelist")
+        );
+        let filter = get(dns, "fake-ip-filter").unwrap().as_sequence().unwrap();
+        assert_eq!(filter[0].as_str(), Some("*.lan"));
+        assert_eq!(get(dns, "use-system-hosts").unwrap().as_bool(), Some(false));
+        assert_eq!(get(dns, "use-hosts"), None, "use-hosts 默认 true 不注入");
+        let policy = get(dns, "nameserver-policy").unwrap().as_mapping().unwrap();
+        assert_eq!(
+            policy.get(Value::String("+.corp".into())),
+            Some(&Value::String("10.10.0.2".into()))
+        );
+        let multi = policy
+            .get(Value::String("+.multi".into()))
+            .unwrap()
+            .as_sequence()
+            .unwrap();
+        assert_eq!(multi.len(), 2, "多值展开为序列");
+        // nameserver/default-nameserver 用户未配置 → 回退 clard 默认
+        let ns = get(dns, "nameserver").unwrap().as_sequence().unwrap();
+        assert_eq!(ns[0].as_str(), Some("tls://223.5.5.5"));
+        let dn = get(dns, "default-nameserver").unwrap().as_sequence().unwrap();
+        assert_eq!(dn[0].as_str(), Some("223.5.5.5"));
+        // 顶层 hosts 注入
+        let hosts = get(&m, "hosts").unwrap().as_mapping().unwrap();
+        assert_eq!(
+            hosts.get(Value::String("oa.x".into())),
+            Some(&Value::String("10.20.30.40".into()))
+        );
+    }
+
+    #[test]
+    fn generate_user_nameserver_overrides_default() {
+        let mut options = opts();
+        let mut dns = DnsOptions::default();
+        dns.nameserver = vec!["8.8.8.8".into()];
+        dns.default_nameserver = vec!["223.5.5.5".into()];
+        options.dns = dns;
+        let out = generate("proxies: []\n", None, &options).unwrap();
+        let m = as_mapping(&out);
+        let dns = get(&m, "dns").unwrap().as_mapping().unwrap();
+        let ns = get(dns, "nameserver").unwrap().as_sequence().unwrap();
+        assert_eq!(ns[0].as_str(), Some("8.8.8.8"), "用户 nameserver 覆盖 clard 默认");
+        assert_eq!(ns.len(), 1);
+    }
+
+    #[test]
+    fn generate_tun_off_injects_dns_only_when_configured() {
+        let mut options = opts();
+        options.tun = None;
+        options.dns.enable = true;
+        options.dns.fake_ip_filter = vec!["*.lan".into()];
+        options.dns.hosts = vec!["oa.x=10.0.0.1".into()];
+        let out = generate("proxies: []\n", None, &options).unwrap();
+        let m = as_mapping(&out);
+        let dns = get(&m, "dns").unwrap().as_mapping().unwrap();
+        assert_eq!(get(dns, "enable").unwrap().as_bool(), Some(true), "TUN 关时 enable 取用户值");
+        assert!(get(dns, "enhanced-mode").is_none(), "TUN 关时不强制 fake-ip");
+        let hosts = get(&m, "hosts").unwrap().as_mapping().unwrap();
+        assert_eq!(
+            hosts.get(Value::String("oa.x".into())),
+            Some(&Value::String("10.0.0.1".into()))
+        );
     }
 
     #[test]
@@ -252,7 +336,11 @@ mod tests {
         let m = as_mapping(&out);
         assert_eq!(get(&m, "mode").unwrap().as_str(), Some("rule"), "托管 mode 优先级最高");
         assert_eq!(get(&m, "ipv6").unwrap().as_bool(), Some(true), "profile 覆盖 base");
-        assert_eq!(get(&m, "log-level").unwrap().as_str(), Some("info"), "托管 log-level 覆盖 base");
+        assert_eq!(
+            get(&m, "log-level").unwrap().as_str(),
+            Some("info"),
+            "托管 log-level 覆盖 base"
+        );
     }
 
     #[test]
@@ -269,10 +357,17 @@ mod tests {
         assert_eq!(get(p, "type").unwrap().as_str(), Some("vless"));
         assert_eq!(get(p, "server").unwrap().as_str(), Some("hk.example"));
         assert_eq!(get(p, "port").unwrap().as_i64(), Some(8443));
-        assert_eq!(get(p, "uuid").unwrap().as_str(), Some("9ed7bc52-438e-48ae-a9ee-ed5c6f3df97e"));
+        assert_eq!(
+            get(p, "uuid").unwrap().as_str(),
+            Some("9ed7bc52-438e-48ae-a9ee-ed5c6f3df97e")
+        );
         assert_eq!(get(p, "flow").unwrap().as_str(), Some("xtls-rprx-vision"));
         assert_eq!(get(p, "servername").unwrap().as_str(), Some("www.cloudflare.com"));
-        assert_eq!(get(p, "name").unwrap().as_str(), Some("香港-01"), "fragment 需百分号解码");
+        assert_eq!(
+            get(p, "name").unwrap().as_str(),
+            Some("香港-01"),
+            "fragment 需百分号解码"
+        );
         let ro = get(p, "reality-opts").unwrap().as_mapping().unwrap();
         assert_eq!(get(ro, "public-key").unwrap().as_str(), Some("KEY"));
         assert_eq!(get(ro, "short-id").unwrap().as_str(), Some("0123456789abcdef"));

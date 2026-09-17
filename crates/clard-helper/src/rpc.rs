@@ -33,22 +33,23 @@ pub async fn handle(
 
     // 阶段二：执行
     let (op, resp, cfg_sha256) = match req {
-        Request::Hello => ("rpc.hello", Response::Hello {
-            helper_version: env!("CARGO_PKG_VERSION").to_string(),
-            proto_version: clard_proto::PROTO_VERSION,
-        }, None),
+        Request::Hello => (
+            "rpc.hello",
+            Response::Hello {
+                helper_version: env!("CARGO_PKG_VERSION").to_string(),
+                proto_version: clard_proto::PROTO_VERSION,
+            },
+            None,
+        ),
         Request::Status => {
             let tun_active = crate::tun::tun_active(&crate::tun::Tools::system()).await;
             let state = store.root();
             // 版本：运行中取 GET /version；未运行回退安装记录（R7.3 展示）
-            let core_version = core
-                .version()
-                .map(str::to_string)
-                .or_else(|| {
-                    std::fs::read_to_string(crate::core::core_version_path(state))
-                        .ok()
-                        .map(|s| s.trim().to_string())
-                });
+            let core_version = core.version().map(str::to_string).or_else(|| {
+                std::fs::read_to_string(crate::core::core_version_path(state))
+                    .ok()
+                    .map(|s| s.trim().to_string())
+            });
             let core_sha256 = std::fs::read_to_string(crate::core::core_sha256_path(state))
                 .ok()
                 .map(|s| s.trim().to_string());
@@ -86,14 +87,12 @@ pub async fn handle(
                 Err(e) => ("config.apply", Response::err(e), cfg),
             }
         }
-        Request::BackupCreate { name } => match crate::backup::create(
-            &crate::backup::backup_dir(),
-            store.root(),
-            name.as_deref(),
-        ) {
-            Ok(item) => ("backup.create", Response::BackupCreated { item }, None),
-            Err(e) => ("backup.create", Response::err(e.to_string()), None),
-        },
+        Request::BackupCreate { name } => {
+            match crate::backup::create(&crate::backup::backup_dir(), store.root(), name.as_deref()) {
+                Ok(item) => ("backup.create", Response::BackupCreated { item }, None),
+                Err(e) => ("backup.create", Response::err(e.to_string()), None),
+            }
+        }
         Request::BackupList => match crate::backup::list(&crate::backup::backup_dir()) {
             Ok(backups) => ("backup.list", Response::BackupList { backups }, None),
             Err(e) => ("backup.list", Response::err(e.to_string()), None),
@@ -102,19 +101,17 @@ pub async fn handle(
             Ok(()) => ("backup.delete", Response::Ok, None),
             Err(e) => ("backup.delete", Response::err(e.to_string()), None),
         },
-        Request::BackupRestore { name } => match crate::backup::restore(
-            &crate::backup::backup_dir(),
-            store.root(),
-            &name,
-        ) {
-            Ok(()) => {
-                // 恢复后重载内存中的 stores（避免索引/设置与磁盘不一致）
-                let _ = store.reload();
-                let _ = settings.reload();
-                ("backup.restore", Response::Ok, None)
+        Request::BackupRestore { name } => {
+            match crate::backup::restore(&crate::backup::backup_dir(), store.root(), &name) {
+                Ok(()) => {
+                    // 恢复后重载内存中的 stores（避免索引/设置与磁盘不一致）
+                    let _ = store.reload();
+                    let _ = settings.reload();
+                    ("backup.restore", Response::Ok, None)
+                }
+                Err(e) => ("backup.restore", Response::err(e.to_string()), None),
             }
-            Err(e) => ("backup.restore", Response::err(e.to_string()), None),
-        },
+        }
         Request::SettingsGet => {
             let settings = settings.get().clone();
             ("settings.get", Response::Settings { settings }, None)
@@ -194,7 +191,10 @@ pub async fn handle(
                     selected: p
                         .selected
                         .iter()
-                        .map(|s| clard_proto::NodeSelection { group: s.group.clone(), node: s.node.clone() })
+                        .map(|s| clard_proto::NodeSelection {
+                            group: s.group.clone(),
+                            node: s.node.clone(),
+                        })
                         .collect(),
                 })
                 .collect();
@@ -214,14 +214,10 @@ pub async fn handle(
                 Ok(converted) => {
                     // 命中 current 判定：同 URL 覆盖更新且目标即 current → 事务化（§8.3 A：
                     // regenerate 成功才正式替换原始层，失败恢复旧内容+索引，防污染）
-                    let existing = store
-                        .list()
-                        .iter()
-                        .find(|p| p.url == import.url)
-                        .map(|p| p.uid.clone());
-                    let hitting_current = existing.as_deref().is_some_and(|uid| {
-                        store.current().is_some_and(|c| c.uid == *uid)
-                    });
+                    let existing = store.list().iter().find(|p| p.url == import.url).map(|p| p.uid.clone());
+                    let hitting_current = existing
+                        .as_deref()
+                        .is_some_and(|uid| store.current().is_some_and(|c| c.uid == *uid));
                     if hitting_current {
                         let idx_backup = store.index_snapshot();
                         let old_content = existing.as_deref().and_then(|uid| store.content(uid).ok());
@@ -248,11 +244,7 @@ pub async fn handle(
                                 )
                                 .await
                                 {
-                                    Ok(_) => (
-                                        "profile.import",
-                                        Response::ProfileImported { uid, updated: true },
-                                        None,
-                                    ),
+                                    Ok(_) => ("profile.import", Response::ProfileImported { uid, updated: true }, None),
                                     Err(e) => {
                                         if let Some(old) = old_content {
                                             let _ = store.set_content(&uid, &old);
@@ -281,11 +273,9 @@ pub async fn handle(
                                 Response::ProfileImported { uid, updated: false },
                                 None,
                             ),
-                            Ok(ImportOutcome::Updated { uid }) => (
-                                "profile.import",
-                                Response::ProfileImported { uid, updated: true },
-                                None,
-                            ),
+                            Ok(ImportOutcome::Updated { uid }) => {
+                                ("profile.import", Response::ProfileImported { uid, updated: true }, None)
+                            }
                             Err(e) => ("profile.import", Response::err(e.to_string()), None),
                         }
                     }
@@ -293,11 +283,7 @@ pub async fn handle(
             }
         }
         Request::ProfileGet { uid } => match get_item_and_content(store, &uid) {
-            Ok((item, yaml)) => (
-                "profile.get",
-                Response::ProfileContent { item, yaml },
-                None,
-            ),
+            Ok((item, yaml)) => ("profile.get", Response::ProfileContent { item, yaml }, None),
             Err(e) => ("profile.get", Response::err(e.to_string()), None),
         },
         Request::ProfileRemove { uid } => match store.remove(&uid) {
@@ -520,6 +506,16 @@ fn patch_affects_config(patch: &SettingsPatch) -> bool {
         || patch.route_exclude_address.is_some()
         || patch.strict_route.is_some()
         || patch.auto_redirect.is_some()
+        // DNS 页签（R7.2.1）
+        || patch.dns_enable.is_some()
+        || patch.dns_fake_ip_filter_mode.is_some()
+        || patch.dns_fake_ip_filter.is_some()
+        || patch.dns_use_hosts.is_some()
+        || patch.dns_use_system_hosts.is_some()
+        || patch.dns_nameserver_policy.is_some()
+        || patch.dns_hosts.is_some()
+        || patch.dns_nameserver.is_some()
+        || patch.dns_default_nameserver.is_some()
 }
 
 /// 响应 → (result 分类, 错误信息)。
@@ -531,10 +527,7 @@ fn classify(resp: &Response) -> (&'static str, Option<&str>) {
     }
 }
 
-fn get_item_and_content(
-    store: &ProfilesStore,
-    uid: &str,
-) -> Result<(ProfileItem, String), ProfilesError> {
+fn get_item_and_content(store: &ProfilesStore, uid: &str) -> Result<(ProfileItem, String), ProfilesError> {
     let p = store
         .get(uid)
         .ok_or_else(|| ProfilesError::NotFound { uid: uid.into() })?;
@@ -551,7 +544,10 @@ fn get_item_and_content(
         selected: p
             .selected
             .iter()
-            .map(|s| clard_proto::NodeSelection { group: s.group.clone(), node: s.node.clone() })
+            .map(|s| clard_proto::NodeSelection {
+                group: s.group.clone(),
+                node: s.node.clone(),
+            })
             .collect(),
     };
     let yaml = store.content(uid)?;
@@ -561,8 +557,8 @@ fn get_item_and_content(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use clard_proto::ProfileImport;
     use crate::testutil::{env_guard, rm_env, set_env};
+    use clard_proto::ProfileImport;
     use tokio::io::{AsyncReadExt, AsyncWriteExt};
     use tokio::net::UnixListener;
 
@@ -593,7 +589,11 @@ mod tests {
     }
 
     /// mock core.sock：GET 返回 get_body，PUT 返回 put_status（"204" / "500"）。
-    fn spawn_mock_sock(sock: &std::path::Path, get_body: &'static str, put_status: &'static str) -> tokio::task::JoinHandle<()> {
+    fn spawn_mock_sock(
+        sock: &std::path::Path,
+        get_body: &'static str,
+        put_status: &'static str,
+    ) -> tokio::task::JoinHandle<()> {
         let _ = std::fs::remove_file(sock);
         let listener = std::sync::Arc::new(tokio::net::UnixListener::bind(sock).unwrap());
         tokio::spawn(async move {
@@ -664,7 +664,13 @@ mod tests {
         let mut store = make_store(&state);
         let mut settings = SettingsStore::open(&state).unwrap();
         let uid_b = uid_of(&store, URL_B);
-        let resp = dispatch(Request::ProfileSetCurrent { uid: uid_b.clone() }, &state, &mut store, &mut settings).await;
+        let resp = dispatch(
+            Request::ProfileSetCurrent { uid: uid_b.clone() },
+            &state,
+            &mut store,
+            &mut settings,
+        )
+        .await;
         assert!(matches!(resp, Response::Ok), "{resp:?}");
         assert_eq!(store.current().unwrap().uid, uid_b);
         assert!(state.join("runtime/config.yaml").exists());
@@ -701,10 +707,19 @@ mod tests {
     #[test]
     fn patch_affects_config_matches_mode() {
         // mode 为白名单字段：变更需 regenerate 热重载（yaml 受影响）
-        assert!(patch_affects_config(&SettingsPatch { mode: Some("global".into()), ..Default::default() }));
-        assert!(!patch_affects_config(&SettingsPatch { mode: None, ..Default::default() }));
+        assert!(patch_affects_config(&SettingsPatch {
+            mode: Some("global".into()),
+            ..Default::default()
+        }));
+        assert!(!patch_affects_config(&SettingsPatch {
+            mode: None,
+            ..Default::default()
+        }));
         // 非白名单字段（language/theme/interval/test_url）不受影响
-        assert!(!patch_affects_config(&SettingsPatch { language: Some("zh".into()), ..Default::default() }));
+        assert!(!patch_affects_config(&SettingsPatch {
+            language: Some("zh".into()),
+            ..Default::default()
+        }));
     }
 
     #[tokio::test]
@@ -718,7 +733,10 @@ mod tests {
 
         let mut store = make_store(&state);
         let mut settings = SettingsStore::open(&state).unwrap();
-        let patch = SettingsPatch { mixed_port: Some(8080), ..Default::default() };
+        let patch = SettingsPatch {
+            mixed_port: Some(8080),
+            ..Default::default()
+        };
         let resp = dispatch(Request::SettingsSet(patch), &state, &mut store, &mut settings).await;
         assert!(matches!(resp, Response::Ok), "{resp:?}");
         assert_eq!(settings.get().mixed_port, 8080, "内存已更新");
@@ -742,7 +760,10 @@ mod tests {
         // current 内容非法 → 白名单设置触发 regenerate 拼装失败 → 设置恢复内存（§7.2）
         let uid_a = uid_of(&store, URL_A);
         store.set_content(&uid_a, "").unwrap();
-        let patch = SettingsPatch { mixed_port: Some(8080), ..Default::default() };
+        let patch = SettingsPatch {
+            mixed_port: Some(8080),
+            ..Default::default()
+        };
         let resp = dispatch(Request::SettingsSet(patch), &state, &mut store, &mut settings).await;
         assert!(matches!(resp, Response::Error { .. }), "{resp:?}");
         assert_eq!(settings.get().mixed_port, 7890, "失败恢复内存（§7.2）");
@@ -759,7 +780,10 @@ mod tests {
         // 不设 CLARD_CORE_SOCK：若误触发 regenerate 会连默认 /run/clard/core.sock（不存在→失败）
         let mut store = make_store(&state);
         let mut settings = SettingsStore::open(&state).unwrap();
-        let patch = SettingsPatch { language: Some("zh".into()), ..Default::default() };
+        let patch = SettingsPatch {
+            language: Some("zh".into()),
+            ..Default::default()
+        };
         let resp = dispatch(Request::SettingsSet(patch), &state, &mut store, &mut settings).await;
         assert!(matches!(resp, Response::Ok), "{resp:?}");
         assert_eq!(settings.get().language, "zh");
@@ -793,7 +817,10 @@ mod tests {
             &mut settings,
         )
         .await;
-        assert!(matches!(resp, Response::ProfileImported { updated: true, .. }), "{resp:?}");
+        assert!(
+            matches!(resp, Response::ProfileImported { updated: true, .. }),
+            "{resp:?}"
+        );
         let content = store.content(&uid_a).unwrap();
         assert!(content.contains("9.9.9.9"), "内容已更新: {content}");
 
@@ -802,4 +829,3 @@ mod tests {
         rm_env("CLARD_CORE_SOCK");
     }
 }
-

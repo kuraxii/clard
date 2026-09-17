@@ -7,7 +7,10 @@
 //! helper 用 `SO_PEERCRED` 记录 actor uid/pid 写审计，不做准入。
 
 #![forbid(unsafe_code)]
-#![cfg_attr(test, allow(clippy::panic, clippy::unwrap_used, clippy::expect_used, clippy::indexing_slicing))]
+#![cfg_attr(
+    test,
+    allow(clippy::panic, clippy::unwrap_used, clippy::expect_used, clippy::indexing_slicing)
+)]
 #![warn(
     rust_2018_idioms,
     trivial_casts,
@@ -75,24 +78,52 @@ pub enum Request {
     /// 订阅配置：列表 / 导入（TUI 已下载并归一化）/ 取回内容 / 删除 / 切换 / 改名 / 排序
     ProfileList,
     ProfileImport(ProfileImport),
-    ProfileGet { uid: String },
-    ProfileRemove { uid: String },
-    ProfileSetCurrent { uid: String },
-    ProfileRename { uid: String, name: String },
-    ProfileMove { uid: String, up: bool },
-    ProfileHistory { uid: String },
-    ProfileRestore { uid: String, version: u32 },
+    ProfileGet {
+        uid: String,
+    },
+    ProfileRemove {
+        uid: String,
+    },
+    ProfileSetCurrent {
+        uid: String,
+    },
+    ProfileRename {
+        uid: String,
+        name: String,
+    },
+    ProfileMove {
+        uid: String,
+        up: bool,
+    },
+    ProfileHistory {
+        uid: String,
+    },
+    ProfileRestore {
+        uid: String,
+        version: u32,
+    },
     /// 记忆当前配置的组节点选择（doc/05 §2 R2.2）
-    ProfileMemorize { group: String, node: String },
+    ProfileMemorize {
+        group: String,
+        node: String,
+    },
     /// helper 系统配置（/etc/clard/helper.toml，R7.5：日志轮转/双写/核心日志级别）
     HelperConfigGet,
     /// 投递运行时配置 bundle（TUI config_gen 生成，§5.5）
-    ApplyConfig { yaml: String },
+    ApplyConfig {
+        yaml: String,
+    },
     /// 本地备份（doc/05 §8）：创建 / 列表 / 删除 / 恢复
-    BackupCreate { name: Option<String> },
+    BackupCreate {
+        name: Option<String>,
+    },
     BackupList,
-    BackupDelete { name: String },
-    BackupRestore { name: String },
+    BackupDelete {
+        name: String,
+    },
+    BackupRestore {
+        name: String,
+    },
     /// 启停与重启核心（幂等）
     StartCore,
     StopCore,
@@ -100,11 +131,18 @@ pub enum Request {
     /// 手动兜底清理 TUN 残留（幂等）
     CleanupTun,
     /// 审计日志分页查询
-    AuditQuery { cursor: u64 },
+    AuditQuery {
+        cursor: u64,
+    },
     /// 核心日志分页读取
-    LogTail { source: String, cursor: u64 },
+    LogTail {
+        source: String,
+        cursor: u64,
+    },
     /// TUI 应用日志交给 helper 落盘（/var/clard/log/tui.log）
-    LogSubmit { line: String },
+    LogSubmit {
+        line: String,
+    },
     /// 订阅事件流（断线重连后先 Status 全量同步再增量订阅）
     Subscribe,
     /// 升级核心（inbox 哈希校验 → 原子替换）
@@ -152,6 +190,25 @@ pub struct Settings {
     pub strict_route: bool,
     /// auto-redirect（默认禁用；开启需二次确认，nftables 残留面，doc/01 §6.3）
     pub auto_redirect: bool,
+    // ---- DNS 页签（doc/05 R7.2.1）----
+    /// DNS 开关；TUN 开时由托管注入强制 true
+    pub dns_enable: bool,
+    /// fake-ip-filter-mode：blacklist / whitelist / rule（默认 blacklist）
+    pub dns_fake_ip_filter_mode: String,
+    /// fake-ip-filter 域名列表（`*.` 通配；仅 fake-ip 模式生效）
+    pub dns_fake_ip_filter: Vec<String>,
+    /// 查询时先查顶层 hosts（默认 true）
+    pub dns_use_hosts: bool,
+    /// 额外读取系统 /etc/hosts（默认 true）
+    pub dns_use_system_hosts: bool,
+    /// nameserver-policy 条目（`domain=dns1,dns2`，按域名指定上游）
+    pub dns_nameserver_policy: Vec<String>,
+    /// hosts 静态映射（`domain=ip`，注入顶层 hosts）
+    pub dns_hosts: Vec<String>,
+    /// 全局上游；空 = clard 默认 `[tls://223.5.5.5, tls://1.12.12.12]`
+    pub dns_nameserver: Vec<String>,
+    /// 解析域名型上游用的纯 IP；空 = clard 默认 `[223.5.5.5, 119.29.29.29]`
+    pub dns_default_nameserver: Vec<String>,
 }
 
 impl Default for Settings {
@@ -170,6 +227,15 @@ impl Default for Settings {
             route_exclude_address: Vec::new(),
             strict_route: false,
             auto_redirect: false,
+            dns_enable: false,
+            dns_fake_ip_filter_mode: "blacklist".into(),
+            dns_fake_ip_filter: Vec::new(),
+            dns_use_hosts: true,
+            dns_use_system_hosts: true,
+            dns_nameserver_policy: Vec::new(),
+            dns_hosts: Vec::new(),
+            dns_nameserver: Vec::new(),
+            dns_default_nameserver: Vec::new(),
         }
     }
 }
@@ -196,6 +262,16 @@ pub struct SettingsPatch {
     pub route_exclude_address: Option<Vec<String>>,
     pub strict_route: Option<bool>,
     pub auto_redirect: Option<bool>,
+    // ---- DNS 页签（doc/05 R7.2.1）----
+    pub dns_enable: Option<bool>,
+    pub dns_fake_ip_filter_mode: Option<String>,
+    pub dns_fake_ip_filter: Option<Vec<String>>,
+    pub dns_use_hosts: Option<bool>,
+    pub dns_use_system_hosts: Option<bool>,
+    pub dns_nameserver_policy: Option<Vec<String>>,
+    pub dns_hosts: Option<Vec<String>>,
+    pub dns_nameserver: Option<Vec<String>>,
+    pub dns_default_nameserver: Option<Vec<String>>,
 }
 
 /// geo 数据类型（§6.3：随 RPM 分发 + TUI 可更新）

@@ -11,7 +11,7 @@
 use sha2::{Digest, Sha256};
 use tokio::sync::broadcast;
 
-use clard_config::config_gen::{self, ConfigGenOptions, TunOptions};
+use clard_config::config_gen::{self, ConfigGenOptions, DnsOptions, TunOptions};
 use clard_proto::{Event, Settings};
 
 use crate::audit::{Actor, Audit};
@@ -81,6 +81,21 @@ pub fn options_from(settings: &Settings, log_level: &str) -> ConfigGenOptions {
         } else {
             None
         },
+        dns: DnsOptions {
+            enable: settings.dns_enable,
+            fake_ip_filter_mode: if settings.dns_fake_ip_filter_mode.is_empty() {
+                "blacklist".to_string()
+            } else {
+                settings.dns_fake_ip_filter_mode.clone()
+            },
+            fake_ip_filter: settings.dns_fake_ip_filter.clone(),
+            use_hosts: settings.dns_use_hosts,
+            use_system_hosts: settings.dns_use_system_hosts,
+            nameserver_policy: settings.dns_nameserver_policy.clone(),
+            hosts: settings.dns_hosts.clone(),
+            nameserver: settings.dns_nameserver.clone(),
+            default_nameserver: settings.dns_default_nameserver.clone(),
+        },
         ..ConfigGenOptions::default()
     }
 }
@@ -111,8 +126,7 @@ pub async fn regenerate(
 
     // R2 拼装（深合并 + 托管注入）
     let options = options_from(settings, &log_level);
-    let runtime = config_gen::generate(&profile, None, &options)
-        .map_err(|e| format!("配置拼装失败: {e}"))?;
+    let runtime = config_gen::generate(&profile, None, &options).map_err(|e| format!("配置拼装失败: {e}"))?;
 
     // R3 校验产物：关键固定标识存在（§8.2 R3，兜底）
     validate_runtime(&runtime, settings)?;
@@ -170,11 +184,8 @@ pub async fn regenerate(
 /// R3 产物校验：托管固定标识（§6.2/§8.2）必须存在且为预期值。
 fn validate_runtime(runtime: &str, settings: &Settings) -> Result<(), String> {
     use serde_yaml_ng::Value;
-    let doc: Value =
-        serde_yaml_ng::from_str(runtime).map_err(|e| format!("产物解析失败: {e}"))?;
-    let m = doc
-        .as_mapping()
-        .ok_or_else(|| "产物根必须是 mapping".to_string())?;
+    let doc: Value = serde_yaml_ng::from_str(runtime).map_err(|e| format!("产物解析失败: {e}"))?;
+    let m = doc.as_mapping().ok_or_else(|| "产物根必须是 mapping".to_string())?;
     let get = |k: &str| m.get(Value::String(k.into()));
     if get("external-controller-unix").and_then(|v| v.as_str()) != Some("/run/clard/core.sock") {
         return Err("托管字段缺失: external-controller-unix".into());
@@ -215,12 +226,7 @@ async fn verify_runtime(sock: &std::path::Path, settings: &Settings, log_level: 
     if cfg.get("log-level").and_then(|v| v.as_str()) != Some(want_lvl) {
         errs.push(format!("log-level 不一致（期望 {want_lvl}）"));
     }
-    if cfg
-        .get("tun")
-        .and_then(|t| t.get("enable"))
-        .and_then(|v| v.as_bool())
-        != Some(settings.tun_enabled)
-    {
+    if cfg.get("tun").and_then(|t| t.get("enable")).and_then(|v| v.as_bool()) != Some(settings.tun_enabled) {
         errs.push(format!("tun.enable 不一致（期望 {}）", settings.tun_enabled));
     }
     if !errs.is_empty() {
@@ -233,8 +239,7 @@ async fn verify_runtime(sock: &std::path::Path, settings: &Settings, log_level: 
         let tools = crate::tun::Tools::system();
         let mut ok = false;
         for _ in 0..20 {
-            if crate::tun::link_up(&tools, crate::tun::TUN_DEVICE).await
-                && crate::tun::rule_range_present(&tools).await
+            if crate::tun::link_up(&tools, crate::tun::TUN_DEVICE).await && crate::tun::rule_range_present(&tools).await
             {
                 ok = true;
                 break;
@@ -262,10 +267,7 @@ mod tests {
     use tokio::io::{AsyncReadExt, AsyncWriteExt};
 
     fn tmp_state(tag: &str) -> std::path::PathBuf {
-        let dir = std::env::temp_dir().join(format!(
-            "clard-config-test-{}-{tag}",
-            std::process::id()
-        ));
+        let dir = std::env::temp_dir().join(format!("clard-config-test-{}-{tag}", std::process::id()));
         let _ = std::fs::remove_dir_all(&dir);
         std::fs::create_dir_all(&dir).unwrap();
         dir
