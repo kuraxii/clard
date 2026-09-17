@@ -262,10 +262,7 @@ mod tests {
         let m = as_mapping(&out);
         let dns = get(&m, "dns").unwrap().as_mapping().unwrap();
         assert_eq!(get(dns, "enable").unwrap().as_bool(), Some(true), "TUN 下强制 enable");
-        assert_eq!(
-            get(dns, "fake-ip-filter-mode").unwrap().as_str(),
-            Some("whitelist")
-        );
+        assert_eq!(get(dns, "fake-ip-filter-mode").unwrap().as_str(), Some("whitelist"));
         let filter = get(dns, "fake-ip-filter").unwrap().as_sequence().unwrap();
         assert_eq!(filter[0].as_str(), Some("*.lan"));
         assert_eq!(get(dns, "use-system-hosts").unwrap().as_bool(), Some(false));
@@ -310,21 +307,22 @@ mod tests {
     }
 
     #[test]
-    fn generate_tun_off_injects_dns_only_when_configured() {
+    fn generate_tun_off_no_dns_injection_hosts_still_injected() {
         let mut options = opts();
         options.tun = None;
-        options.dns.enable = true;
         options.dns.fake_ip_filter = vec!["*.lan".into()];
         options.dns.hosts = vec!["oa.x=10.0.0.1".into()];
         let out = generate("proxies: []\n", None, &options).unwrap();
         let m = as_mapping(&out);
-        let dns = get(&m, "dns").unwrap().as_mapping().unwrap();
-        assert_eq!(get(dns, "enable").unwrap().as_bool(), Some(true), "TUN 关时 enable 取用户值");
-        assert!(get(dns, "enhanced-mode").is_none(), "TUN 关时不强制 fake-ip");
+        assert!(
+            get(&m, "dns").is_none(),
+            "TUN 关时不注入 dns 块（DNS 页签仅 TUN 开时生效）"
+        );
         let hosts = get(&m, "hosts").unwrap().as_mapping().unwrap();
         assert_eq!(
             hosts.get(Value::String("oa.x".into())),
-            Some(&Value::String("10.0.0.1".into()))
+            Some(&Value::String("10.0.0.1".into())),
+            "hosts 与 TUN 开关无关，始终注入"
         );
     }
 

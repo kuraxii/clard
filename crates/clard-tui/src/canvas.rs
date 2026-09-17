@@ -821,17 +821,6 @@ fn draw_settings_dns(f: &mut Frame<'_>, area: Rect, state: &SettingsState, theme
         .iter()
         .map(|row| {
             let value = match row {
-                DnsRow::DnsEnable => {
-                    let on = settings.map(|s| s.dns_enable).unwrap_or(false);
-                    let forced = settings.map(|s| s.tun_enabled).unwrap_or(false);
-                    if on {
-                        "● on (TUN 下强制)".to_string()
-                    } else if forced {
-                        "○ off (TUN 开时强制 true)".to_string()
-                    } else {
-                        "○ off".to_string()
-                    }
-                }
                 DnsRow::FakeIpFilterMode => {
                     let v = settings
                         .map(|s| s.dns_fake_ip_filter_mode.clone())
@@ -844,11 +833,7 @@ fn draw_settings_dns(f: &mut Frame<'_>, area: Rect, state: &SettingsState, theme
                 }
                 DnsRow::FakeIpFilter => {
                     let v = settings.map(|s| s.dns_fake_ip_filter.join(",")).unwrap_or_default();
-                    if v.is_empty() {
-                        "(empty)".to_string()
-                    } else {
-                        v
-                    }
+                    if v.is_empty() { "(empty)".to_string() } else { v }
                 }
                 DnsRow::UseHosts => {
                     if settings.map(|s| s.dns_use_hosts).unwrap_or(true) {
@@ -866,21 +851,11 @@ fn draw_settings_dns(f: &mut Frame<'_>, area: Rect, state: &SettingsState, theme
                 }
                 DnsRow::Hosts => {
                     let v = settings.map(|s| s.dns_hosts.join(",")).unwrap_or_default();
-                    if v.is_empty() {
-                        "(empty)".to_string()
-                    } else {
-                        v
-                    }
+                    if v.is_empty() { "(empty)".to_string() } else { v }
                 }
                 DnsRow::NameserverPolicy => {
-                    let v = settings
-                        .map(|s| s.dns_nameserver_policy.join(","))
-                        .unwrap_or_default();
-                    if v.is_empty() {
-                        "(empty)".to_string()
-                    } else {
-                        v
-                    }
+                    let v = settings.map(|s| s.dns_nameserver_policy.join(",")).unwrap_or_default();
+                    if v.is_empty() { "(empty)".to_string() } else { v }
                 }
                 DnsRow::Nameserver => {
                     let v = settings.map(|s| s.dns_nameserver.join(",")).unwrap_or_default();
@@ -891,9 +866,7 @@ fn draw_settings_dns(f: &mut Frame<'_>, area: Rect, state: &SettingsState, theme
                     }
                 }
                 DnsRow::DefaultNameserver => {
-                    let v = settings
-                        .map(|s| s.dns_default_nameserver.join(","))
-                        .unwrap_or_default();
+                    let v = settings.map(|s| s.dns_default_nameserver.join(",")).unwrap_or_default();
                     if v.is_empty() {
                         "default (223.5.5.5,119.29.29.29)".to_string()
                     } else {

@@ -507,7 +507,6 @@ fn patch_affects_config(patch: &SettingsPatch) -> bool {
         || patch.strict_route.is_some()
         || patch.auto_redirect.is_some()
         // DNS 页签（R7.2.1）
-        || patch.dns_enable.is_some()
         || patch.dns_fake_ip_filter_mode.is_some()
         || patch.dns_fake_ip_filter.is_some()
         || patch.dns_use_hosts.is_some()

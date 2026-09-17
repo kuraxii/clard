@@ -152,9 +152,6 @@ impl SettingsStore {
             self.settings.auto_redirect = v;
         }
         // DNS 页签（R7.2.1）
-        if let Some(v) = patch.dns_enable {
-            self.settings.dns_enable = v;
-        }
         if let Some(v) = &patch.dns_fake_ip_filter_mode {
             // 仅接受 blacklist / whitelist / rule；空或非法值归一化为 blacklist
             self.settings.dns_fake_ip_filter_mode = match v.as_str() {
@@ -223,7 +220,6 @@ mod tests {
         assert!(!s.tun_enabled, "TUN 默认关");
         assert_eq!(s.tun_stack, "gvisor");
         assert!(s.route_exclude_address.is_empty(), "空 = 用默认私网段");
-        assert!(!s.dns_enable, "DNS 开关默认关");
         assert_eq!(s.dns_fake_ip_filter_mode, "blacklist");
         assert!(s.dns_use_hosts);
         assert!(s.dns_use_system_hosts);
@@ -254,7 +250,6 @@ mod tests {
                     route_exclude_address: Some(vec!["10.0.0.0/8".into()]),
                     strict_route: Some(false),
                     auto_redirect: Some(true),
-                    dns_enable: Some(true),
                     dns_fake_ip_filter_mode: Some("whitelist".into()),
                     dns_fake_ip_filter: Some(vec!["*.lan".into(), "oa.x".into()]),
                     dns_use_hosts: Some(false),
@@ -280,7 +275,6 @@ mod tests {
         assert_eq!(s.route_exclude_address, vec!["10.0.0.0/8"]);
         assert!(!s.strict_route);
         assert!(s.auto_redirect);
-        assert!(s.dns_enable);
         assert_eq!(s.dns_fake_ip_filter_mode, "whitelist");
         assert_eq!(s.dns_fake_ip_filter, vec!["*.lan", "oa.x"]);
         assert!(!s.dns_use_hosts);
@@ -327,9 +321,19 @@ mod tests {
         let dir = tempdir().unwrap();
         let mut store = SettingsStore::open(dir.path()).unwrap();
         // 非法值归一化为 blacklist
-        store.patch(&SettingsPatch { dns_fake_ip_filter_mode: Some("bogus".into()), ..Default::default() }).unwrap();
+        store
+            .patch(&SettingsPatch {
+                dns_fake_ip_filter_mode: Some("bogus".into()),
+                ..Default::default()
+            })
+            .unwrap();
         assert_eq!(store.get().dns_fake_ip_filter_mode, "blacklist");
-        store.patch(&SettingsPatch { dns_fake_ip_filter_mode: Some("rule".into()), ..Default::default() }).unwrap();
+        store
+            .patch(&SettingsPatch {
+                dns_fake_ip_filter_mode: Some("rule".into()),
+                ..Default::default()
+            })
+            .unwrap();
         assert_eq!(store.get().dns_fake_ip_filter_mode, "rule");
         // 手改 clard.toml 非法值 → open 归一化
         std::fs::write(dir.path().join("clard.toml"), "dns_fake_ip_filter_mode = \"bogus\"\n").unwrap();

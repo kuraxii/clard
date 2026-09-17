@@ -57,11 +57,9 @@ impl GeneralRow {
     }
 }
 
-/// DNS 页签的配置行（doc/05 R7.2.1）。
+/// DNS 页签的配置行（doc/05 R7.2.1，仅 TUN 开启时生效）。
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum DnsRow {
-    /// DNS 开关（TUN 开时由托管注入强制 true）
-    DnsEnable,
     /// fake-ip-filter-mode：blacklist / whitelist / rule（循环切换）
     FakeIpFilterMode,
     /// fake-ip-filter 域名列表（`*.` 通配，逗号分隔）
@@ -81,8 +79,7 @@ pub enum DnsRow {
 }
 
 impl DnsRow {
-    pub const ALL: [Self; 9] = [
-        Self::DnsEnable,
+    pub const ALL: [Self; 8] = [
         Self::FakeIpFilterMode,
         Self::FakeIpFilter,
         Self::UseHosts,
@@ -95,7 +92,6 @@ impl DnsRow {
 
     pub fn label(self) -> &'static str {
         match self {
-            Self::DnsEnable => "DNS",
             Self::FakeIpFilterMode => "fake-ip-filter-mode",
             Self::FakeIpFilter => "fake-ip-filter",
             Self::UseHosts => "use-hosts",
@@ -291,7 +287,10 @@ impl SettingsState {
     pub fn set_tab(&mut self, tab: SettingsTab) {
         self.tab = tab;
         self.list_state.select(
-            if matches!(tab, SettingsTab::General | SettingsTab::Dns | SettingsTab::Tun | SettingsTab::Logs) {
+            if matches!(
+                tab,
+                SettingsTab::General | SettingsTab::Dns | SettingsTab::Tun | SettingsTab::Logs
+            ) {
                 Some(0)
             } else {
                 None
@@ -391,19 +390,22 @@ mod tests {
     fn dns_row_selection_cycles() {
         let mut s = SettingsState::new();
         s.set_tab(SettingsTab::Dns);
-        assert_eq!(s.selected_dns_row(), Some(DnsRow::DnsEnable));
-        s.on_down_key(10);
+        assert_eq!(s.selected_dns_row(), Some(DnsRow::FakeIpFilterMode));
         s.on_down_key(10);
         assert_eq!(
             s.selected_dns_row(),
             Some(DnsRow::FakeIpFilter),
-            "DnsEnable→FakeIpFilterMode→FakeIpFilter"
+            "FakeIpFilterMode→FakeIpFilter"
         );
-        // 9 行循环：FakeIpFilter(2) + 7 = 9 ≡ 0（回到 DnsEnable）
+        // 8 行循环：FakeIpFilter(1) + 7 = 8 ≡ 0（回到 FakeIpFilterMode）
         for _ in 0..7 {
             s.on_down_key(10);
         }
-        assert_eq!(s.selected_dns_row(), Some(DnsRow::DnsEnable), "9 行循环回到 DNS");
+        assert_eq!(
+            s.selected_dns_row(),
+            Some(DnsRow::FakeIpFilterMode),
+            "8 行循环回到 DNS 首行"
+        );
     }
 
     #[test]

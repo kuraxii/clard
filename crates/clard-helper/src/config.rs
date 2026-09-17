@@ -82,7 +82,6 @@ pub fn options_from(settings: &Settings, log_level: &str) -> ConfigGenOptions {
             None
         },
         dns: DnsOptions {
-            enable: settings.dns_enable,
             fake_ip_filter_mode: if settings.dns_fake_ip_filter_mode.is_empty() {
                 "blacklist".to_string()
             } else {

@@ -190,9 +190,7 @@ pub struct Settings {
     pub strict_route: bool,
     /// auto-redirect（默认禁用；开启需二次确认，nftables 残留面，doc/01 §6.3）
     pub auto_redirect: bool,
-    // ---- DNS 页签（doc/05 R7.2.1）----
-    /// DNS 开关；TUN 开时由托管注入强制 true
-    pub dns_enable: bool,
+    // ---- DNS 页签（doc/05 R7.2.1，仅 TUN 开启时生效）----
     /// fake-ip-filter-mode：blacklist / whitelist / rule（默认 blacklist）
     pub dns_fake_ip_filter_mode: String,
     /// fake-ip-filter 域名列表（`*.` 通配；仅 fake-ip 模式生效）
@@ -227,7 +225,6 @@ impl Default for Settings {
             route_exclude_address: Vec::new(),
             strict_route: false,
             auto_redirect: false,
-            dns_enable: false,
             dns_fake_ip_filter_mode: "blacklist".into(),
             dns_fake_ip_filter: Vec::new(),
             dns_use_hosts: true,
@@ -263,7 +260,6 @@ pub struct SettingsPatch {
     pub strict_route: Option<bool>,
     pub auto_redirect: Option<bool>,
     // ---- DNS 页签（doc/05 R7.2.1）----
-    pub dns_enable: Option<bool>,
     pub dns_fake_ip_filter_mode: Option<String>,
     pub dns_fake_ip_filter: Option<Vec<String>>,
     pub dns_use_hosts: Option<bool>,

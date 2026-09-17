@@ -7,7 +7,7 @@
 //!   iproute2-rule-index/strict-route/auto-redirect/route-exclude-address）+ `dns` 强制
 //!   fake-ip（§6.3，避免 DNS 泄漏）+ DNS 页签字段覆盖（R7.2.1，空值回退 clard 默认）；
 //! - TUN 关：仅注入 `tun.enable: false`（防止用户配置私自开启 TUN）；DNS 页签字段
-//!   在用户配置过时合并注入（enable 取用户值，不强制 fake-ip）。
+//!   仅在 TUN 开时生效，TUN 关时不注入 dns 块（profile 自带 dns 原样保留）。
 
 use std::path::PathBuf;
 
@@ -63,12 +63,11 @@ pub const DEFAULT_NAMESERVER: &[&str] = &["tls://223.5.5.5", "tls://1.12.12.12"]
 /// clard 默认 default-nameserver（解析域名型上游用的纯 IP）。
 pub const DEFAULT_DNS_NAMESERVER: &[&str] = &["223.5.5.5", "119.29.29.29"];
 
-/// DNS 页签托管字段（doc/05 R7.2.1）：TUN 开时与强制字段合并注入 `dns` 块；
-/// TUN 关时仅在用户配置过 DNS 字段时合并注入（enable 取用户值，不强制 fake-ip）。
+/// DNS 页签托管字段（doc/05 R7.2.1）：仅 TUN 开启时与强制字段合并注入 `dns` 块
+/// （enable 由托管强制 true）；TUN 关时不注入。
 /// `nameserver_policy` 条目格式 `domain=dns1,dns2`；`hosts` 条目格式 `domain=ip`（注入顶层 hosts）。
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct DnsOptions {
-    pub enable: bool,
     /// fake-ip-filter-mode：blacklist / whitelist / rule（默认 blacklist）
     pub fake_ip_filter_mode: String,
     /// fake-ip-filter 域名列表（`*.` 通配；仅 fake-ip 模式生效）
@@ -90,7 +89,6 @@ pub struct DnsOptions {
 impl Default for DnsOptions {
     fn default() -> Self {
         Self {
-            enable: false,
             fake_ip_filter_mode: "blacklist".into(),
             fake_ip_filter: Vec::new(),
             use_hosts: true,
@@ -193,20 +191,14 @@ pub fn inject(doc: &mut Mapping, options: &ConfigGenOptions) {
             doc.insert(Value::String("tun".into()), Value::Mapping(t));
         }
         None => {
-            // TUN 关：用户配置过 DNS 页签字段时才合并注入（enable 取用户值，不强制 fake-ip）
-            if dns_active(&options.dns) {
-                let mut dns = existing_dns(doc);
-                dns.insert(Value::String("enable".into()), Value::Bool(options.dns.enable));
-                apply_dns_overlay(&mut dns, &options.dns, false);
-                doc.insert(Value::String("dns".into()), Value::Mapping(dns));
-            }
+            // TUN 关：不注入 dns 块（DNS 页签仅 TUN 开时生效，R7.2.1）；profile 自带 dns 原样保留
             // 覆盖用户可能自带的 tun 块，仅保留 enable:false
             let mut t = Mapping::new();
             kv(&mut t, "enable", false);
             doc.insert(Value::String("tun".into()), Value::Mapping(t));
         }
     }
-    // 顶层 hosts（R7.2.1）：与 profile 自带 hosts 合并，clard 条目覆盖同名
+    // 顶层 hosts（R7.2.1）：与 profile 自带 hosts 合并，clard 条目覆盖同名（与 TUN 开关无关）
     inject_hosts(doc, &options.dns.hosts);
 }
 
@@ -216,19 +208,6 @@ fn existing_dns(doc: &Mapping) -> Mapping {
         .and_then(Value::as_mapping)
         .cloned()
         .unwrap_or_default()
-}
-
-/// DNS 页签字段是否有非默认值（TUN 关时据此决定是否注入 dns 块）。
-fn dns_active(d: &DnsOptions) -> bool {
-    d.enable
-        || d.fake_ip_filter_mode != "blacklist"
-        || !d.fake_ip_filter.is_empty()
-        || !d.use_hosts
-        || !d.use_system_hosts
-        || !d.nameserver_policy.is_empty()
-        || !d.hosts.is_empty()
-        || !d.nameserver.is_empty()
-        || !d.default_nameserver.is_empty()
 }
 
 /// 把 DNS 页签字段合并进 dns 块。`force_defaults`：TUN 开时 nameserver/

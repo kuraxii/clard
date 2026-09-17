@@ -1137,15 +1137,6 @@ impl APP {
         };
         let s = self.settings.settings.as_ref();
         match row {
-            DnsRow::DnsEnable => {
-                let cur = s.map(|s| s.dns_enable).unwrap_or(false);
-                let next = !cur;
-                let patch = clard_proto::SettingsPatch {
-                    dns_enable: Some(next),
-                    ..Default::default()
-                };
-                self.set_setting(patch);
-            }
             DnsRow::FakeIpFilterMode => {
                 let cur = s
                     .map(|s| s.dns_fake_ip_filter_mode.clone())
@@ -1189,10 +1180,7 @@ impl APP {
                 self.input = Some(input);
             }
             DnsRow::Hosts => {
-                let mut input = InputState::new(
-                    "hosts (comma separated domain=ip)",
-                    InputPurpose::EditDnsHosts,
-                );
+                let mut input = InputState::new("hosts (comma separated domain=ip)", InputPurpose::EditDnsHosts);
                 if let Some(s) = s {
                     input.buffer = s.dns_hosts.join(",");
                     input.cursor = input.buffer.len();
