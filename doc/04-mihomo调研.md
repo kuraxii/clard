@@ -131,6 +131,8 @@ Selector 或不可选择 → 400。
 - `GET /group/:name/delay` → 组内**所有节点**的延迟 map（自动组测前先 `ForceSet("")` 清固定选择）。
 → clard 的 `T`（全组测延迟）可优先用此端点，比逐个 `GET /proxies/:name/delay` 高效。
 
+> **clard 代理页数据源是 `GET /proxies` 而非 `GET /group`**：`/group` 仅返回组对象（节点只有名字，无延迟数据）；节点延迟/存活取自 `GET /proxies` 中各代理自身的 `history`/`alive`（每次 `URLTest` 都会写入，超时记 `delay==0`）。
+
 ## 5. 规则（rules.go）
 
 ### GET `/rules` → `{"rules":[{index,type,payload,proxy,size,extra?},…]}`

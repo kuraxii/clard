@@ -1329,7 +1329,7 @@ fn draw_proxy_list(f: &mut Frame<'_>, area: Rect, state: &ProxyState, theme: The
         if let Some(all) = &group.all {
             for node in all {
                 let is_now = group.now.as_deref() == Some(node);
-                let extra = group.extra.get(node);
+                let extra = state.node_extra.get(node);
                 let alive = extra.map_or(group.alive, |extra| extra.alive);
                 let delay = extra.and_then(|extra| latest_delay(&extra.history));
                 let dot = if is_now {
@@ -1383,7 +1383,7 @@ fn draw_proxy_list(f: &mut Frame<'_>, area: Rect, state: &ProxyState, theme: The
 fn draw_proxy_detail(f: &mut Frame<'_>, area: Rect, state: &ProxyState, theme: Theme) {
     let lines = if let Some(group) = selected_group(state) {
         let selected_node = selected_node(state).unwrap_or("-");
-        let history = selected_node_history(group, selected_node);
+        let history = node_history(state, selected_node);
         let delay = history.and_then(latest_delay);
         let all_count = group.all.as_ref().map_or(0, Vec::len);
         let fixed = group.fixed.as_deref().unwrap_or("-");
@@ -1982,8 +1982,8 @@ fn selected_node(state: &ProxyState) -> Option<&str> {
     group.all.as_ref()?.get(proxy_idx).map(String::as_str)
 }
 
-fn selected_node_history<'a>(group: &'a ProxyModel, node: &str) -> Option<&'a [DelayHistory]> {
-    group.extra.get(node).map(|extra| extra.history.as_slice())
+fn node_history<'a>(state: &'a ProxyState, node: &str) -> Option<&'a [DelayHistory]> {
+    state.node_extra.get(node).map(|extra| extra.history.as_slice())
 }
 
 fn latest_delay(history: &[DelayHistory]) -> Option<u16> {

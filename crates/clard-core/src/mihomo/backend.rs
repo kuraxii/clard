@@ -215,9 +215,12 @@ impl Backend {
         Ok(())
     }
 
-    /// 获取所有的代理组
+    /// 获取全部代理（节点+组，doc/04 `GET /proxies`）。
+    ///
+    /// 用 `/proxies` 而非 `/group`：`/group` 只返回组对象（节点仅名字），
+    /// 节点延迟/存活需各代理自身的 `history`/`alive`。
     pub async fn get_groups(&self) -> Result<Groups> {
-        let req = self.build_request(Method::GET, "/group")?;
+        let req = self.build_request(Method::GET, "/proxies")?;
         let res = req.send().await?;
         if !res.status().is_success() {
             let err_msg = res
@@ -727,7 +730,7 @@ mod tests {
         assert!(groups.proxies.is_empty());
 
         let req = wait_request(handle).await;
-        assert_method_path(&req, "GET", "/group");
+        assert_method_path(&req, "GET", "/proxies");
 
         Ok(())
     }

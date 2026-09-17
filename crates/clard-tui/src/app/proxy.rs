@@ -1,6 +1,7 @@
 use ratatui::widgets::ListState;
+use std::collections::HashMap;
 
-use clard_core::mihomo::models::{Groups, Proxy as ProxyModel};
+use clard_core::mihomo::models::{Extra, Groups, Proxy as ProxyModel};
 
 #[derive(PartialEq, Eq, Debug)]
 pub enum ProxyFocus {
@@ -38,6 +39,9 @@ pub struct ProxyState {
     raw_groups: Vec<ProxyModel>,
     /// 过滤+排序后的渲染视图。
     pub groups: Vec<ProxyModel>,
+    /// 节点索引：节点名 → {alive, history}（取自 `GET /proxies` 各代理自身字段，
+    /// 延迟以 `history` 最新一条为准；`/group` 不含节点延迟数据）。
+    pub node_extra: HashMap<String, Extra>,
     pub filter: String,
     pub sort: ProxySort,
     pub group_list_state: ListState,
@@ -50,6 +54,7 @@ impl ProxyState {
             focus: ProxyFocus::Groups,
             raw_groups: Vec::new(),
             groups: Vec::new(),
+            node_extra: HashMap::new(),
             filter: String::new(),
             sort: ProxySort::None,
             group_list_state: ListState::default(),
@@ -64,6 +69,19 @@ impl ProxyState {
             .and_then(|idx| self.raw_groups.get(idx))
             .map(|g| g.name.clone());
         let selected_proxy_name = self.selected_node().map(|(_, n)| n.to_string());
+
+        // 节点索引：/proxies 返回全部代理（节点+组），节点延迟/存活取自各自 history/alive
+        let mut node_extra = HashMap::with_capacity(groups_data.proxies.len());
+        for p in &groups_data.proxies {
+            node_extra.insert(
+                p.name.clone(),
+                Extra {
+                    alive: p.alive,
+                    history: p.history.clone(),
+                },
+            );
+        }
+        self.node_extra = node_extra;
 
         // 过滤掉无节点（GLOBAL/REJECT/DIRECT 等）；分组与节点均按名排序
         let mut raw: Vec<ProxyModel> = groups_data
@@ -140,14 +158,14 @@ impl ProxyState {
     fn refresh_view(&mut self) {
         self.groups = self.raw_groups.clone();
         let filter = self.filter.to_lowercase();
-        for group in &mut self.groups {
-            // 延迟 map 在可变借用 all 前预取（节点→最新延迟）
-            let delays: Vec<(String, u16)> = group
-                .extra
-                .iter()
-                .filter_map(|(n, e)| e.history.last().map(|h| (n.clone(), h.delay)))
-                .collect();
+        // 节点名 → 最新延迟（全表一致，跨组复用；可变借用 all 前预取）
+        let delays: Vec<(String, u16)> = self
+            .node_extra
+            .iter()
+            .filter_map(|(n, e)| e.history.last().map(|h| (n.clone(), h.delay)))
+            .collect();
 
+        for group in &mut self.groups {
             if let Some(all) = &mut group.all {
                 if !filter.is_empty() {
                     all.retain(|n| n.to_lowercase().contains(&filter));
@@ -303,6 +321,57 @@ mod tests {
         });
 
         assert_eq!(state.selected_node(), Some(("group", "node-b")));
+    }
+
+    #[test]
+    fn node_extra_indexes_delay_from_node_proxies() {
+        let mut state = ProxyState::new();
+        let mut node_a = proxy_group("node-a", None, vec![]);
+        node_a.history = vec![DelayHistory { time: "t".into(), delay: 120 }];
+        let mut node_b = proxy_group("node-b", None, vec![]);
+        node_b.history = vec![DelayHistory { time: "t".into(), delay: 0 }];
+        state.update_groups(Groups {
+            proxies: vec![proxy_group("group", None, vec!["node-a", "node-b"]), node_a, node_b],
+        });
+
+        // 节点延迟/存活索引取自各代理自身 history/alive
+        assert_eq!(
+            state.node_extra["node-a"].history.last().map(|h| h.delay),
+            Some(120)
+        );
+        assert_eq!(
+            state.node_extra["node-b"].history.last().map(|h| h.delay),
+            Some(0),
+            "超时节点 delay==0"
+        );
+        // 无 all 的节点代理不进入分组列表
+        assert_eq!(state.groups.len(), 1);
+    }
+
+    #[test]
+    fn delay_sort_uses_node_extra() {
+        let mut state = ProxyState::new();
+        let mut node_a = proxy_group("node-a", None, vec![]);
+        node_a.history = vec![DelayHistory { time: "t".into(), delay: 300 }];
+        let mut node_b = proxy_group("node-b", None, vec![]);
+        node_b.history = vec![DelayHistory { time: "t".into(), delay: 50 }];
+        state.update_groups(Groups {
+            proxies: vec![
+                proxy_group("group", None, vec!["node-a", "node-b"]),
+                node_a,
+                node_b,
+            ],
+        });
+
+        state.cycle_sort(); // NameAsc
+        state.cycle_sort(); // NameDesc
+        state.cycle_sort(); // DelayAsc
+        let order: Vec<&str> = state.groups[0]
+            .all
+            .as_ref()
+            .map(|v| v.iter().map(String::as_str).collect())
+            .unwrap_or_default();
+        assert_eq!(order, vec!["node-b", "node-a"], "按延迟升序：b(50ms) 在 a(300ms) 前");
     }
 
     #[test]
