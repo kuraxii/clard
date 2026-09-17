@@ -11,6 +11,8 @@ use ratatui::widgets::{ListState, TableState};
 pub enum SettingsTab {
     #[default]
     General,
+    /// DNS 页签（doc/05 R7.2.1）
+    Dns,
     /// TUN 与旁路（doc/05 §7 R7.2）
     Tun,
     Core,
@@ -51,6 +53,57 @@ impl GeneralRow {
             Self::Language => "Language",
             Self::Theme => "Theme",
             Self::TestUrl => "Test URL",
+        }
+    }
+}
+
+/// DNS 页签的配置行（doc/05 R7.2.1）。
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum DnsRow {
+    /// DNS 开关（TUN 开时由托管注入强制 true）
+    DnsEnable,
+    /// fake-ip-filter-mode：blacklist / whitelist / rule（循环切换）
+    FakeIpFilterMode,
+    /// fake-ip-filter 域名列表（`*.` 通配，逗号分隔）
+    FakeIpFilter,
+    /// 查询时先查顶层 hosts
+    UseHosts,
+    /// 额外读取系统 /etc/hosts
+    UseSystemHosts,
+    /// hosts 静态映射（`domain=ip`，逗号分隔）
+    Hosts,
+    /// nameserver-policy（`domain=dns1,dns2`，逗号分隔）
+    NameserverPolicy,
+    /// 全局上游；空 = clard 默认
+    Nameserver,
+    /// 纯 IP 上游；空 = clard 默认
+    DefaultNameserver,
+}
+
+impl DnsRow {
+    pub const ALL: [Self; 9] = [
+        Self::DnsEnable,
+        Self::FakeIpFilterMode,
+        Self::FakeIpFilter,
+        Self::UseHosts,
+        Self::UseSystemHosts,
+        Self::Hosts,
+        Self::NameserverPolicy,
+        Self::Nameserver,
+        Self::DefaultNameserver,
+    ];
+
+    pub fn label(self) -> &'static str {
+        match self {
+            Self::DnsEnable => "DNS",
+            Self::FakeIpFilterMode => "fake-ip-filter-mode",
+            Self::FakeIpFilter => "fake-ip-filter",
+            Self::UseHosts => "use-hosts",
+            Self::UseSystemHosts => "use-system-hosts",
+            Self::Hosts => "hosts",
+            Self::NameserverPolicy => "nameserver-policy",
+            Self::Nameserver => "nameserver",
+            Self::DefaultNameserver => "default-nameserver",
         }
     }
 }
@@ -211,7 +264,8 @@ impl SettingsState {
 
     pub fn next_tab(&mut self) {
         self.set_tab(match self.tab {
-            SettingsTab::General => SettingsTab::Tun,
+            SettingsTab::General => SettingsTab::Dns,
+            SettingsTab::Dns => SettingsTab::Tun,
             SettingsTab::Tun => SettingsTab::Core,
             SettingsTab::Core => SettingsTab::Service,
             SettingsTab::Service => SettingsTab::Backup,
@@ -224,7 +278,8 @@ impl SettingsState {
     pub fn prev_tab(&mut self) {
         self.set_tab(match self.tab {
             SettingsTab::General => SettingsTab::About,
-            SettingsTab::Tun => SettingsTab::General,
+            SettingsTab::Dns => SettingsTab::General,
+            SettingsTab::Tun => SettingsTab::Dns,
             SettingsTab::Core => SettingsTab::Tun,
             SettingsTab::Service => SettingsTab::Core,
             SettingsTab::Backup => SettingsTab::Service,
@@ -236,7 +291,7 @@ impl SettingsState {
     pub fn set_tab(&mut self, tab: SettingsTab) {
         self.tab = tab;
         self.list_state.select(
-            if matches!(tab, SettingsTab::General | SettingsTab::Tun | SettingsTab::Logs) {
+            if matches!(tab, SettingsTab::General | SettingsTab::Dns | SettingsTab::Tun | SettingsTab::Logs) {
                 Some(0)
             } else {
                 None
@@ -258,6 +313,11 @@ impl SettingsState {
         self.list_state.selected().and_then(|i| TunRow::ALL.get(i).copied())
     }
 
+    /// 当前 DNS 配置行。
+    pub fn selected_dns_row(&self) -> Option<DnsRow> {
+        self.list_state.selected().and_then(|i| DnsRow::ALL.get(i).copied())
+    }
+
     /// 应用 helper 系统配置（R7.5）。
     pub fn apply_helper_config(&mut self, cfg: clard_proto::HelperConfig) {
         self.helper_config = Some(cfg);
@@ -275,6 +335,7 @@ impl SettingsState {
     pub fn on_down_key(&mut self, viewport: usize) {
         let row_count = match self.tab {
             SettingsTab::General => GeneralRow::ALL.len(),
+            SettingsTab::Dns => DnsRow::ALL.len(),
             SettingsTab::Tun => TunRow::ALL.len(),
             SettingsTab::Logs => LogsRow::ALL.len(),
             _ => 0,
@@ -289,6 +350,7 @@ impl SettingsState {
     pub fn on_up_key(&mut self, viewport: usize) {
         let row_count = match self.tab {
             SettingsTab::General => GeneralRow::ALL.len(),
+            SettingsTab::Dns => DnsRow::ALL.len(),
             SettingsTab::Tun => TunRow::ALL.len(),
             SettingsTab::Logs => LogsRow::ALL.len(),
             _ => 0,
@@ -316,13 +378,32 @@ mod tests {
         let mut s = SettingsState::new();
         assert_eq!(s.tab, SettingsTab::General);
         s.next_tab();
-        assert_eq!(s.tab, SettingsTab::Tun);
-        for _ in 0..6 {
+        assert_eq!(s.tab, SettingsTab::Dns, "General→Dns");
+        for _ in 0..7 {
             s.next_tab();
         }
-        assert_eq!(s.tab, SettingsTab::General, "7 次 next 循环回到 General");
+        assert_eq!(s.tab, SettingsTab::General, "8 次 next 循环回到 General");
         s.prev_tab();
         assert_eq!(s.tab, SettingsTab::About);
+    }
+
+    #[test]
+    fn dns_row_selection_cycles() {
+        let mut s = SettingsState::new();
+        s.set_tab(SettingsTab::Dns);
+        assert_eq!(s.selected_dns_row(), Some(DnsRow::DnsEnable));
+        s.on_down_key(10);
+        s.on_down_key(10);
+        assert_eq!(
+            s.selected_dns_row(),
+            Some(DnsRow::FakeIpFilter),
+            "DnsEnable→FakeIpFilterMode→FakeIpFilter"
+        );
+        // 9 行循环：FakeIpFilter(2) + 7 = 9 ≡ 0（回到 DnsEnable）
+        for _ in 0..7 {
+            s.on_down_key(10);
+        }
+        assert_eq!(s.selected_dns_row(), Some(DnsRow::DnsEnable), "9 行循环回到 DNS");
     }
 
     #[test]

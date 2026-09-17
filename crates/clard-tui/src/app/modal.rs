@@ -111,6 +111,16 @@ pub enum InputPurpose {
     EditDnsHijack,
     /// 设置：route-exclude-address（逗号分隔 CIDR，空 = 默认私网段）
     EditRouteExclude,
+    /// 设置：fake-ip-filter 域名列表（逗号分隔，`*.` 通配）
+    EditDnsFakeIpFilter,
+    /// 设置：hosts 静态映射（逗号分隔 `domain=ip`）
+    EditDnsHosts,
+    /// 设置：nameserver-policy（逗号分隔 `domain=dns1,dns2`）
+    EditDnsNameserverPolicy,
+    /// 设置：全局 nameserver（逗号分隔；空 = clard 默认）
+    EditDnsNameserver,
+    /// 设置：default-nameserver（逗号分隔；空 = clard 默认）
+    EditDnsDefaultNameserver,
     /// 审计按 op 过滤（R6.3 `o`）
     FilterAuditOp,
     /// 审计导出路径（R6.3 `x`）

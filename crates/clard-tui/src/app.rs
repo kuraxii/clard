@@ -24,7 +24,7 @@ use page::Page;
 use profiles::{HistoryView, ProfileBusy, ProfilesState};
 use proxy::{ProxyFocus, ProxyState};
 use rules::{RulesState, RulesTab};
-use settings::{GeneralRow, SettingsState, SettingsTab, TunRow};
+use settings::{DnsRow, GeneralRow, SettingsState, SettingsTab, TunRow};
 use tokio::sync::mpsc::UnboundedSender;
 
 use clard_core::{
@@ -512,6 +512,46 @@ impl APP {
                     ..Default::default()
                 };
                 self.set_tun_setting(patch);
+            }
+            InputPurpose::EditDnsFakeIpFilter => {
+                let list = split_csv(&text);
+                let patch = clard_proto::SettingsPatch {
+                    dns_fake_ip_filter: Some(list),
+                    ..Default::default()
+                };
+                self.set_setting(patch);
+            }
+            InputPurpose::EditDnsHosts => {
+                let list = split_csv(&text);
+                let patch = clard_proto::SettingsPatch {
+                    dns_hosts: Some(list),
+                    ..Default::default()
+                };
+                self.set_setting(patch);
+            }
+            InputPurpose::EditDnsNameserverPolicy => {
+                let list = split_csv(&text);
+                let patch = clard_proto::SettingsPatch {
+                    dns_nameserver_policy: Some(list),
+                    ..Default::default()
+                };
+                self.set_setting(patch);
+            }
+            InputPurpose::EditDnsNameserver => {
+                let list = split_csv(&text);
+                let patch = clard_proto::SettingsPatch {
+                    dns_nameserver: Some(list),
+                    ..Default::default()
+                };
+                self.set_setting(patch);
+            }
+            InputPurpose::EditDnsDefaultNameserver => {
+                let list = split_csv(&text);
+                let patch = clard_proto::SettingsPatch {
+                    dns_default_nameserver: Some(list),
+                    ..Default::default()
+                };
+                self.set_setting(patch);
             }
             InputPurpose::FilterAuditOp => {
                 self.logs.set_op_filter(text.trim().to_string());
@@ -1036,6 +1076,7 @@ impl APP {
     fn on_settings_char(&mut self, c: char) {
         match self.settings.tab {
             SettingsTab::General => self.on_settings_general_char(c),
+            SettingsTab::Dns => self.on_settings_dns_char(c),
             SettingsTab::Tun => self.on_settings_tun_char(c),
             SettingsTab::Core => match c {
                 's' => self.start_core(),
@@ -1086,6 +1127,114 @@ impl APP {
     }
 
     /// TUN 页签编辑（R7.2）：`e` 编辑当前行。布尔项二次确认，枚举循环，列表项进输入弹窗。
+    /// DNS 页签编辑（doc/05 R7.2.1）：布尔/枚举循环切换，列表项弹输入框。
+    fn on_settings_dns_char(&mut self, c: char) {
+        if c != 'e' {
+            return;
+        }
+        let Some(row) = self.settings.selected_dns_row() else {
+            return;
+        };
+        let s = self.settings.settings.as_ref();
+        match row {
+            DnsRow::DnsEnable => {
+                let cur = s.map(|s| s.dns_enable).unwrap_or(false);
+                let next = !cur;
+                let patch = clard_proto::SettingsPatch {
+                    dns_enable: Some(next),
+                    ..Default::default()
+                };
+                self.set_setting(patch);
+            }
+            DnsRow::FakeIpFilterMode => {
+                let cur = s
+                    .map(|s| s.dns_fake_ip_filter_mode.clone())
+                    .unwrap_or_else(|| "blacklist".into());
+                let next = match cur.as_str() {
+                    "whitelist" => "rule",
+                    "rule" => "blacklist",
+                    _ => "whitelist",
+                };
+                let patch = clard_proto::SettingsPatch {
+                    dns_fake_ip_filter_mode: Some(next.to_string()),
+                    ..Default::default()
+                };
+                self.set_setting(patch);
+            }
+            DnsRow::UseHosts => {
+                let next = !s.map(|s| s.dns_use_hosts).unwrap_or(true);
+                let patch = clard_proto::SettingsPatch {
+                    dns_use_hosts: Some(next),
+                    ..Default::default()
+                };
+                self.set_setting(patch);
+            }
+            DnsRow::UseSystemHosts => {
+                let next = !s.map(|s| s.dns_use_system_hosts).unwrap_or(true);
+                let patch = clard_proto::SettingsPatch {
+                    dns_use_system_hosts: Some(next),
+                    ..Default::default()
+                };
+                self.set_setting(patch);
+            }
+            DnsRow::FakeIpFilter => {
+                let mut input = InputState::new(
+                    "fake-ip-filter (comma separated; empty = none)",
+                    InputPurpose::EditDnsFakeIpFilter,
+                );
+                if let Some(s) = s {
+                    input.buffer = s.dns_fake_ip_filter.join(",");
+                    input.cursor = input.buffer.len();
+                }
+                self.input = Some(input);
+            }
+            DnsRow::Hosts => {
+                let mut input = InputState::new(
+                    "hosts (comma separated domain=ip)",
+                    InputPurpose::EditDnsHosts,
+                );
+                if let Some(s) = s {
+                    input.buffer = s.dns_hosts.join(",");
+                    input.cursor = input.buffer.len();
+                }
+                self.input = Some(input);
+            }
+            DnsRow::NameserverPolicy => {
+                let mut input = InputState::new(
+                    "nameserver-policy (comma separated domain=dns1,dns2)",
+                    InputPurpose::EditDnsNameserverPolicy,
+                );
+                if let Some(s) = s {
+                    input.buffer = s.dns_nameserver_policy.join(",");
+                    input.cursor = input.buffer.len();
+                }
+                self.input = Some(input);
+            }
+            DnsRow::Nameserver => {
+                let mut input = InputState::new(
+                    "nameserver (comma separated; empty = default tls://223.5.5.5,tls://1.12.12.12)",
+                    InputPurpose::EditDnsNameserver,
+                );
+                if let Some(s) = s {
+                    input.buffer = s.dns_nameserver.join(",");
+                    input.cursor = input.buffer.len();
+                }
+                self.input = Some(input);
+            }
+            DnsRow::DefaultNameserver => {
+                let mut input = InputState::new(
+                    "default-nameserver (comma separated; empty = default 223.5.5.5,119.29.29.29)",
+                    InputPurpose::EditDnsDefaultNameserver,
+                );
+                if let Some(s) = s {
+                    input.buffer = s.dns_default_nameserver.join(",");
+                    input.cursor = input.buffer.len();
+                }
+                self.input = Some(input);
+            }
+        }
+    }
+
     fn on_settings_tun_char(&mut self, c: char) {
         if c != 'e' {
             return;
@@ -1297,6 +1446,7 @@ impl APP {
 
     fn on_settings_enter(&mut self) {
         match self.settings.tab {
+            SettingsTab::Dns => self.on_settings_dns_char('e'),
             SettingsTab::Tun => self.on_settings_tun_char('e'),
             SettingsTab::Backup => {
                 if let Some(b) = self.settings.selected_backup() {

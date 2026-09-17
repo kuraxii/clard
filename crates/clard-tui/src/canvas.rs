@@ -19,7 +19,7 @@ use crate::app::{
     profiles::{HistoryView, ProfileBusy, ProfilesState},
     proxy::{ProxyFocus, ProxyState},
     rules::{RulesState, RulesTab},
-    settings::{GeneralRow, LogsRow, SettingsState, SettingsTab, TunRow},
+    settings::{DnsRow, GeneralRow, LogsRow, SettingsState, SettingsTab, TunRow},
 };
 
 #[derive(Debug, Default)]
@@ -733,6 +733,7 @@ impl SettingsLayout {
         draw_settings_tabs(f, *tabs, state, theme);
         match state.tab {
             SettingsTab::General => draw_settings_general(f, *body, state, theme),
+            SettingsTab::Dns => draw_settings_dns(f, *body, state, theme),
             SettingsTab::Tun => draw_settings_tun(f, *body, state, theme),
             SettingsTab::Core => draw_settings_core(f, *body, state, theme),
             SettingsTab::Service => draw_settings_service(f, *body, state, theme),
@@ -746,15 +747,17 @@ impl SettingsLayout {
 fn draw_settings_tabs(f: &mut Frame<'_>, area: Rect, state: &SettingsState, theme: Theme) {
     let selected = match state.tab {
         SettingsTab::General => 0,
-        SettingsTab::Tun => 1,
-        SettingsTab::Core => 2,
-        SettingsTab::Service => 3,
-        SettingsTab::Backup => 4,
-        SettingsTab::Logs => 5,
-        SettingsTab::About => 6,
+        SettingsTab::Dns => 1,
+        SettingsTab::Tun => 2,
+        SettingsTab::Core => 3,
+        SettingsTab::Service => 4,
+        SettingsTab::Backup => 5,
+        SettingsTab::Logs => 6,
+        SettingsTab::About => 7,
     };
     let titles = vec![
         " General ",
+        " DNS ",
         " TUN ",
         " Core ",
         " Service ",
@@ -806,6 +809,107 @@ fn draw_settings_general(f: &mut Frame<'_>, area: Rect, state: &SettingsState, t
 
     let list = List::new(items)
         .block(panel_block("General  Enter edit", true, theme))
+        .highlight_style(theme.selected_style())
+        .highlight_symbol("▸ ");
+    let mut list_state = state.list_state.clone();
+    f.render_stateful_widget(list, area, &mut list_state);
+}
+
+fn draw_settings_dns(f: &mut Frame<'_>, area: Rect, state: &SettingsState, theme: Theme) {
+    let settings = state.settings.as_ref();
+    let items: Vec<ListItem<'_>> = DnsRow::ALL
+        .iter()
+        .map(|row| {
+            let value = match row {
+                DnsRow::DnsEnable => {
+                    let on = settings.map(|s| s.dns_enable).unwrap_or(false);
+                    let forced = settings.map(|s| s.tun_enabled).unwrap_or(false);
+                    if on {
+                        "● on (TUN 下强制)".to_string()
+                    } else if forced {
+                        "○ off (TUN 开时强制 true)".to_string()
+                    } else {
+                        "○ off".to_string()
+                    }
+                }
+                DnsRow::FakeIpFilterMode => {
+                    let v = settings
+                        .map(|s| s.dns_fake_ip_filter_mode.clone())
+                        .unwrap_or_else(|| "blacklist".into());
+                    if v.is_empty() {
+                        "[blacklist]".to_string()
+                    } else {
+                        format!("[{v}]")
+                    }
+                }
+                DnsRow::FakeIpFilter => {
+                    let v = settings.map(|s| s.dns_fake_ip_filter.join(",")).unwrap_or_default();
+                    if v.is_empty() {
+                        "(empty)".to_string()
+                    } else {
+                        v
+                    }
+                }
+                DnsRow::UseHosts => {
+                    if settings.map(|s| s.dns_use_hosts).unwrap_or(true) {
+                        "● on".to_string()
+                    } else {
+                        "○ off".to_string()
+                    }
+                }
+                DnsRow::UseSystemHosts => {
+                    if settings.map(|s| s.dns_use_system_hosts).unwrap_or(true) {
+                        "● on".to_string()
+                    } else {
+                        "○ off".to_string()
+                    }
+                }
+                DnsRow::Hosts => {
+                    let v = settings.map(|s| s.dns_hosts.join(",")).unwrap_or_default();
+                    if v.is_empty() {
+                        "(empty)".to_string()
+                    } else {
+                        v
+                    }
+                }
+                DnsRow::NameserverPolicy => {
+                    let v = settings
+                        .map(|s| s.dns_nameserver_policy.join(","))
+                        .unwrap_or_default();
+                    if v.is_empty() {
+                        "(empty)".to_string()
+                    } else {
+                        v
+                    }
+                }
+                DnsRow::Nameserver => {
+                    let v = settings.map(|s| s.dns_nameserver.join(",")).unwrap_or_default();
+                    if v.is_empty() {
+                        "default (tls://223.5.5.5,tls://1.12.12.12)".to_string()
+                    } else {
+                        v
+                    }
+                }
+                DnsRow::DefaultNameserver => {
+                    let v = settings
+                        .map(|s| s.dns_default_nameserver.join(","))
+                        .unwrap_or_default();
+                    if v.is_empty() {
+                        "default (223.5.5.5,119.29.29.29)".to_string()
+                    } else {
+                        v
+                    }
+                }
+            };
+            ListItem::new(Line::from(vec![
+                Span::styled(format!("{:<22}", row.label()), Style::default().fg(theme.fg)),
+                Span::styled(value, Style::default().fg(theme.primary)),
+            ]))
+        })
+        .collect();
+
+    let list = List::new(items)
+        .block(panel_block("DNS  Enter edit / confirm hot-reload", true, theme))
         .highlight_style(theme.selected_style())
         .highlight_symbol("▸ ");
     let mut list_state = state.list_state.clone();
