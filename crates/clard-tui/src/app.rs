@@ -1498,31 +1498,6 @@ impl APP {
         });
     }
 
-    fn test_proxy_delay(&mut self) {
-        let state = &self.proxies;
-        let Some((_group_name, node_name)) = state.selected_node() else {
-            return;
-        };
-        let backend = self.backend.clone();
-        let node = node_name.to_string();
-        let sender = self.event_sender.clone();
-        let timeout = 5000;
-        let url = self.test_url();
-        tokio::spawn(async move {
-            match backend.delay_proxy_for_name(&node, &url, timeout).await {
-                Ok(delay) => {
-                    let _ = sender.send(ClardEvent::Notify(format!("{node} delay: {delay}ms")));
-                    if let Ok(groups) = backend.get_groups().await {
-                        let _ = sender.send(ClardEvent::UpdateGroups(groups));
-                    }
-                }
-                Err(e) => {
-                    let _ = sender.send(ClardEvent::Error(format!("Delay test error: {}", e)));
-                }
-            }
-        });
-    }
-
     /// 清除当前分组的固定选择，回退 URLTest 自动（R3.2，`DELETE /proxies/:name`）。
     fn clear_group_selection(&mut self) {
         let Some(group_name) = self.proxies.selected_group_name().map(str::to_string) else {
@@ -1582,7 +1557,6 @@ impl APP {
 
     fn on_proxies_char(&mut self, c: char) {
         match c {
-            't' if self.proxies.focus == ProxyFocus::Proxies => self.test_proxy_delay(),
             'T' => self.test_all_groups(),
             'd' => self.clear_group_selection(),
             'f' => self.open_proxies_filter(),

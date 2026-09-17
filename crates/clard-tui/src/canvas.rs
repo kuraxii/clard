@@ -1327,7 +1327,7 @@ fn draw_proxy_list(f: &mut Frame<'_>, area: Rect, state: &ProxyState, theme: The
                 } else {
                     "down"
                 };
-                let delay_text = delay.map_or_else(|| "-".to_string(), format_delay);
+                let delay_text = delay_display(delay);
                 let spark = extra.map(|extra| sparkline_history(&extra.history)).unwrap_or_default();
 
                 items.push(ListItem::new(Line::from(vec![
@@ -1341,7 +1341,7 @@ fn draw_proxy_list(f: &mut Frame<'_>, area: Rect, state: &ProxyState, theme: The
                             Style::default().fg(theme.fg)
                         },
                     ),
-                    Span::styled(format!("  {:>6}", delay_text), delay_style(delay, theme)),
+                    Span::styled(format!(" {}", delay_text), delay_style(delay, theme)),
                     Span::styled(format!("  {:<6}", state_text), theme.muted_style()),
                     Span::styled(format!("  {}", spark), Style::default().fg(theme.secondary)),
                 ])));
@@ -1351,7 +1351,7 @@ fn draw_proxy_list(f: &mut Frame<'_>, area: Rect, state: &ProxyState, theme: The
 
     let list = List::new(items)
         .block(panel_block(
-            "Nodes  Enter select  t test  T all  d clear",
+            "Nodes  Enter select  T all  d clear",
             state.focus == ProxyFocus::Proxies,
             theme,
         ))
@@ -1377,7 +1377,10 @@ fn draw_proxy_detail(f: &mut Frame<'_>, area: Rect, state: &ProxyState, theme: T
             kv_line("Selected", selected_node, theme),
             kv_line("Type", proxy_type_name(group), theme),
             kv_line("Nodes", &all_count.to_string(), theme),
-            kv_line("Delay", &delay.map_or_else(|| "-".to_string(), format_delay), theme),
+            Line::from(vec![
+                Span::styled(format!("{:<10}", "Delay"), Style::default().fg(theme.primary)),
+                Span::styled(delay_display(delay), delay_style(delay, theme)),
+            ]),
             kv_line("History", &history.map_or_else(String::new, sparkline_history), theme),
             kv_line("Flags", &proxy_flags(group), theme),
             kv_line("Fixed", fixed, theme),
@@ -1744,8 +1747,8 @@ fn draw_help(f: &mut Frame<'_>, area: Rect, app: &APP, theme: Theme) {
         Page::Proxies => vec![
             Line::from(Span::styled("Proxies", theme.title_style())),
             Line::from("Left/right or Tab changes focus between groups and nodes."),
-            Line::from("Enter selects the highlighted node; t tests its delay."),
-            Line::from("T tests every group; d clears the group's fixed selection."),
+            Line::from("Enter selects the highlighted node; T tests every group."),
+            Line::from("d clears the group's fixed selection."),
         ],
         Page::Connections => vec![
             Line::from(Span::styled("Connections", theme.title_style())),
@@ -2102,6 +2105,8 @@ fn empty_as_dash(value: &str) -> &str {
 
 fn delay_style(delay: Option<u16>, theme: Theme) -> Style {
     match delay {
+        // delay==0 = 超时（mihomo `URLTest` 失败时 history 记 0，见 adapter/adapter.go）
+        Some(0) => Style::default().fg(theme.error).add_modifier(Modifier::BOLD),
         Some(delay) if delay < 180 => Style::default().fg(theme.success),
         Some(delay) if delay < 500 => Style::default().fg(theme.warning),
         Some(_) => Style::default().fg(theme.error),
@@ -2109,8 +2114,12 @@ fn delay_style(delay: Option<u16>, theme: Theme) -> Style {
     }
 }
 
-fn format_delay(delay: u16) -> String {
-    format!("{} ms", delay)
+fn delay_display(delay: Option<u16>) -> String {
+    match delay {
+        Some(0) => "timeout".to_string(),
+        Some(delay) => format!("{} ms", delay),
+        None => "-".to_string(),
+    }
 }
 
 fn format_rate(bytes_per_second: u64) -> String {

@@ -308,33 +308,6 @@ impl Backend {
         Ok(res.json::<HashMap<String, u16>>().await?)
     }
 
-    /// 对指定代理进行延迟测试
-    ///
-    /// 一般用于代理节点的延迟测试，也可传代理组名称（只会测试代理组下选中的代理节点）
-    pub async fn delay_proxy_for_name(&self, proxy_name: &str, test_url: &str, timeout: u32) -> Result<u16> {
-        let proxy_name_encode = urlencoding::encode(proxy_name);
-        let req = self
-            .build_request(Method::GET, &format!("/proxies/{}/delay", proxy_name_encode))?
-            .query(&[("url", test_url), ("timeout", &timeout.to_string())]);
-
-        let res = req.send().await?;
-        if !res.status().is_success() {
-            let err_msg = res.json::<ResponseError>().await.map_or_else(
-                |msg| format!("delay test for [{}] failed: {}", proxy_name, msg),
-                |err| err.message.to_string(),
-            );
-            return Err(IpcError::ResponseError(err_msg));
-        }
-
-        #[derive(serde::Deserialize)]
-        struct DelayResp {
-            delay: u16,
-        }
-
-        let delay_res = res.json::<DelayResp>().await?;
-        Ok(delay_res.delay)
-    }
-
     /// 获取生效规则列表（doc/04 `GET /rules`）。
     pub async fn get_rules(&self) -> Result<Rules> {
         let req = self.build_request(Method::GET, "/rules")?;
