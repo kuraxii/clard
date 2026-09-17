@@ -1530,9 +1530,10 @@ impl APP {
                         let _ = sender.send(ClardEvent::Error(format!("{group} test failed: {e}")));
                     }
                 }
-            }
-            if let Ok(groups_data) = backend.get_groups().await {
-                let _ = sender.send(ClardEvent::UpdateGroups(groups_data));
+                // 每测完一组立即刷新，延迟/超时即时可见（R3.3）
+                if let Ok(groups_data) = backend.get_groups().await {
+                    let _ = sender.send(ClardEvent::UpdateGroups(groups_data));
+                }
             }
         });
     }
@@ -1546,7 +1547,7 @@ impl APP {
 
     fn on_proxies_char(&mut self, c: char) {
         match c {
-            'T' => self.test_all_groups(),
+            't' | 'T' => self.test_all_groups(),
             'd' => self.clear_group_selection(),
             'f' => self.open_proxies_filter(),
             's' => self.proxies.cycle_sort(),

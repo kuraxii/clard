@@ -1367,7 +1367,7 @@ fn draw_proxy_list(f: &mut Frame<'_>, area: Rect, state: &ProxyState, theme: The
                             Style::default().fg(theme.fg)
                         },
                     ),
-                    Span::styled(format!(" {}", delay_text), delay_style(delay, theme)),
+                    Span::styled(format!("  {:>6}", delay_text), delay_style(delay, theme)),
                     Span::styled(format!("  {:<6}", state_text), theme.muted_style()),
                     Span::styled(format!("  {}", spark), Style::default().fg(theme.secondary)),
                 ])));
@@ -1377,7 +1377,7 @@ fn draw_proxy_list(f: &mut Frame<'_>, area: Rect, state: &ProxyState, theme: The
 
     let list = List::new(items)
         .block(panel_block(
-            "Nodes  Enter select  T all  d clear",
+            "Nodes  Enter select  t/T all  d clear",
             state.focus == ProxyFocus::Proxies,
             theme,
         ))
@@ -1403,10 +1403,7 @@ fn draw_proxy_detail(f: &mut Frame<'_>, area: Rect, state: &ProxyState, theme: T
             kv_line("Selected", selected_node, theme),
             kv_line("Type", proxy_type_name(group), theme),
             kv_line("Nodes", &all_count.to_string(), theme),
-            Line::from(vec![
-                Span::styled(format!("{:<10}", "Delay"), Style::default().fg(theme.primary)),
-                Span::styled(delay_display(delay), delay_style(delay, theme)),
-            ]),
+            kv_line("Delay", &delay_display(delay), theme),
             kv_line("History", &history.map_or_else(String::new, sparkline_history), theme),
             kv_line("Flags", &proxy_flags(group), theme),
             kv_line("Fixed", fixed, theme),
@@ -1785,7 +1782,7 @@ fn draw_help(f: &mut Frame<'_>, area: Rect, app: &APP, theme: Theme) {
         Page::Proxies => vec![
             Line::from(Span::styled("Proxies", theme.title_style())),
             Line::from("Left/right or Tab changes focus between groups and nodes."),
-            Line::from("Enter selects the highlighted node; T tests every group."),
+            Line::from("Enter selects the highlighted node; t/T tests every group."),
             Line::from("d clears the group's fixed selection."),
         ],
         Page::Connections => vec![

@@ -124,7 +124,7 @@ Selector 或不可选择 → 400。
 ### GET `/proxies/:name/delay?url=&timeout=&expected=` → `{"delay": <ms>}`
 延迟测试。`url` 测速目标（缺省用内置）；`timeout` **必填**（ms）；`expected` 可选状态码区间
 （如 `204,300-399`）。超时 408，失败 503。
-→ clard 已不再使用单节点测速（`t` 已移除），仅保留全组测速 `T`。
+→ clard 全组测速（`t`/`T` 同一动作）。
 
 ### GET `/group` / `/group/:name` / `/group/:name/delay`（Meta 扩展）
 - `GET /group` → `{"proxies":[仅组]}`；`GET /group/:name` → 组对象（非组 404）。
