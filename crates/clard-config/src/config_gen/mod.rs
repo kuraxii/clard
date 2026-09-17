@@ -327,6 +327,25 @@ mod tests {
     }
 
     #[test]
+    fn generate_zeroes_profile_port_listeners() {
+        // 0.2.1 实测：订阅自带 port: 7890 先占端口 → mixed-port 监听绑定失败 → 回读校验失败。
+        // 托管注入归零 port/socks-port/redir-port/tproxy-port + 清空 external-controller。
+        let profile = "port: 7890\nsocks-port: 7891\nredir-port: 7892\ntproxy-port: 7893\nexternal-controller: 9090\nproxies: []\n";
+        let out = generate(profile, None, &opts()).unwrap();
+        let m = as_mapping(&out);
+        assert_eq!(get(&m, "mixed-port").unwrap().as_i64(), Some(7890));
+        assert_eq!(get(&m, "port").unwrap().as_i64(), Some(0), "profile port 归零，防与 mixed-port 抢端口");
+        assert_eq!(get(&m, "socks-port").unwrap().as_i64(), Some(0));
+        assert_eq!(get(&m, "redir-port").unwrap().as_i64(), Some(0));
+        assert_eq!(get(&m, "tproxy-port").unwrap().as_i64(), Some(0));
+        assert_eq!(
+            get(&m, "external-controller").unwrap().as_str(),
+            Some(""),
+            "external-controller 清空，控制面只走 unix socket"
+        );
+    }
+
+    #[test]
     fn generate_merges_base_then_profile() {
         let base = "mode: global\nipv6: false\nlog-level: debug\n";
         let profile = "ipv6: true\nproxies: []\n";

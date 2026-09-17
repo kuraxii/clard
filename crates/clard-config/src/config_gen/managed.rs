@@ -143,6 +143,15 @@ pub fn inject(doc: &mut Mapping, options: &ConfigGenOptions) {
     kv(doc, "allow-lan", options.allow_lan);
     kv(doc, "log-level", options.log_level.as_str());
     kv(doc, "mode", options.mode.as_str());
+    // 防端口冲突（0.2.1 实测）：订阅自带 port/socks-port 会先占住端口，托管 mixed-port
+    // 监听绑定失败 → GET /configs 回读 mixed-port=0 → R6 校验不通过。clard 代理入口唯一
+    // = mixed-port（§6.7 手动模式退路），其余入口一律归零；external-controller 清空
+    // （控制面只走 unix socket，不开 TCP controller，防无认证控制 API 暴露）。
+    kv(doc, "port", 0);
+    kv(doc, "socks-port", 0);
+    kv(doc, "redir-port", 0);
+    kv(doc, "tproxy-port", 0);
+    kv(doc, "external-controller", "");
     kv(
         doc,
         "external-controller-unix",
