@@ -9,29 +9,6 @@ pub enum ProxyFocus {
     Proxies,
 }
 
-/// 节点排序（R3.5）：None=名称序；延迟缺失排最后/最前。
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
-pub enum ProxySort {
-    #[default]
-    None,
-    NameAsc,
-    NameDesc,
-    DelayAsc,
-    DelayDesc,
-}
-
-impl ProxySort {
-    fn next(self) -> Self {
-        match self {
-            Self::None => Self::NameAsc,
-            Self::NameAsc => Self::NameDesc,
-            Self::NameDesc => Self::DelayAsc,
-            Self::DelayAsc => Self::DelayDesc,
-            Self::DelayDesc => Self::None,
-        }
-    }
-}
-
 #[derive(Debug)]
 pub struct ProxyState {
     pub focus: ProxyFocus,
@@ -45,7 +22,6 @@ pub struct ProxyState {
     /// 正在测速的节点名（按下 `t`/`T` 后立即标记，逐节点完成时移除）。
     pub testing: HashSet<String>,
     pub filter: String,
-    pub sort: ProxySort,
     pub group_list_state: ListState,
     pub proxy_list_state: ListState,
 }
@@ -59,7 +35,6 @@ impl ProxyState {
             node_extra: HashMap::new(),
             testing: HashSet::new(),
             filter: String::new(),
-            sort: ProxySort::None,
             group_list_state: ListState::default(),
             proxy_list_state: ListState::default(),
         }
@@ -135,13 +110,6 @@ impl ProxyState {
         self.clamp_selection();
     }
 
-    /// 循环切换排序方式（R3.5）。
-    pub fn cycle_sort(&mut self) {
-        self.sort = self.sort.next();
-        self.refresh_view();
-        self.clamp_selection();
-    }
-
     pub fn selected_node(&self) -> Option<(&str, &str)> {
         let group_idx = self.group_list_state.selected()?;
         let proxy_idx = self.proxy_list_state.selected()?;
@@ -198,29 +166,14 @@ impl ProxyState {
     fn refresh_view(&mut self) {
         self.groups = self.raw_groups.clone();
         let filter = self.filter.to_lowercase();
-        // 节点名 → 最新延迟（全表一致，跨组复用；可变借用 all 前预取）
-        let delays: Vec<(String, u16)> = self
-            .node_extra
-            .iter()
-            .filter_map(|(n, e)| e.history.last().map(|h| (n.clone(), h.delay)))
-            .collect();
 
         for group in &mut self.groups {
             if let Some(all) = &mut group.all {
                 if !filter.is_empty() {
                     all.retain(|n| n.to_lowercase().contains(&filter));
                 }
-                match self.sort {
-                    ProxySort::None => {}
-                    ProxySort::NameAsc => all.sort_by_key(|a| a.to_ascii_lowercase()),
-                    ProxySort::NameDesc => all.sort_by_key(|a| std::cmp::Reverse(a.to_ascii_lowercase())),
-                    ProxySort::DelayAsc => {
-                        all.sort_by_key(|n| delay_of(&delays, n).unwrap_or(u16::MAX));
-                    }
-                    ProxySort::DelayDesc => {
-                        all.sort_by_key(|n| std::cmp::Reverse(delay_of(&delays, n).unwrap_or(0)));
-                    }
-                }
+                // 固定按名称升序（R3.5，默认即按名称排序）
+                all.sort_by_key(|a| a.to_ascii_lowercase());
             }
         }
     }
@@ -313,10 +266,6 @@ impl Default for ProxyState {
 
 fn group_now_idx(now: Option<&str>, all: &[String]) -> Option<usize> {
     now.and_then(|now_name| all.iter().position(|name| name == now_name))
-}
-
-fn delay_of(delays: &[(String, u16)], node: &str) -> Option<u16> {
-    delays.iter().find(|(n, _)| n == node).map(|(_, d)| *d)
 }
 
 #[cfg(test)]
@@ -427,31 +376,19 @@ mod tests {
     }
 
     #[test]
-    fn delay_sort_uses_node_extra() {
+    fn default_sort_is_name_ascending() {
         let mut state = ProxyState::new();
-        let mut node_a = proxy_group("node-a", None, vec![]);
-        node_a.history = vec![DelayHistory {
-            time: "t".into(),
-            delay: 300,
-        }];
-        let mut node_b = proxy_group("node-b", None, vec![]);
-        node_b.history = vec![DelayHistory {
-            time: "t".into(),
-            delay: 50,
-        }];
         state.update_groups(Groups {
-            proxies: vec![proxy_group("group", None, vec!["node-a", "node-b"]), node_a, node_b],
+            proxies: vec![proxy_group("group", None, vec!["banana", "apple", "Cherry"])],
         });
 
-        state.cycle_sort(); // NameAsc
-        state.cycle_sort(); // NameDesc
-        state.cycle_sort(); // DelayAsc
+        // 默认即按名称升序（忽略大小写），不依赖 s 切换
         let order: Vec<&str> = state.groups[0]
             .all
             .as_ref()
             .map(|v| v.iter().map(String::as_str).collect())
             .unwrap_or_default();
-        assert_eq!(order, vec!["node-b", "node-a"], "按延迟升序：b(50ms) 在 a(300ms) 前");
+        assert_eq!(order, vec!["apple", "banana", "Cherry"], "固定名称升序（ascii 忽略大小写）");
     }
 
     #[test]
@@ -492,19 +429,5 @@ mod tests {
 
         state.set_filter(String::new());
         assert_eq!(state.groups[0].all.as_ref().map(Vec::len), Some(3));
-    }
-
-    #[test]
-    fn cycle_sort_tracks_order() {
-        let mut state = ProxyState::new();
-        assert_eq!(state.sort, ProxySort::None);
-        state.cycle_sort();
-        assert_eq!(state.sort, ProxySort::NameAsc);
-        state.cycle_sort();
-        state.cycle_sort();
-        state.cycle_sort();
-        assert_eq!(state.sort, ProxySort::DelayDesc);
-        state.cycle_sort();
-        assert_eq!(state.sort, ProxySort::None, "循环回到 None");
     }
 }

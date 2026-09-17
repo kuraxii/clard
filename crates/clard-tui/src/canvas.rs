@@ -1944,7 +1944,7 @@ fn footer_keys(app: &APP) -> Vec<(&'static str, &'static str)> {
             keys.push(("Enter", "select"));
             keys.push(("t/T", "test"));
             keys.push(("d", "clear"));
-            keys.push(("f/s", "filter/sort"));
+            keys.push(("f", "filter"));
         }
         Page::Connections => {
             keys.push(("↑↓/jk", "move"));

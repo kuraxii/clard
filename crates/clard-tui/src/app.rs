@@ -1584,7 +1584,6 @@ impl APP {
             't' | 'T' => self.test_selected_group(),
             'd' => self.clear_group_selection(),
             'f' => self.open_proxies_filter(),
-            's' => self.proxies.cycle_sort(),
             _ => {}
         }
     }
