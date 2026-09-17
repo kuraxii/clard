@@ -34,6 +34,14 @@ echo "==> 准备 rpmbuild 目录"
 rm -rf ~/rpmbuild/{SOURCES,BUILD,BUILDROOT,SPECS}
 mkdir -p ~/rpmbuild/{SOURCES,BUILD,BUILDROOT,RPMS,SRPMS,SPECS}
 
+# Release 构建次数自动 +1（AGENTS.md：本地构建不提交，脚本自动递增保证 NVR 唯一；
+# 发布时在 packaging/clard.spec 显式更新 Version/Release 并提交）
+RELEASE_CUR=$(sed -n 's/^Release:[[:space:]]*\([0-9]*\).*/\1/p' packaging/clard.spec | head -1)
+RELEASE_CUR=${RELEASE_CUR:-0}
+RELEASE_NEXT=$((RELEASE_CUR + 1))
+sed -i -E "s/^Release:[[:space:]]*[0-9]+/Release:        $RELEASE_NEXT/" packaging/clard.spec
+echo "==> Release 构建次数自动 +1：$RELEASE_CUR → $RELEASE_NEXT（本地构建不提交）"
+
 if [ "$WITH_MIHOMO" = "1" ]; then
     if [ "$MODE_LOCAL" = "1" ]; then
         if [ -x /var/clard/bin/mihomo ]; then

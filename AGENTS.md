@@ -24,7 +24,7 @@ Clard：Linux 代理管理工具（Rust）。架构 = root 常驻服务 `clard-h
 - TUI 改动遵循 `.pi/skills/tui-design/SKILL.md` 与 `doc/03-ui设计.md` 的布局/配色/键位约定。
 - 先写功能边界的单元测试再实现；单元测试通过后再组装/集成（跨组件）。每个逻辑单元与测试一并提交，回归必须全绿。
 - 按 `README.md` 的「需求 TODO」逐项推进并勾选；新增/调整需求先改 `doc/05-需求文档.md` 与 README TODO，再实现。
-- 本地 RPM 构建前先 `packaging/clard.spec` 的 `Release:` 构建次数 +1（同 NVR 无法被 dnf 重装，保证每次本地构建产物唯一）。
+- 本地 RPM 构建：`packaging/build-rpm.sh` **自动递增** `clard.spec` 的 `Release:` 构建次数（同 NVR 无法被 dnf 重装，保证每次本地构建产物唯一）；**本地构建不提交**该递增。发布时才在 `packaging/clard.spec` 显式更新 `Version`（+ 重置 `Release`）并提交。
 - 改本文件遵循 `.pi/skills/agents-md/SKILL.md`。
 
 ## 提交
