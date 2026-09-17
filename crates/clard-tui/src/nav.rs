@@ -15,8 +15,12 @@ pub trait CursorState {
 }
 
 impl CursorState for ListState {
-    fn cur_selected(&self) -> Option<usize> { self.selected() }
-    fn cur_offset(&mut self) -> usize { *self.offset_mut() }
+    fn cur_selected(&self) -> Option<usize> {
+        self.selected()
+    }
+    fn cur_offset(&mut self) -> usize {
+        *self.offset_mut()
+    }
     fn set_cursor(&mut self, offset: usize, selected: usize) {
         *self.offset_mut() = offset;
         self.select(Some(selected));
@@ -24,8 +28,12 @@ impl CursorState for ListState {
 }
 
 impl CursorState for TableState {
-    fn cur_selected(&self) -> Option<usize> { self.selected() }
-    fn cur_offset(&mut self) -> usize { *self.offset_mut() }
+    fn cur_selected(&self) -> Option<usize> {
+        self.selected()
+    }
+    fn cur_offset(&mut self) -> usize {
+        *self.offset_mut()
+    }
     fn set_cursor(&mut self, offset: usize, selected: usize) {
         *self.offset_mut() = offset;
         self.select(Some(selected));

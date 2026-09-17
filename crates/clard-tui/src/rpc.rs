@@ -3,11 +3,7 @@
 //! 访问控制（doc/01 §4.2）：socket 0666 默认全开放，无需任何凭据。
 //! 帧格式：u32 BE 长度前缀 + JSON。
 
-use std::{
-    io,
-    path::PathBuf,
-    time::Duration,
-};
+use std::{io, path::PathBuf, time::Duration};
 
 use clard_proto::{Request, Response};
 use thiserror::Error;
@@ -42,8 +38,7 @@ pub async fn call(req: &Request) -> Result<Response, RpcError> {
         let len = u32::from_be_bytes(len_buf) as usize;
         let mut buf = vec![0u8; len];
         stream.read_exact(&mut buf).await?;
-        let resp: Response =
-            serde_json::from_slice(&buf).map_err(|e| RpcError::Decode(e.to_string()))?;
+        let resp: Response = serde_json::from_slice(&buf).map_err(|e| RpcError::Decode(e.to_string()))?;
         match resp {
             Response::Error { message } => Err(RpcError::Helper(message)),
             other => Ok(other),
@@ -64,9 +59,7 @@ pub fn expect_ok(resp: Response) -> Result<(), RpcError> {
 
 /// 事件订阅长连接（§5.6）：发 `Subscribe` 后循环转发 helper 事件到 `sender`。
 /// 连接断开/helper 重启时返回（调用方负责退避重连 + Status 全量同步）。
-pub async fn subscribe(
-    sender: tokio::sync::mpsc::UnboundedSender<clard_proto::Event>,
-) -> Result<(), RpcError> {
+pub async fn subscribe(sender: tokio::sync::mpsc::UnboundedSender<clard_proto::Event>) -> Result<(), RpcError> {
     let mut stream = tokio::net::UnixStream::connect(socket_path()).await?;
     let buf = serde_json::to_vec(&Request::Subscribe).map_err(|e| RpcError::Encode(e.to_string()))?;
     stream.write_all(&(buf.len() as u32).to_be_bytes()).await?;
@@ -77,8 +70,7 @@ pub async fn subscribe(
         let len = u32::from_be_bytes(len_buf) as usize;
         let mut buf = vec![0u8; len];
         stream.read_exact(&mut buf).await?;
-        let ev: clard_proto::Event =
-            serde_json::from_slice(&buf).map_err(|e| RpcError::Decode(e.to_string()))?;
+        let ev: clard_proto::Event = serde_json::from_slice(&buf).map_err(|e| RpcError::Decode(e.to_string()))?;
         if sender.send(ev).is_err() {
             return Ok(()); // 接收端关闭
         }
