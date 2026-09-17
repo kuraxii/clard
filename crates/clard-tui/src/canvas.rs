@@ -10,8 +10,9 @@ use ratatui::{
 use clard_core::mihomo::models::{Connection, DelayHistory, Proxy as ProxyModel, ProxyType, RuleBehavior};
 
 use crate::app::{
-    APP, i18n,
+    APP,
     connections::{ConnUnit, ConnectionsSort, ConnectionsState},
+    i18n,
     logs::{AuditRow, LogsState, LogsTab},
     modal::{ConfirmState, InputState},
     page::Page,
@@ -209,7 +210,10 @@ fn draw_minimum_size(f: &mut Frame<'_>, area: Rect, theme: Theme) {
 }
 
 fn draw_header(f: &mut Frame<'_>, area: Rect, app: &APP, theme: Theme) {
-    let title = Span::styled("Clard", Style::default().fg(theme.emphasis).add_modifier(Modifier::BOLD));
+    let title = Span::styled(
+        "Clard",
+        Style::default().fg(theme.emphasis).add_modifier(Modifier::BOLD),
+    );
     let page = Span::styled(
         format!(" {} ", page_name(app)),
         Style::default().fg(theme.primary).add_modifier(Modifier::BOLD),
@@ -306,14 +310,18 @@ impl HomeLayout {
 
 fn draw_home_core(f: &mut Frame<'_>, area: Rect, app: &APP, theme: Theme) {
     let state_text = app.home.core_state.as_deref().unwrap_or("unknown");
-    let state_color = if state_text == "running" { theme.success } else { theme.muted };
-    let pid = app.home.core_pid.map(|p| p.to_string()).unwrap_or_else(|| "-".to_string());
-    let version = app.home.core_version.clone().unwrap_or_else(|| "-".to_string());
-    let tun_text = if app.home.tun_active {
-        "On"
+    let state_color = if state_text == "running" {
+        theme.success
     } else {
-        "Off"
+        theme.muted
     };
+    let pid = app
+        .home
+        .core_pid
+        .map(|p| p.to_string())
+        .unwrap_or_else(|| "-".to_string());
+    let version = app.home.core_version.clone().unwrap_or_else(|| "-".to_string());
+    let tun_text = if app.home.tun_active { "On" } else { "Off" };
     let tun_color = if app.home.tun_active {
         theme.success
     } else {
@@ -352,10 +360,7 @@ fn draw_home_profile(f: &mut Frame<'_>, area: Rect, app: &APP, theme: Theme) {
             (p.name.clone(), updated)
         })
         .unwrap_or_else(|| ("(none)".to_string(), "-".to_string()));
-    let lines = vec![
-        kv_line("Profile", &name, theme),
-        kv_line("Updated", &updated, theme),
-    ];
+    let lines = vec![kv_line("Profile", &name, theme), kv_line("Updated", &updated, theme)];
     f.render_widget(
         Paragraph::new(lines)
             .block(panel_block("Profile", false, theme))
@@ -365,13 +370,28 @@ fn draw_home_profile(f: &mut Frame<'_>, area: Rect, app: &APP, theme: Theme) {
 }
 
 fn draw_home_traffic(f: &mut Frame<'_>, area: Rect, app: &APP, theme: Theme) {
-    let up = app.connections.traffic.as_ref().map(|t| format_rate(t.up)).unwrap_or_else(|| "-".to_string());
-    let down = app.connections.traffic.as_ref().map(|t| format_rate(t.down)).unwrap_or_else(|| "-".to_string());
+    let up = app
+        .connections
+        .traffic
+        .as_ref()
+        .map(|t| format_rate(t.up))
+        .unwrap_or_else(|| "-".to_string());
+    let down = app
+        .connections
+        .traffic
+        .as_ref()
+        .map(|t| format_rate(t.down))
+        .unwrap_or_else(|| "-".to_string());
     let (up_total, down_total) = app
         .connections
         .connections_data
         .as_ref()
-        .map(|d| (format_network_bytes(d.upload_total), format_network_bytes(d.download_total)))
+        .map(|d| {
+            (
+                format_network_bytes(d.upload_total),
+                format_network_bytes(d.download_total),
+            )
+        })
         .unwrap_or_else(|| ("-".to_string(), "-".to_string()));
     let lines = vec![
         kv_line("Upload/s", &up, theme),
@@ -476,10 +496,7 @@ fn draw_profile_list(f: &mut Frame<'_>, area: Rect, state: &ProfilesState, theme
 
 fn draw_profile_detail(f: &mut Frame<'_>, area: Rect, state: &ProfilesState, theme: Theme) {
     let lines = if let Some(p) = state.selected() {
-        let updated = p
-            .updated_at
-            .map(format_unix_time)
-            .unwrap_or_else(|| "-".to_string());
+        let updated = p.updated_at.map(format_unix_time).unwrap_or_else(|| "-".to_string());
         let interval = if p.interval == 0 {
             "off".to_string()
         } else {
@@ -513,7 +530,10 @@ fn draw_profile_detail(f: &mut Frame<'_>, area: Rect, state: &ProfilesState, the
     } else {
         vec![
             Line::from(Span::styled("No profiles.", theme.title_style())),
-            Line::from(Span::styled("Press i to import a subscription URL.", theme.muted_style())),
+            Line::from(Span::styled(
+                "Press i to import a subscription URL.",
+                theme.muted_style(),
+            )),
         ]
     };
 
@@ -573,7 +593,10 @@ fn draw_log_lines(f: &mut Frame<'_>, area: Rect, state: &LogsState, theme: Theme
         .map(|line| {
             let style = log_level_style(&line.level, theme);
             ListItem::new(Line::from(vec![
-                Span::styled(format!("{:<8}", line.ts.map_or_else(String::new, format_unix_time)), theme.muted_style()),
+                Span::styled(
+                    format!("{:<8}", line.ts.map_or_else(String::new, format_unix_time)),
+                    theme.muted_style(),
+                ),
                 Span::styled(format!("[{:<5}]", line.level), style),
                 Span::styled(format!("[{:<4}] ", line.source), Style::default().fg(theme.secondary)),
                 Span::styled(line.message.clone(), Style::default().fg(theme.fg)),
@@ -652,7 +675,10 @@ fn draw_audit_detail(f: &mut Frame<'_>, area: Rect, detail: &AuditRow, theme: Th
     let popup = centered_rect(72, 55, area);
     f.render_widget(Clear, popup);
     let mut lines = vec![
-        Line::from(Span::styled(format!("{}  ({})", detail.op, detail.op_id), theme.title_style())),
+        Line::from(Span::styled(
+            format!("{}  ({})", detail.op, detail.op_id),
+            theme.title_style(),
+        )),
         Line::from(""),
         kv_line("Result", &detail.result, theme),
         kv_line(
@@ -671,13 +697,9 @@ fn draw_audit_detail(f: &mut Frame<'_>, area: Rect, detail: &AuditRow, theme: Th
     }
     lines.push(Line::from(""));
     lines.push(Line::from(Span::styled("Net before", theme.title_style())));
-    lines.push(Line::from(
-        detail.net_before.clone().unwrap_or_else(|| "-".to_string()),
-    ));
+    lines.push(Line::from(detail.net_before.clone().unwrap_or_else(|| "-".to_string())));
     lines.push(Line::from(Span::styled("Net after", theme.title_style())));
-    lines.push(Line::from(
-        detail.net_after.clone().unwrap_or_else(|| "-".to_string()),
-    ));
+    lines.push(Line::from(detail.net_after.clone().unwrap_or_else(|| "-".to_string())));
     f.render_widget(
         Paragraph::new(lines)
             .block(panel_block("Audit detail  Enter/Esc close", true, theme))
@@ -731,7 +753,15 @@ fn draw_settings_tabs(f: &mut Frame<'_>, area: Rect, state: &SettingsState, them
         SettingsTab::Logs => 5,
         SettingsTab::About => 6,
     };
-    let titles = vec![" General ", " TUN ", " Core ", " Service ", " Backup ", " Logs ", " About "];
+    let titles = vec![
+        " General ",
+        " TUN ",
+        " Core ",
+        " Service ",
+        " Backup ",
+        " Logs ",
+        " About ",
+    ];
     let tabs = Tabs::new(titles)
         .block(panel_block("Settings", false, theme))
         .select(selected)
@@ -755,12 +785,8 @@ fn draw_settings_general(f: &mut Frame<'_>, area: Rect, state: &SettingsState, t
                 GeneralRow::AutoUpdateHours => settings
                     .map(|s| s.auto_update_interval_hours.to_string())
                     .unwrap_or_else(|| "-".to_string()),
-                GeneralRow::Language => settings
-                    .map(|s| s.language.clone())
-                    .unwrap_or_else(|| "en".to_string()),
-                GeneralRow::Theme => settings
-                    .map(|s| s.theme.clone())
-                    .unwrap_or_else(|| "dark".to_string()),
+                GeneralRow::Language => settings.map(|s| s.language.clone()).unwrap_or_else(|| "en".to_string()),
+                GeneralRow::Theme => settings.map(|s| s.theme.clone()).unwrap_or_else(|| "dark".to_string()),
                 GeneralRow::TestUrl => settings
                     .map(|s| {
                         if s.test_url.is_empty() {
@@ -826,9 +852,7 @@ fn draw_settings_tun(f: &mut Frame<'_>, area: Rect, state: &SettingsState, theme
                     }
                 }
                 TunRow::RouteExclude => {
-                    let v = settings
-                        .map(|s| s.route_exclude_address.join(","))
-                        .unwrap_or_default();
+                    let v = settings.map(|s| s.route_exclude_address.join(",")).unwrap_or_default();
                     if v.is_empty() {
                         "default private nets (10/8,172.16/12,192.168/16,…)".to_string()
                     } else {
@@ -840,7 +864,11 @@ fn draw_settings_tun(f: &mut Frame<'_>, area: Rect, state: &SettingsState, theme
                         if s.exclude_uid.is_empty() {
                             "(empty)".to_string()
                         } else {
-                            s.exclude_uid.iter().map(|v| v.to_string()).collect::<Vec<_>>().join(",")
+                            s.exclude_uid
+                                .iter()
+                                .map(|v| v.to_string())
+                                .collect::<Vec<_>>()
+                                .join(",")
                         }
                     })
                     .unwrap_or_else(|| "(empty)".to_string()),
@@ -858,7 +886,11 @@ fn draw_settings_tun(f: &mut Frame<'_>, area: Rect, state: &SettingsState, theme
                         if s.exclude_dst_port.is_empty() {
                             "(empty)".to_string()
                         } else {
-                            s.exclude_dst_port.iter().map(|v| v.to_string()).collect::<Vec<_>>().join(",")
+                            s.exclude_dst_port
+                                .iter()
+                                .map(|v| v.to_string())
+                                .collect::<Vec<_>>()
+                                .join(",")
                         }
                     })
                     .unwrap_or_else(|| "(empty)".to_string()),
@@ -901,13 +933,13 @@ fn draw_settings_logs(f: &mut Frame<'_>, area: Rect, state: &SettingsState, them
         .iter()
         .map(|row| {
             let value = match row {
-                LogsRow::CoreLogLevel => cfg
-                    .map(|c| c.log_level.clone())
-                    .unwrap_or_else(|| "info".to_string()),
+                LogsRow::CoreLogLevel => cfg.map(|c| c.log_level.clone()).unwrap_or_else(|| "info".to_string()),
                 LogsRow::AppLogMaxBytes => cfg
                     .map(|c| (c.app_log_max_bytes / 1024 / 1024).to_string())
                     .unwrap_or_else(|| "1".to_string()),
-                LogsRow::AppLogKeep => cfg.map(|c| c.app_log_keep.to_string()).unwrap_or_else(|| "5".to_string()),
+                LogsRow::AppLogKeep => cfg
+                    .map(|c| c.app_log_keep.to_string())
+                    .unwrap_or_else(|| "5".to_string()),
                 LogsRow::AuditKeep => cfg.map(|c| c.audit_keep.to_string()).unwrap_or_else(|| "5".to_string()),
                 LogsRow::AuditDualWrite => cfg
                     .map(|c| if c.audit_dual_write { "on" } else { "off" }.to_string())
@@ -947,13 +979,7 @@ fn draw_settings_core(f: &mut Frame<'_>, area: Rect, state: &SettingsState, them
     let sha = state
         .core_sha256
         .clone()
-        .map(|s| {
-            if s.len() > 16 {
-                format!("{}…", &s[..16])
-            } else {
-                s
-            }
-        })
+        .map(|s| if s.len() > 16 { format!("{}…", &s[..16]) } else { s })
         .unwrap_or_else(|| "-".to_string());
     let state_span = Span::styled(state_text.to_string(), Style::default().fg(state_color));
     let mut lines = vec![
@@ -1502,7 +1528,15 @@ fn draw_connection_metrics(f: &mut Frame<'_>, area: Rect, state: &ConnectionsSta
         theme.primary,
         theme,
     );
-    draw_metric(f, *memory_metric, "Memory", &memory, "backend usage", theme.secondary, theme);
+    draw_metric(
+        f,
+        *memory_metric,
+        "Memory",
+        &memory,
+        "backend usage",
+        theme.secondary,
+        theme,
+    );
 }
 
 fn draw_connections_table(f: &mut Frame<'_>, area: Rect, state: &ConnectionsState, theme: Theme) {
@@ -1566,7 +1600,11 @@ fn draw_connections_table(f: &mut Frame<'_>, area: Rect, state: &ConnectionsStat
         ],
     )
     .header(header)
-    .block(panel_block("Connections  u/d sort  x close  X all  f filter", true, theme))
+    .block(panel_block(
+        "Connections  u/d sort  x close  X all  f filter",
+        true,
+        theme,
+    ))
     .row_highlight_style(theme.selected_style())
     .highlight_symbol("▸ ");
 
@@ -1844,7 +1882,10 @@ fn header_summary(app: &APP) -> String {
     match app.current_page {
         Page::Home => {
             let state = app.home.core_state.as_deref().unwrap_or("unknown");
-            format!("core {state} · helper {}", app.home.helper_version.as_deref().unwrap_or("-"))
+            format!(
+                "core {state} · helper {}",
+                app.home.helper_version.as_deref().unwrap_or("-")
+            )
         }
         Page::Profiles => "subscription profiles".to_string(),
         Page::Proxies => {
@@ -1874,7 +1915,11 @@ fn header_summary(app: &APP) -> String {
         Page::Logs => "app · core · audit".to_string(),
         Page::Settings => "general · tun · core · service · backup".to_string(),
         Page::Rules => {
-            format!("{} rules · {} providers", app.rules.rules.len(), app.rules.providers.len())
+            format!(
+                "{} rules · {} providers",
+                app.rules.rules.len(),
+                app.rules.providers.len()
+            )
         }
     }
 }

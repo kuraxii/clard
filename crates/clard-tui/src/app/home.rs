@@ -15,13 +15,7 @@ pub struct HomeState {
 }
 
 impl HomeState {
-    pub fn apply_core_status(
-        &mut self,
-        state: String,
-        pid: Option<u32>,
-        version: Option<String>,
-        tun_active: bool,
-    ) {
+    pub fn apply_core_status(&mut self, state: String, pid: Option<u32>, version: Option<String>, tun_active: bool) {
         self.core_state = Some(state);
         self.core_pid = pid;
         self.core_version = version;

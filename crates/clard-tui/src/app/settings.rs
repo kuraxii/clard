@@ -137,11 +137,17 @@ impl LogsRow {
     /// 修改该行对应的 sudo 命令（TUI 不直写 helper.toml，R7.5）。
     pub fn edit_hint(self, _current: &clard_proto::HelperConfig) -> String {
         match self {
-            Self::CoreLogLevel => "sudo sed -i 's/log_level = \"info\"/log_level = \"debug\"/' /etc/clard/helper.toml".into(),
-            Self::AppLogMaxBytes => "sudo sed -i 's/app_log_max_bytes = [0-9]*/app_log_max_bytes = 2097152/' /etc/clard/helper.toml".into(),
+            Self::CoreLogLevel => {
+                "sudo sed -i 's/log_level = \"info\"/log_level = \"debug\"/' /etc/clard/helper.toml".into()
+            }
+            Self::AppLogMaxBytes => {
+                "sudo sed -i 's/app_log_max_bytes = [0-9]*/app_log_max_bytes = 2097152/' /etc/clard/helper.toml".into()
+            }
             Self::AppLogKeep => "sudo sed -i 's/app_log_keep = [0-9]*/app_log_keep = 5/' /etc/clard/helper.toml".into(),
             Self::AuditKeep => "sudo sed -i 's/audit_keep = [0-9]*/audit_keep = 5/' /etc/clard/helper.toml".into(),
-            Self::AuditDualWrite => "sudo sed -i 's/audit_dual_write = true/audit_dual_write = false/' /etc/clard/helper.toml".into(),
+            Self::AuditDualWrite => {
+                "sudo sed -i 's/audit_dual_write = true/audit_dual_write = false/' /etc/clard/helper.toml".into()
+            }
         }
     }
 }
@@ -238,14 +244,13 @@ impl SettingsState {
 
     pub fn set_tab(&mut self, tab: SettingsTab) {
         self.tab = tab;
-        self.list_state.select(if matches!(
-            tab,
-            SettingsTab::General | SettingsTab::Tun | SettingsTab::Logs
-        ) {
-            Some(0)
-        } else {
-            None
-        });
+        self.list_state.select(
+            if matches!(tab, SettingsTab::General | SettingsTab::Tun | SettingsTab::Logs) {
+                Some(0)
+            } else {
+                None
+            },
+        );
         self.backups_state.select(None);
         if tab == SettingsTab::Backup && !self.backups.is_empty() {
             self.backups_state.select(Some(0));
@@ -336,7 +341,11 @@ mod tests {
         assert_eq!(s.selected_tun_row(), Some(TunRow::TunEnabled));
         s.on_down_key(10);
         s.on_down_key(10);
-        assert_eq!(s.selected_tun_row(), Some(TunRow::TunDnsMode), "TunEnabled→TunStack→TunDnsMode");
+        assert_eq!(
+            s.selected_tun_row(),
+            Some(TunRow::TunDnsMode),
+            "TunEnabled→TunStack→TunDnsMode"
+        );
         // 11 行循环：TunDnsMode(2) + 9 = 11 ≡ 0（回到 TunEnabled）
         for _ in 0..9 {
             s.on_down_key(10);
@@ -356,7 +365,11 @@ mod tests {
         for _ in 0..4 {
             s.on_down_key(10);
         }
-        assert_eq!(s.selected_general_row(), Some(GeneralRow::MixedPort), "6 行循环回到 MixedPort");
+        assert_eq!(
+            s.selected_general_row(),
+            Some(GeneralRow::MixedPort),
+            "6 行循环回到 MixedPort"
+        );
     }
 
     #[test]

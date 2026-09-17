@@ -9,8 +9,7 @@ use tokio::sync::mpsc;
 use super::{
     error::{IpcError, Result},
     models::{
-        BackendVersion, BaseConfig, Connections, CoreUpdaterChannel, Groups, Proxy, ResponseError, RuleProviders,
-        Rules,
+        BackendVersion, BaseConfig, Connections, CoreUpdaterChannel, Groups, Proxy, ResponseError, RuleProviders, Rules,
     },
     websocket::{WebSocketMessage, WsControl, connect_stream},
 };
@@ -313,10 +312,10 @@ impl Backend {
         let req = self.build_request(Method::GET, "/rules")?;
         let res = req.send().await?;
         if !res.status().is_success() {
-            let err_msg = res.json::<ResponseError>().await.map_or_else(
-                |msg| format!("get rules failed: {msg}"),
-                |err| err.message.to_string(),
-            );
+            let err_msg = res
+                .json::<ResponseError>()
+                .await
+                .map_or_else(|msg| format!("get rules failed: {msg}"), |err| err.message.to_string());
             return Err(IpcError::ResponseError(err_msg));
         }
         Ok(res.json::<Rules>().await?)
@@ -646,9 +645,7 @@ mod tests {
     #[tokio::test]
     #[ignore = "需要真实运行中的 mihomo（/run/clard/core.sock）"]
     async fn test_get_traffic() -> Result<()> {
-        let backend = Backend::builder()
-            .set_unix_socket("/run/clard/core.sock")
-            .build()?;
+        let backend = Backend::builder().set_unix_socket("/run/clard/core.sock").build()?;
         let url = Url::parse(&crate::mihomo::websocket::get_websocket_url("traffic")).unwrap();
         let (mut traffic_rx, _) = backend.subscribe::<crate::mihomo::models::Traffic>(url).await?;
 
@@ -1068,7 +1065,10 @@ mod tests {
         let rules = result?;
         assert_eq!(rules.rules.len(), 1);
         let rule = &rules.rules[0];
-        assert_eq!((rule.index, rule.rule_type.as_str(), rule.proxy.as_str()), (0, "DOMAIN", "Proxy"));
+        assert_eq!(
+            (rule.index, rule.rule_type.as_str(), rule.proxy.as_str()),
+            (0, "DOMAIN", "Proxy")
+        );
         assert_eq!(rule.extra.as_ref().map(|e| e.hit_count), Some(5));
 
         let req = wait_request(handle).await;

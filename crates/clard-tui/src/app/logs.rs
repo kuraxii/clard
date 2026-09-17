@@ -219,9 +219,7 @@ impl LogsState {
 
     /// 当前栏渲染用的审计行（已按 op/关键字/配对模式过滤）。
     pub fn visible_audit(&self) -> Vec<AuditRow> {
-        let op_matches = |op: &str| {
-            self.op_filter.is_empty() || op.starts_with(self.op_filter.trim())
-        };
+        let op_matches = |op: &str| self.op_filter.is_empty() || op.starts_with(self.op_filter.trim());
         let needle = self.filter.to_lowercase();
         let kw_matches = |rec: &AuditRecord| {
             needle.is_empty()
@@ -287,9 +285,7 @@ impl Default for LogsState {
 fn parse_text_line(line: String, source: &str) -> LogLine {
     let ts = line
         .get(..8)
-        .filter(|s| {
-            s.len() == 8 && s.as_bytes().get(2) == Some(&b':') && s.as_bytes().get(5) == Some(&b':')
-        })
+        .filter(|s| s.len() == 8 && s.as_bytes().get(2) == Some(&b':') && s.as_bytes().get(5) == Some(&b':'))
         .map(|_| 0);
     LogLine {
         ts,
@@ -455,8 +451,18 @@ mod tests {
         s.cycle_level_filter();
         assert_eq!(s.level_filter, None, "debug → all");
 
-        let warn = LogLine { ts: None, level: "warn".into(), source: "Core".into(), message: "x".into() };
-        let info = LogLine { ts: None, level: "info".into(), source: "Core".into(), message: "y".into() };
+        let warn = LogLine {
+            ts: None,
+            level: "warn".into(),
+            source: "Core".into(),
+            message: "x".into(),
+        };
+        let info = LogLine {
+            ts: None,
+            level: "info".into(),
+            source: "Core".into(),
+            message: "y".into(),
+        };
         assert!(warn.matches_level(Some("warn")));
         assert!(!info.matches_level(Some("warn")));
         assert!(info.matches_level(None));

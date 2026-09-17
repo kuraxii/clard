@@ -229,7 +229,8 @@ impl APP {
                 Err(e) => Err(e.to_string()),
             };
 
-            if result.is_ok() && was_current
+            if result.is_ok()
+                && was_current
                 && let Ok(Response::ProfileList { items, .. }) = rpc::call(&Request::ProfileList).await
                 && let Some(next) = items.first()
             {
@@ -689,9 +690,7 @@ impl APP {
     pub fn fetch_helper_config(&self) {
         let sender = self.event_sender.clone();
         tokio::spawn(async move {
-            if let Ok(Response::HelperConfig { config }) =
-                rpc::call(&Request::HelperConfigGet).await
-            {
+            if let Ok(Response::HelperConfig { config }) = rpc::call(&Request::HelperConfigGet).await {
                 let _ = sender.send(ClardEvent::HelperConfigReady(config));
             }
         });
@@ -808,14 +807,10 @@ impl APP {
             };
             match rpc::call(&Request::SettingsSet(patch)).await {
                 Ok(Response::Ok) => {
-                    let _ = sender.send(ClardEvent::Notify(
-                        "TUN on (coexisting TUNs accepted)".to_string(),
-                    ));
+                    let _ = sender.send(ClardEvent::Notify("TUN on (coexisting TUNs accepted)".to_string()));
                 }
                 Ok(Response::TunConflict { .. }) => {
-                    let _ = sender.send(ClardEvent::Error(
-                        "TUN conflict still present; aborting".to_string(),
-                    ));
+                    let _ = sender.send(ClardEvent::Error("TUN conflict still present; aborting".to_string()));
                 }
                 Ok(other) => {
                     let _ = sender.send(ClardEvent::Error(rpc::unexpected(other).to_string()));
@@ -1121,12 +1116,7 @@ impl APP {
         };
         match row {
             TunRow::TunEnabled => {
-                let enable = !self
-                    .settings
-                    .settings
-                    .as_ref()
-                    .map(|s| s.tun_enabled)
-                    .unwrap_or(false);
+                let enable = !self.settings.settings.as_ref().map(|s| s.tun_enabled).unwrap_or(false);
                 let (title, msg) = if enable {
                     (
                         "Enable TUN",
@@ -1196,12 +1186,14 @@ impl APP {
                 self.input = Some(input);
             }
             TunRow::ExcludeUid => {
-                let mut input = InputState::new(
-                    "exclude-uid (comma separated uids)",
-                    InputPurpose::EditExcludeUid,
-                );
+                let mut input = InputState::new("exclude-uid (comma separated uids)", InputPurpose::EditExcludeUid);
                 if let Some(s) = self.settings.settings.as_ref() {
-                    input.buffer = s.exclude_uid.iter().map(|v| v.to_string()).collect::<Vec<_>>().join(",");
+                    input.buffer = s
+                        .exclude_uid
+                        .iter()
+                        .map(|v| v.to_string())
+                        .collect::<Vec<_>>()
+                        .join(",");
                     input.cursor = input.buffer.len();
                 }
                 self.input = Some(input);
@@ -1223,19 +1215,18 @@ impl APP {
                     InputPurpose::EditExcludeDstPort,
                 );
                 if let Some(s) = self.settings.settings.as_ref() {
-                    input.buffer =
-                        s.exclude_dst_port.iter().map(|v| v.to_string()).collect::<Vec<_>>().join(",");
+                    input.buffer = s
+                        .exclude_dst_port
+                        .iter()
+                        .map(|v| v.to_string())
+                        .collect::<Vec<_>>()
+                        .join(",");
                     input.cursor = input.buffer.len();
                 }
                 self.input = Some(input);
             }
             TunRow::StrictRoute => {
-                let enable = !self
-                    .settings
-                    .settings
-                    .as_ref()
-                    .map(|s| s.strict_route)
-                    .unwrap_or(false);
+                let enable = !self.settings.settings.as_ref().map(|s| s.strict_route).unwrap_or(false);
                 if enable {
                     // 二次确认 + 风险提示（§6.3：残留即全机断网）
                     self.confirm = Some(ConfirmState::new(
@@ -1410,9 +1401,7 @@ impl APP {
     pub fn fetch_audit(&self) {
         let sender = self.event_sender.clone();
         tokio::spawn(async move {
-            if let Ok(Response::AuditQuery { cursor, records }) =
-                rpc::call(&Request::AuditQuery { cursor: 0 }).await
-            {
+            if let Ok(Response::AuditQuery { cursor, records }) = rpc::call(&Request::AuditQuery { cursor: 0 }).await {
                 let _ = sender.send(ClardEvent::AuditRecordsReady { cursor, records });
             }
         });
@@ -1733,10 +1722,7 @@ impl APP {
         let Some(p) = self.profiles.selected() else {
             return;
         };
-        let mut input = InputState::new(
-            "Rename profile",
-            InputPurpose::RenameProfile { uid: p.uid.clone() },
-        );
+        let mut input = InputState::new("Rename profile", InputPurpose::RenameProfile { uid: p.uid.clone() });
         input.buffer = p.name.clone();
         input.cursor = input.buffer.len();
         self.input = Some(input);
@@ -1895,11 +1881,9 @@ async fn send_backups(sender: &UnboundedSender<ClardEvent>) {
 /// 切换配置（R2.2，§8.3 C）：helper 内完成标记 current + regenerate 拼装应用
 /// （失败已回滚 current）；本侧仅补充：核心未运行则启动（helper 已落盘运行态配置）。
 async fn switch_profile_flow(uid: &str) -> Result<String, String> {
-    rpc::call(&Request::ProfileSetCurrent {
-        uid: uid.to_string(),
-    })
-    .await
-    .map_err(|e| format!("切换配置失败: {e}"))?;
+    rpc::call(&Request::ProfileSetCurrent { uid: uid.to_string() })
+        .await
+        .map_err(|e| format!("切换配置失败: {e}"))?;
     // 核心未运行则启动（regenerate Startup 仅落盘，启动后生效）
     if let Ok(Response::Status { core_state, .. }) = rpc::call(&Request::Status).await {
         if core_state != "running" {
@@ -1988,7 +1972,10 @@ async fn upgrade_core_flow() -> Result<String, String> {
     // 写 inbox（/run/clard/inbox 0733+sticky，任意本地用户可写；doc/01 §4）
     let dir = "/run/clard/inbox";
     std::fs::create_dir_all(dir).map_err(|e| format!("创建 inbox 失败: {e}"))?;
-    let nanos = SystemTime::now().duration_since(UNIX_EPOCH).map(|d| d.as_nanos()).unwrap_or(0);
+    let nanos = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map(|d| d.as_nanos())
+        .unwrap_or(0);
     let inbox_path = format!("{dir}/clard-core-{}-{nanos}.bin", std::process::id());
     std::fs::write(&inbox_path, &bytes).map_err(|e| format!("写入 inbox 失败: {e}"))?;
 
@@ -2011,7 +1998,10 @@ async fn update_geodata_flow() -> Result<String, String> {
     use std::time::{SystemTime, UNIX_EPOCH};
 
     let client = reqwest::Client::new();
-    let files = [("geoip.metadb", clard_proto::GeoKind::Geoip), ("geosite.dat", clard_proto::GeoKind::Geosite)];
+    let files = [
+        ("geoip.metadb", clard_proto::GeoKind::Geoip),
+        ("geosite.dat", clard_proto::GeoKind::Geosite),
+    ];
     let dir = "/run/clard/inbox";
     std::fs::create_dir_all(dir).map_err(|e| format!("创建 inbox 失败: {e}"))?;
 
@@ -2020,7 +2010,10 @@ async fn update_geodata_flow() -> Result<String, String> {
             .await
             .map_err(|e| format!("下载 {name} 失败: {e}"))?;
         let sha = clard_core::upgrade::sha256_hex(&bytes);
-        let nanos = SystemTime::now().duration_since(UNIX_EPOCH).map(|d| d.as_nanos()).unwrap_or(0);
+        let nanos = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .map(|d| d.as_nanos())
+            .unwrap_or(0);
         let inbox_path = format!("{dir}/clard-geo-{}-{nanos}.bin", std::process::id());
         std::fs::write(&inbox_path, &bytes).map_err(|e| format!("写入 inbox 失败: {e}"))?;
         match rpc::call(&Request::UpdateGeoData {
@@ -2040,22 +2033,15 @@ async fn update_geodata_flow() -> Result<String, String> {
 
 /// 恢复指定配置的记忆节点（R2.2）：读 ProfileGet.selected → 逐个 `PUT /proxies/:name`。
 /// 核心未运行/节点不存在时跳过（best-effort，失败不阻断切换）。
-async fn restore_memorized_nodes(
-    backend: &Backend,
-    uid: &str,
-) -> Result<(), String> {
-    let Response::ProfileContent { item, .. } = rpc::call(&Request::ProfileGet {
-        uid: uid.to_string(),
-    })
-    .await
-    .map_err(|e| e.to_string())?
+async fn restore_memorized_nodes(backend: &Backend, uid: &str) -> Result<(), String> {
+    let Response::ProfileContent { item, .. } = rpc::call(&Request::ProfileGet { uid: uid.to_string() })
+        .await
+        .map_err(|e| e.to_string())?
     else {
         return Ok(());
     };
     for sel in &item.selected {
-        let _ = backend
-            .select_node_for_group(&sel.group, &sel.node)
-            .await;
+        let _ = backend.select_node_for_group(&sel.group, &sel.node).await;
     }
     Ok(())
 }
@@ -2085,13 +2071,11 @@ async fn import_profile_flow(url: String) -> Result<String, String> {
     .await
     .map_err(|e| e.to_string())?;
     match resp {
-        Response::ProfileImported { uid, updated } => {
-            Ok(if updated {
-                format!("profile updated: {uid}")
-            } else {
-                format!("profile imported: {uid}")
-            })
-        }
+        Response::ProfileImported { uid, updated } => Ok(if updated {
+            format!("profile updated: {uid}")
+        } else {
+            format!("profile imported: {uid}")
+        }),
         other => Err(rpc::unexpected(other).to_string()),
     }
 }
