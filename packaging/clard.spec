@@ -10,9 +10,9 @@
 # --no-mihomo）则包内不含，首次使用经 InstallCore 安装。
 
 Name:           clard
-Version:        0.2.1
+Version:        0.2.2
 # 不带 dist 标记（如 fc41）：包名/版本/架构即可，便于跨发行版复用构建产物
-Release:        2
+Release:        1
 Summary:        Clard — Linux transparent proxy manager (system helper + TUI client)
 
 License:        MIT
@@ -107,6 +107,10 @@ systemctl restart clard-helper.service >/dev/null 2>&1 || :
 %endif
 
 %changelog
+* Thu Sep 17 2026 zjzhu <zjzhu@kuraxii.dev> - 0.2.2-1
+- 主页 System 面板替换 Profile：OS/内核/CPU/GPU/内存（总/可用）/真实网卡网关（无默认路由不显示）；系统文件直读（非 clard 数据不走 IPC）+ 10s 周期刷新
+- 修复 mixed-port 端口冲突：订阅自带 port/socks-port 抢占 7890 导致 mixed 监听绑定失败、回读校验不通过（托管注入归零 port/socks-port/redir-port/tproxy-port）
+- external-controller 清空：控制面只走 unix socket，杜绝订阅透传的无认证 TCP 控制 API 暴露
 * Thu Sep 17 2026 zjzhu <zjzhu@kuraxii.dev> - 0.2.1-1
 - 新增设置页 DNS 页签（仅 TUN 开启时生效）：fake-ip-filter-mode（blacklist/whitelist/rule）、fake-ip-filter、use-hosts/use-system-hosts、hosts（domain=ip 静态映射，注入顶层）、nameserver-policy（domain=dns 按域名指定上游）、nameserver/default-nameserver（空 = clard 默认）
 - 移除 exclude-uid/interface/dst-port 可配置项（基本用不上，TUN 页签 11→8 行）
