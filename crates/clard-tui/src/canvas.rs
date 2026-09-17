@@ -1346,7 +1346,12 @@ fn draw_proxy_list(f: &mut Frame<'_>, area: Rect, state: &ProxyState, theme: The
                 } else {
                     Style::default().fg(theme.error)
                 };
-                let delay_text = delay_display(delay);
+                let testing = state.testing.contains(node);
+                let (delay_text, delay_style_used) = if testing {
+                    ("testing".to_string(), Style::default().fg(theme.info))
+                } else {
+                    (delay_display(delay), delay_style(delay, theme))
+                };
                 let spark = extra.map(|extra| sparkline_history(&extra.history)).unwrap_or_default();
 
                 items.push(ListItem::new(Line::from(vec![
@@ -1360,7 +1365,7 @@ fn draw_proxy_list(f: &mut Frame<'_>, area: Rect, state: &ProxyState, theme: The
                             Style::default().fg(theme.fg)
                         },
                     ),
-                    Span::styled(format!("  {:>6}", delay_text), delay_style(delay, theme)),
+                    Span::styled(format!("  {:>6}", delay_text), delay_style_used),
                     Span::styled(format!("  {}", spark), Style::default().fg(theme.secondary)),
                 ])));
             }
@@ -2018,6 +2023,16 @@ fn proxy_type_name(group: &ProxyModel) -> &'static str {
         ProxyType::Fallback => "Fallback",
         ProxyType::URLTest => "URLTest",
         ProxyType::LoadBalance => "LoadBalance",
+        ProxyType::PassRule => "PassRule",
+        ProxyType::Rematch => "Rematch",
+        ProxyType::Sudoku => "Sudoku",
+        ProxyType::Masque => "Masque",
+        ProxyType::TrustTunnel => "TrustTunnel",
+        ProxyType::ShadowQuic => "ShadowQuic",
+        ProxyType::OpenVPN => "OpenVPN",
+        ProxyType::Tailscale => "Tailscale",
+        ProxyType::ZeroTier => "ZeroTier",
+        ProxyType::GostRelay => "GostRelay",
     }
 }
 

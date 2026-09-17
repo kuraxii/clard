@@ -1,7 +1,7 @@
 use ratatui::widgets::ListState;
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 
-use clard_core::mihomo::models::{Extra, Groups, Proxy as ProxyModel};
+use clard_core::mihomo::models::{DelayHistory, Extra, Groups, Proxy as ProxyModel};
 
 #[derive(PartialEq, Eq, Debug)]
 pub enum ProxyFocus {
@@ -42,6 +42,8 @@ pub struct ProxyState {
     /// 节点索引：节点名 → {alive, history}（取自 `GET /proxies` 各代理自身字段，
     /// 延迟以 `history` 最新一条为准；`/group` 不含节点延迟数据）。
     pub node_extra: HashMap<String, Extra>,
+    /// 正在测速的节点名（按下 `t`/`T` 后立即标记，逐节点完成时移除）。
+    pub testing: HashSet<String>,
     pub filter: String,
     pub sort: ProxySort,
     pub group_list_state: ListState,
@@ -55,6 +57,7 @@ impl ProxyState {
             raw_groups: Vec::new(),
             groups: Vec::new(),
             node_extra: HashMap::new(),
+            testing: HashSet::new(),
             filter: String::new(),
             sort: ProxySort::None,
             group_list_state: ListState::default(),
@@ -153,6 +156,47 @@ impl ProxyState {
             .selected()
             .and_then(|idx| self.groups.get(idx))
             .map(|group| group.name.as_str())
+    }
+
+    /// 全组测速开始时标记待测节点（显示 testing，参考 clash-verge 批量测速）。
+    pub fn set_node_testing(&mut self, nodes: &[String]) {
+        self.testing = nodes.iter().cloned().collect();
+    }
+
+    /// 全部节点（跨全部分组去重，不受过滤/排序影响，R3.3 测速用）。
+    pub fn all_nodes(&self) -> Vec<String> {
+        let mut nodes: Vec<String> = self
+            .raw_groups
+            .iter()
+            .filter_map(|g| g.all.as_ref())
+            .flatten()
+            .cloned()
+            .collect();
+        nodes.sort();
+        nodes.dedup();
+        nodes
+    }
+
+    /// 单节点测速结果回写（R3.3 逐节点异步刷新）；delay==0 视为超时。
+    pub fn apply_node_delay(&mut self, node: &str, delay: u16) {
+        self.testing.remove(node);
+        let entry = self
+            .node_extra
+            .entry(node.to_string())
+            .or_insert_with(|| Extra {
+                alive: true,
+                history: Vec::new(),
+            });
+        entry.alive = delay != 0;
+        entry.history.push(DelayHistory {
+            time: String::new(),
+            delay,
+        });
+        // 与 mihomo 保持一致，历史保留最近 10 条
+        if entry.history.len() > 10 {
+            entry.history.remove(0);
+        }
+        self.refresh_view();
     }
 
     fn refresh_view(&mut self) {
@@ -327,18 +371,21 @@ mod tests {
     fn node_extra_indexes_delay_from_node_proxies() {
         let mut state = ProxyState::new();
         let mut node_a = proxy_group("node-a", None, vec![]);
-        node_a.history = vec![DelayHistory { time: "t".into(), delay: 120 }];
+        node_a.history = vec![DelayHistory {
+            time: "t".into(),
+            delay: 120,
+        }];
         let mut node_b = proxy_group("node-b", None, vec![]);
-        node_b.history = vec![DelayHistory { time: "t".into(), delay: 0 }];
+        node_b.history = vec![DelayHistory {
+            time: "t".into(),
+            delay: 0,
+        }];
         state.update_groups(Groups {
             proxies: vec![proxy_group("group", None, vec!["node-a", "node-b"]), node_a, node_b],
         });
 
         // 节点延迟/存活索引取自各代理自身 history/alive
-        assert_eq!(
-            state.node_extra["node-a"].history.last().map(|h| h.delay),
-            Some(120)
-        );
+        assert_eq!(state.node_extra["node-a"].history.last().map(|h| h.delay), Some(120));
         assert_eq!(
             state.node_extra["node-b"].history.last().map(|h| h.delay),
             Some(0),
@@ -349,18 +396,42 @@ mod tests {
     }
 
     #[test]
+    fn apply_node_delay_writes_history_and_clears_testing() {
+        let mut state = ProxyState::new();
+        state.update_groups(Groups {
+            proxies: vec![proxy_group("group", None, vec!["node-a"])],
+        });
+        state.set_node_testing(&["node-a".to_string()]);
+        assert!(state.testing.contains("node-a"));
+
+        state.apply_node_delay("node-a", 132);
+        assert!(!state.testing.contains("node-a"), "完成后移出 testing");
+        assert_eq!(
+            state.node_extra["node-a"].history.last().map(|h| h.delay),
+            Some(132)
+        );
+        assert!(state.node_extra["node-a"].alive);
+
+        state.apply_node_delay("node-a", 0);
+        assert!(!state.node_extra["node-a"].alive, "超时 delay==0 → 存活置 false");
+        assert_eq!(state.node_extra["node-a"].history.len(), 2);
+    }
+
+    #[test]
     fn delay_sort_uses_node_extra() {
         let mut state = ProxyState::new();
         let mut node_a = proxy_group("node-a", None, vec![]);
-        node_a.history = vec![DelayHistory { time: "t".into(), delay: 300 }];
+        node_a.history = vec![DelayHistory {
+            time: "t".into(),
+            delay: 300,
+        }];
         let mut node_b = proxy_group("node-b", None, vec![]);
-        node_b.history = vec![DelayHistory { time: "t".into(), delay: 50 }];
+        node_b.history = vec![DelayHistory {
+            time: "t".into(),
+            delay: 50,
+        }];
         state.update_groups(Groups {
-            proxies: vec![
-                proxy_group("group", None, vec!["node-a", "node-b"]),
-                node_a,
-                node_b,
-            ],
+            proxies: vec![proxy_group("group", None, vec!["node-a", "node-b"]), node_a, node_b],
         });
 
         state.cycle_sort(); // NameAsc

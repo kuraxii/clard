@@ -14,6 +14,8 @@ pub enum ClardEvent {
     PasteEvent(String),
     Terminal,
     UpdateGroups(clard_core::mihomo::models::Groups),
+    /// 单节点测速结果（R3.3 批量并发测速，逐节点回写刷新）
+    NodeDelay { node: String, delay: u16 },
     UpdateConnections(clard_core::mihomo::models::Connections),
     UpdateTraffic(clard_core::mihomo::models::Traffic),
     ProfilesUpdated {

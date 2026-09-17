@@ -221,6 +221,9 @@ pub async fn start_clard() -> Result<()> {
                     ClardEvent::UpdateGroups(groups) => {
                         app.proxies.update_groups(groups);
                     }
+                    ClardEvent::NodeDelay { node, delay } => {
+                        app.proxies.apply_node_delay(&node, delay);
+                    }
                     ClardEvent::UpdateConnections(conns) => {
                         app.connections.update_connections(conns);
                     }

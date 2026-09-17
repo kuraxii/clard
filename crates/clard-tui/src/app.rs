@@ -9,7 +9,7 @@ pub mod proxy;
 pub mod rules;
 pub mod settings;
 
-use std::sync::Arc;
+use std::sync::{Arc, atomic::{AtomicUsize, Ordering}};
 
 use connections::ConnectionsState;
 use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
@@ -1511,30 +1511,61 @@ impl APP {
     }
 
     /// 全部分组测速（R3.3 `T`，`GET /group/:name/delay`）。
+    /// 全部分组测速（R3.3 `t`/`T`）：收集全部节点，并发逐个测。
+    ///
+    /// 参考 clash-verge `checkListDelay`：限并发 + 每节点结果即时回写刷新，
+    /// 异步实时显示延迟（按一次 `t` = 全量测一次）。
     fn test_all_groups(&mut self) {
-        let groups: Vec<String> = self.proxies.groups.iter().map(|g| g.name.clone()).collect();
-        if groups.is_empty() {
+        // 全部分组去重节点（不受过滤影响）
+        let nodes = self.proxies.all_nodes();
+        if nodes.is_empty() {
             return;
         }
+
+        // 立即标记 testing（节点列表显示进行中）
+        self.proxies.set_node_testing(&nodes);
+
         let backend = self.backend.clone();
         let sender = self.event_sender.clone();
         let url = self.test_url();
         tokio::spawn(async move {
             let timeout = 5000;
-            for group in groups {
-                match backend.delay_group_for_name(&group, &url, timeout).await {
-                    Ok(map) => {
-                        let _ = sender.send(ClardEvent::Notify(format!("{group}: {} nodes tested", map.len())));
-                    }
-                    Err(e) => {
-                        let _ = sender.send(ClardEvent::Error(format!("{group} test failed: {e}")));
-                    }
-                }
-                // 每测完一组立即刷新，延迟/超时即时可见（R3.3）
-                if let Ok(groups_data) = backend.get_groups().await {
-                    let _ = sender.send(ClardEvent::UpdateGroups(groups_data));
-                }
+            // 参考 clash-verge：限并发 10，逐节点 `GET /proxies/:name/delay`
+            const CONCURRENCY: usize = 10;
+            let nodes = Arc::new(nodes);
+            let next = Arc::new(AtomicUsize::new(0));
+
+            let workers: Vec<_> = (0..CONCURRENCY)
+                .map(|_| {
+                    let backend = backend.clone();
+                    let sender = sender.clone();
+                    let url = url.clone();
+                    let nodes = nodes.clone();
+                    let next = next.clone();
+                    tokio::spawn(async move {
+                        loop {
+                            let idx = next.fetch_add(1, Ordering::SeqCst);
+                            let Some(node) = nodes.get(idx) else {
+                                break;
+                            };
+                            let node = node.clone();
+                            match backend.delay_proxy_for_name(&node, &url, timeout).await {
+                                Ok(delay) => {
+                                    let _ = sender.send(ClardEvent::NodeDelay { node, delay });
+                                }
+                                // 超时 408 / 失败 503 → 按超时（红色 timeout）回写
+                                Err(_) => {
+                                    let _ = sender.send(ClardEvent::NodeDelay { node, delay: 0 });
+                                }
+                            }
+                        }
+                    })
+                })
+                .collect();
+            for worker in workers {
+                let _ = worker.await;
             }
+            let _ = sender.send(ClardEvent::Notify(format!("{} nodes tested", nodes.len())));
         });
     }
 

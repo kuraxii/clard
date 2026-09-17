@@ -65,7 +65,7 @@ pub struct Proxy {
     pub dialer_proxy: String,
 
     #[serde(rename(serialize = "routingMark", deserialize = "routing-mark"))]
-    pub routing_mark: i8,
+    pub routing_mark: i32,
 }
 
 #[allow(missing_docs)]
@@ -111,6 +111,17 @@ pub enum ProxyType {
     Fallback,
     URLTest,
     LoadBalance,
+    /// 以下为 mihomo 可能出现的类型，补齐避免 `GET /proxies` 解码失败
+    PassRule,
+    Rematch,
+    Sudoku,
+    Masque,
+    TrustTunnel,
+    ShadowQuic,
+    OpenVPN,
+    Tailscale,
+    ZeroTier,
+    GostRelay,
 }
 /// connections
 #[derive(Debug, Clone, Serialize, Deserialize)]

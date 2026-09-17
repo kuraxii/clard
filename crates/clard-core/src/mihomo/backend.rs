@@ -219,6 +219,7 @@ impl Backend {
     ///
     /// 用 `/proxies` 而非 `/group`：`/group` 只返回组对象（节点仅名字），
     /// 节点延迟/存活需各代理自身的 `history`/`alive`。
+    /// `/proxies` 返回的是**以代理名为键的 map**，这里转成 Vec 供上层使用。
     pub async fn get_groups(&self) -> Result<Groups> {
         let req = self.build_request(Method::GET, "/proxies")?;
         let res = req.send().await?;
@@ -229,7 +230,16 @@ impl Backend {
                 .map_or_else(|msg| format!("Get groups failed: {msg}"), |err| err.message.to_string());
             return Err(IpcError::ResponseError(err_msg));
         }
-        Ok(res.json::<Groups>().await?)
+
+        #[derive(serde::Deserialize)]
+        struct ProxiesResponse {
+            proxies: HashMap<String, Proxy>,
+        }
+
+        let parsed = res.json::<ProxiesResponse>().await?;
+        Ok(Groups {
+            proxies: parsed.proxies.into_values().collect(),
+        })
     }
 
     /// 获取指定名称的代理组
@@ -284,30 +294,31 @@ impl Backend {
         Ok(())
     }
 
-    /// 对指定代理组下所有节点测延迟（doc/04 `GET /group/:name/delay`，Meta 扩展）。
+    /// 对单个代理节点测延迟（doc/04 `GET /proxies/:name/delay`）。
     ///
-    /// 返回节点名 → 延迟（ms）map；自动组测前 mihomo 会先清固定选择。
-    pub async fn delay_group_for_name(
-        &self,
-        group_name: &str,
-        test_url: &str,
-        timeout: u32,
-    ) -> Result<HashMap<String, u16>> {
-        let group_name_encode = urlencoding::encode(group_name);
+    /// 参考 clash-verge：全组测速 = 对每个节点并发发此请求，结果逐节点回写刷新。
+    /// 超时 408 / 失败 503 都返回 Err，调用方按超时（delay==0）处理。
+    pub async fn delay_proxy_for_name(&self, proxy_name: &str, test_url: &str, timeout: u32) -> Result<u16> {
+        let proxy_name_encode = urlencoding::encode(proxy_name);
         let req = self
-            .build_request(Method::GET, &format!("/group/{group_name_encode}/delay"))?
+            .build_request(Method::GET, &format!("/proxies/{}/delay", proxy_name_encode))?
             .query(&[("url", test_url), ("timeout", &timeout.to_string())]);
 
         let res = req.send().await?;
         if !res.status().is_success() {
             let err_msg = res.json::<ResponseError>().await.map_or_else(
-                |msg| format!("group delay test for [{group_name}] failed: {msg}"),
+                |msg| format!("delay test for [{}] failed: {}", proxy_name, msg),
                 |err| err.message.to_string(),
             );
             return Err(IpcError::ResponseError(err_msg));
         }
 
-        Ok(res.json::<HashMap<String, u16>>().await?)
+        #[derive(serde::Deserialize)]
+        struct DelayResp {
+            delay: u16,
+        }
+
+        Ok(res.json::<DelayResp>().await?.delay)
     }
 
     /// 获取生效规则列表（doc/04 `GET /rules`）。
@@ -720,14 +731,18 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn get_groups() -> Result<()> {
-        let (addr, handle) = spawn_mock_server("200 OK", r#"{"proxies":[]}"#).await?;
+    async fn get_groups_parses_name_keyed_map() -> Result<()> {
+        // /proxies 返回 {name: Proxy} 的 map，get_groups 需转成 Vec
+        let body = r#"{"proxies":{"node-a":{"alive":true,"history":[{"time":"t","delay":132}],"extra":{},"name":"node-a","udp":true,"uot":false,"type":"Shadowsocks","xudp":false,"tfo":false,"mptcp":false,"smux":false,"interface":"","dialer-proxy":"","routing-mark":0}}}"#;
+        let (addr, handle) = spawn_mock_server("200 OK", body).await?;
         let backend = backend_tcp(addr)?;
         let result = backend.get_groups().await;
 
         assert!(result.is_ok());
         let groups = result?;
-        assert!(groups.proxies.is_empty());
+        assert_eq!(groups.proxies.len(), 1, "map 转 Vec");
+        assert_eq!(groups.proxies[0].name, "node-a");
+        assert_eq!(groups.proxies[0].history.last().map(|h| h.delay), Some(132));
 
         let req = wait_request(handle).await;
         assert_method_path(&req, "GET", "/proxies");
@@ -1039,18 +1054,27 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn delay_group_for_name_returns_node_map() -> Result<()> {
-        let (addr, handle) = spawn_mock_server("200 OK", r#"{"node-a":132,"node-b":88}"#).await?;
+    #[ignore = "需要真实运行中的 mihomo（/run/clard/core.sock）"]
+    async fn live_get_groups_decodes() -> Result<()> {
+        let backend = Backend::builder()
+            .set_unix_socket("/run/clard/core.sock")
+            .build()?;
+        let groups = backend.get_groups().await?;
+        assert!(!groups.proxies.is_empty(), "真实 /proxies 应可解码");
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn delay_proxy_for_name_returns_delay() -> Result<()> {
+        let (addr, handle) = spawn_mock_server("200 OK", r#"{"delay":132}"#).await?;
         let backend = backend_tcp(addr)?;
-        let result = backend.delay_group_for_name("group", "http://x", 5000).await;
+        let result = backend.delay_proxy_for_name("node-a", "http://x", 5000).await;
 
         assert!(result.is_ok());
-        let map = result?;
-        assert_eq!(map.get("node-a"), Some(&132));
-        assert_eq!(map.get("node-b"), Some(&88));
+        assert_eq!(result?, 132);
 
         let req = wait_request(handle).await;
-        assert_method_path(&req, "GET", "/group/group/delay");
+        assert_method_path(&req, "GET", "/proxies/node-a/delay");
         let query = req.query.unwrap_or_default();
         assert!(query.contains("timeout=5000"));
         assert!(query.contains("url=http%3A%2F%2Fx"));
