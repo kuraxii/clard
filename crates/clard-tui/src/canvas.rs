@@ -859,41 +859,6 @@ fn draw_settings_tun(f: &mut Frame<'_>, area: Rect, state: &SettingsState, theme
                         v
                     }
                 }
-                TunRow::ExcludeUid => settings
-                    .map(|s| {
-                        if s.exclude_uid.is_empty() {
-                            "(empty)".to_string()
-                        } else {
-                            s.exclude_uid
-                                .iter()
-                                .map(|v| v.to_string())
-                                .collect::<Vec<_>>()
-                                .join(",")
-                        }
-                    })
-                    .unwrap_or_else(|| "(empty)".to_string()),
-                TunRow::ExcludeInterface => settings
-                    .map(|s| {
-                        if s.exclude_interface.is_empty() {
-                            "(empty)".to_string()
-                        } else {
-                            s.exclude_interface.join(",")
-                        }
-                    })
-                    .unwrap_or_else(|| "(empty)".to_string()),
-                TunRow::ExcludeDstPort => settings
-                    .map(|s| {
-                        if s.exclude_dst_port.is_empty() {
-                            "(empty)".to_string()
-                        } else {
-                            s.exclude_dst_port
-                                .iter()
-                                .map(|v| v.to_string())
-                                .collect::<Vec<_>>()
-                                .join(",")
-                        }
-                    })
-                    .unwrap_or_else(|| "(empty)".to_string()),
                 TunRow::StrictRoute => format!(
                     "{} risk: crash residuals = full outage",
                     if settings.map(|s| s.strict_route).unwrap_or(false) {

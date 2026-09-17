@@ -64,9 +64,6 @@ pub enum TunRow {
     TunDnsMode,
     DnsHijack,
     RouteExclude,
-    ExcludeUid,
-    ExcludeInterface,
-    ExcludeDstPort,
     StrictRoute,
     AutoRedirect,
     /// 紧急恢复直连（CleanupTun，§6.4 手动挂载点）
@@ -74,15 +71,12 @@ pub enum TunRow {
 }
 
 impl TunRow {
-    pub const ALL: [Self; 11] = [
+    pub const ALL: [Self; 8] = [
         Self::TunEnabled,
         Self::TunStack,
         Self::TunDnsMode,
         Self::DnsHijack,
         Self::RouteExclude,
-        Self::ExcludeUid,
-        Self::ExcludeInterface,
-        Self::ExcludeDstPort,
         Self::StrictRoute,
         Self::AutoRedirect,
         Self::RecoverDirect,
@@ -95,9 +89,6 @@ impl TunRow {
             Self::TunDnsMode => "DNS mode",
             Self::DnsHijack => "dns-hijack",
             Self::RouteExclude => "Route exclude",
-            Self::ExcludeUid => "exclude-uid",
-            Self::ExcludeInterface => "exclude-interface",
-            Self::ExcludeDstPort => "exclude-dst-port",
             Self::StrictRoute => "strict-route",
             Self::AutoRedirect => "auto-redirect",
             Self::RecoverDirect => "Recover direct",
@@ -346,11 +337,11 @@ mod tests {
             Some(TunRow::TunDnsMode),
             "TunEnabled→TunStack→TunDnsMode"
         );
-        // 11 行循环：TunDnsMode(2) + 9 = 11 ≡ 0（回到 TunEnabled）
-        for _ in 0..9 {
+        // 8 行循环：TunDnsMode(2) + 6 = 8 ≡ 0（回到 TunEnabled）
+        for _ in 0..6 {
             s.on_down_key(10);
         }
-        assert_eq!(s.selected_tun_row(), Some(TunRow::TunEnabled), "11 行循环回到 TUN");
+        assert_eq!(s.selected_tun_row(), Some(TunRow::TunEnabled), "8 行循环回到 TUN");
     }
 
     #[test]

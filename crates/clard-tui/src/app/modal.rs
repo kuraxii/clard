@@ -111,12 +111,6 @@ pub enum InputPurpose {
     EditDnsHijack,
     /// 设置：route-exclude-address（逗号分隔 CIDR，空 = 默认私网段）
     EditRouteExclude,
-    /// 设置：exclude-uid（逗号分隔数字）
-    EditExcludeUid,
-    /// 设置：exclude-interface（逗号分隔网卡名）
-    EditExcludeInterface,
-    /// 设置：exclude-dst-port（逗号分隔端口）
-    EditExcludeDstPort,
     /// 审计按 op 过滤（R6.3 `o`）
     FilterAuditOp,
     /// 审计导出路径（R6.3 `x`）

@@ -513,30 +513,6 @@ impl APP {
                 };
                 self.set_tun_setting(patch);
             }
-            InputPurpose::EditExcludeUid => {
-                let list = split_csv_u32(&text);
-                let patch = clard_proto::SettingsPatch {
-                    exclude_uid: Some(list),
-                    ..Default::default()
-                };
-                self.set_tun_setting(patch);
-            }
-            InputPurpose::EditExcludeInterface => {
-                let list = split_csv(&text);
-                let patch = clard_proto::SettingsPatch {
-                    exclude_interface: Some(list),
-                    ..Default::default()
-                };
-                self.set_tun_setting(patch);
-            }
-            InputPurpose::EditExcludeDstPort => {
-                let list = split_csv_u16(&text);
-                let patch = clard_proto::SettingsPatch {
-                    exclude_dst_port: Some(list),
-                    ..Default::default()
-                };
-                self.set_tun_setting(patch);
-            }
             InputPurpose::FilterAuditOp => {
                 self.logs.set_op_filter(text.trim().to_string());
             }
@@ -1184,46 +1160,6 @@ impl APP {
                 );
                 if let Some(s) = self.settings.settings.as_ref() {
                     input.buffer = s.route_exclude_address.join(",");
-                    input.cursor = input.buffer.len();
-                }
-                self.input = Some(input);
-            }
-            TunRow::ExcludeUid => {
-                let mut input = InputState::new("exclude-uid (comma separated uids)", InputPurpose::EditExcludeUid);
-                if let Some(s) = self.settings.settings.as_ref() {
-                    input.buffer = s
-                        .exclude_uid
-                        .iter()
-                        .map(|v| v.to_string())
-                        .collect::<Vec<_>>()
-                        .join(",");
-                    input.cursor = input.buffer.len();
-                }
-                self.input = Some(input);
-            }
-            TunRow::ExcludeInterface => {
-                let mut input = InputState::new(
-                    "exclude-interface (comma separated ifaces)",
-                    InputPurpose::EditExcludeInterface,
-                );
-                if let Some(s) = self.settings.settings.as_ref() {
-                    input.buffer = s.exclude_interface.join(",");
-                    input.cursor = input.buffer.len();
-                }
-                self.input = Some(input);
-            }
-            TunRow::ExcludeDstPort => {
-                let mut input = InputState::new(
-                    "exclude-dst-port (comma separated ports)",
-                    InputPurpose::EditExcludeDstPort,
-                );
-                if let Some(s) = self.settings.settings.as_ref() {
-                    input.buffer = s
-                        .exclude_dst_port
-                        .iter()
-                        .map(|v| v.to_string())
-                        .collect::<Vec<_>>()
-                        .join(",");
                     input.cursor = input.buffer.len();
                 }
                 self.input = Some(input);
@@ -1964,16 +1900,6 @@ fn expand_home(path: &str) -> String {
         }
     }
     path.to_string()
-}
-
-/// 逗号分隔数字 → u32 列表（忽略非法项）。
-fn split_csv_u32(text: &str) -> Vec<u32> {
-    split_csv(text).iter().filter_map(|s| s.parse().ok()).collect()
-}
-
-/// 逗号分隔数字 → u16 列表（忽略非法项）。
-fn split_csv_u16(text: &str) -> Vec<u16> {
-    split_csv(text).iter().filter_map(|s| s.parse().ok()).collect()
 }
 
 /// 检查更新（R7.3）：拉取 GitHub 最新 release tag，对比当前版本（忽略前导 v）。
