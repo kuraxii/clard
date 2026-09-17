@@ -124,13 +124,13 @@ Selector 或不可选择 → 400。
 ### GET `/proxies/:name/delay?url=&timeout=&expected=` → `{"delay": <ms>}`
 延迟测试。`url` 测速目标（缺省用内置）；`timeout` **必填**（ms）；`expected` 可选状态码区间
 （如 `204,300-399`）。超时 408，失败 503。
-→ clard 全组测速（`t`/`T` 同一动作）：**逐个节点并发发此请求**（参考 clash-verge `checkListDelay`，限并发 10），
+→ clard 当前选中分组测速（`t`/`T` 同一动作）：**逐个节点并发发此请求**（参考 clash-verge `checkListDelay`，限并发 10），
 每个节点结果即时回写刷新，异步实时显示延迟；408/503 按超时（红色 `timeout`）显示。
 
 ### GET `/group` / `/group/:name` / `/group/:name/delay`（Meta 扩展）
 - `GET /group` → `{"proxies":[仅组]}`；`GET /group/:name` → 组对象（非组 404）。
 - `GET /group/:name/delay` → 组内**所有节点**的延迟 map（自动组测前先 `ForceSet("")` 清固定选择）。
-- clard **未用**此端点做全组测速（返回 map 只能整组一次性拿到，无法逐节点异步显示）；
+- clard **未用**此端点做分组测速（返回 map 只能整组一次性拿到，无法逐节点异步显示）；
   改用并发逐节点 `GET /proxies/:name/delay`（同上）。
 
 > **clard 代理页数据源是 `GET /proxies` 而非 `GET /group`**：`/group` 仅返回组对象（节点只有名字，无延迟数据）；

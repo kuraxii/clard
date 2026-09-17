@@ -163,30 +163,26 @@ impl ProxyState {
         self.testing = nodes.iter().cloned().collect();
     }
 
-    /// 全部节点（跨全部分组去重，不受过滤/排序影响，R3.3 测速用）。
-    pub fn all_nodes(&self) -> Vec<String> {
-        let mut nodes: Vec<String> = self
-            .raw_groups
+    /// 当前选中分组下的全部节点（R3.3 测速用，不受过滤/排序影响）。
+    pub fn selected_group_nodes(&self) -> Vec<String> {
+        let Some(name) = self.selected_group_name() else {
+            return Vec::new();
+        };
+        self.raw_groups
             .iter()
-            .filter_map(|g| g.all.as_ref())
-            .flatten()
+            .find(|g| g.name == name)
+            .and_then(|g| g.all.as_ref())
             .cloned()
-            .collect();
-        nodes.sort();
-        nodes.dedup();
-        nodes
+            .unwrap_or_default()
     }
 
     /// 单节点测速结果回写（R3.3 逐节点异步刷新）；delay==0 视为超时。
     pub fn apply_node_delay(&mut self, node: &str, delay: u16) {
         self.testing.remove(node);
-        let entry = self
-            .node_extra
-            .entry(node.to_string())
-            .or_insert_with(|| Extra {
-                alive: true,
-                history: Vec::new(),
-            });
+        let entry = self.node_extra.entry(node.to_string()).or_insert_with(|| Extra {
+            alive: true,
+            history: Vec::new(),
+        });
         entry.alive = delay != 0;
         entry.history.push(DelayHistory {
             time: String::new(),
@@ -396,6 +392,22 @@ mod tests {
     }
 
     #[test]
+    fn selected_group_nodes_returns_highlighted_group_all() {
+        let mut state = ProxyState::new();
+        state.update_groups(Groups {
+            proxies: vec![
+                proxy_group("group-a", None, vec!["n1", "n2"]),
+                proxy_group("group-b", None, vec!["n3"]),
+            ],
+        });
+        state.group_list_state.select(Some(1));
+
+        let mut nodes = state.selected_group_nodes();
+        nodes.sort();
+        assert_eq!(nodes, vec!["n3"], "只返回当前选中分组（group-b）的节点");
+    }
+
+    #[test]
     fn apply_node_delay_writes_history_and_clears_testing() {
         let mut state = ProxyState::new();
         state.update_groups(Groups {
@@ -406,10 +418,7 @@ mod tests {
 
         state.apply_node_delay("node-a", 132);
         assert!(!state.testing.contains("node-a"), "完成后移出 testing");
-        assert_eq!(
-            state.node_extra["node-a"].history.last().map(|h| h.delay),
-            Some(132)
-        );
+        assert_eq!(state.node_extra["node-a"].history.last().map(|h| h.delay), Some(132));
         assert!(state.node_extra["node-a"].alive);
 
         state.apply_node_delay("node-a", 0);

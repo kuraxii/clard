@@ -1056,9 +1056,7 @@ mod tests {
     #[tokio::test]
     #[ignore = "需要真实运行中的 mihomo（/run/clard/core.sock）"]
     async fn live_get_groups_decodes() -> Result<()> {
-        let backend = Backend::builder()
-            .set_unix_socket("/run/clard/core.sock")
-            .build()?;
+        let backend = Backend::builder().set_unix_socket("/run/clard/core.sock").build()?;
         let groups = backend.get_groups().await?;
         assert!(!groups.proxies.is_empty(), "真实 /proxies 应可解码");
         Ok(())

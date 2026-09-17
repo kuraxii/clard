@@ -3,7 +3,10 @@
 // Tip: Deny warnings with `RUSTFLAGS="-D warnings"` environment variable in CI
 
 #![forbid(unsafe_code)]
-#![cfg_attr(test, allow(clippy::panic, clippy::unwrap_used, clippy::expect_used, clippy::indexing_slicing))]
+#![cfg_attr(
+    test,
+    allow(clippy::panic, clippy::unwrap_used, clippy::expect_used, clippy::indexing_slicing)
+)]
 #![warn(
     rust_2018_idioms,
     trivial_casts,
@@ -17,10 +20,10 @@
 
 pub mod app;
 mod canvas;
-mod nav;
 pub mod commands;
 pub mod error;
 pub mod event;
+mod nav;
 pub mod rpc;
 use std::{
     io::stdout,
@@ -159,7 +162,8 @@ fn default_backend() -> Result<Backend> {
         .ok()
         .filter(|s| !s.is_empty())
         .unwrap_or_else(|| DEFAULT_CORE_SOCK.to_string());
-    Ok(Backend::builder().set_unix_socket(&sock).build()?)}
+    Ok(Backend::builder().set_unix_socket(&sock).build()?)
+}
 
 pub async fn start_clard() -> Result<()> {
     let (sender, mut receiver) = mpsc::unbounded_channel::<ClardEvent>();

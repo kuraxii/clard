@@ -15,7 +15,10 @@ pub enum ClardEvent {
     Terminal,
     UpdateGroups(clard_core::mihomo::models::Groups),
     /// 单节点测速结果（R3.3 批量并发测速，逐节点回写刷新）
-    NodeDelay { node: String, delay: u16 },
+    NodeDelay {
+        node: String,
+        delay: u16,
+    },
     UpdateConnections(clard_core::mihomo::models::Connections),
     UpdateTraffic(clard_core::mihomo::models::Traffic),
     ProfilesUpdated {
@@ -29,10 +32,19 @@ pub enum ClardEvent {
     RulesUpdated(Vec<clard_core::mihomo::models::Rule>),
     RuleProvidersUpdated(std::collections::HashMap<String, clard_core::mihomo::models::RuleProvider>),
     /// 日志分页结果：source=tui/core
-    LogLinesReady { source: String, cursor: u64, lines: Vec<String> },
-    AuditRecordsReady { cursor: u64, records: Vec<clard_proto::AuditRecord> },
+    LogLinesReady {
+        source: String,
+        cursor: u64,
+        lines: Vec<String>,
+    },
+    AuditRecordsReady {
+        cursor: u64,
+        records: Vec<clard_proto::AuditRecord>,
+    },
     /// 开启 TUN 时检测到其他活跃 TUN（§6.2）：TUI 弹确认，确认后 force 强开
-    TunConflict { devices: Vec<String> },
+    TunConflict {
+        devices: Vec<String>,
+    },
     SettingsReady(clard_proto::Settings),
     CoreStatusReady {
         state: String,

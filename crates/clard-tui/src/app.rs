@@ -9,7 +9,10 @@ pub mod proxy;
 pub mod rules;
 pub mod settings;
 
-use std::sync::{Arc, atomic::{AtomicUsize, Ordering}};
+use std::sync::{
+    Arc,
+    atomic::{AtomicUsize, Ordering},
+};
 
 use connections::ConnectionsState;
 use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
@@ -1511,13 +1514,13 @@ impl APP {
     }
 
     /// 全部分组测速（R3.3 `T`，`GET /group/:name/delay`）。
-    /// 全部分组测速（R3.3 `t`/`T`）：收集全部节点，并发逐个测。
+    /// 当前选中分组测速（R3.3 `t`/`T`）：收集该分组全部节点，并发逐个测。
     ///
     /// 参考 clash-verge `checkListDelay`：限并发 + 每节点结果即时回写刷新，
-    /// 异步实时显示延迟（按一次 `t` = 全量测一次）。
-    fn test_all_groups(&mut self) {
-        // 全部分组去重节点（不受过滤影响）
-        let nodes = self.proxies.all_nodes();
+    /// 异步实时显示延迟（按一次 `t` = 当前分组测一次）。
+    fn test_selected_group(&mut self) {
+        // 当前选中分组全部节点（不受过滤影响）
+        let nodes = self.proxies.selected_group_nodes();
         if nodes.is_empty() {
             return;
         }
@@ -1578,7 +1581,7 @@ impl APP {
 
     fn on_proxies_char(&mut self, c: char) {
         match c {
-            't' | 'T' => self.test_all_groups(),
+            't' | 'T' => self.test_selected_group(),
             'd' => self.clear_group_selection(),
             'f' => self.open_proxies_filter(),
             's' => self.proxies.cycle_sort(),
