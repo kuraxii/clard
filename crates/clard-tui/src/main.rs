@@ -1,7 +1,10 @@
 //! clard 入口：无子命令/`--tui` 进 TUI；`profiles` 子命令为 CLI 订阅管理。
 
 #![deny(warnings, missing_docs, trivial_casts, unused_qualifications)]
-#![cfg_attr(test, allow(clippy::panic, clippy::unwrap_used, clippy::expect_used, clippy::indexing_slicing))]
+#![cfg_attr(
+    test,
+    allow(clippy::panic, clippy::unwrap_used, clippy::expect_used, clippy::indexing_slicing)
+)]
 
 use clap::Parser;
 use clard_config::config_gen::ConfigGenOptions;
@@ -10,8 +13,7 @@ use clard_proto::{ProfileImport, Request, Response};
 use clard_tui::{
     commands::{ClardCmd, Cli, ProfilesSub},
     error::Result,
-    rpc,
-    start_clard,
+    rpc, start_clard,
 };
 
 #[tokio::main(flavor = "multi_thread")]
@@ -42,11 +44,7 @@ async fn run() -> Result<()> {
 /// 所有操作经 IPC 发给 helper（系统级服务，doc/01 §7）。
 async fn run_profiles_cmd(cmd: ProfilesSub) -> Result<()> {
     match cmd {
-        ProfilesSub::Import {
-            url,
-            name,
-            interval,
-        } => {
+        ProfilesSub::Import { url, name, interval } => {
             // 下载 → 提交原始订阅 raw，helper 侧 clard-config 转换（§8.3 A）
             let raw = HttpFetcher::new(reqwest::Client::new()).fetch(&url).await?;
             let resp = rpc::call(&Request::ProfileImport(ProfileImport {
@@ -76,11 +74,12 @@ async fn run_profiles_cmd(cmd: ProfilesSub) -> Result<()> {
                         println!("(无配置)");
                     }
                     for p in &items {
-                        let mark = if current.as_deref() == Some(p.uid.as_str()) { "*" } else { " " };
-                        println!(
-                            "{mark} {}  {}  {}  updated={:?}",
-                            p.uid, p.name, p.url, p.updated_at
-                        );
+                        let mark = if current.as_deref() == Some(p.uid.as_str()) {
+                            "*"
+                        } else {
+                            " "
+                        };
+                        println!("{mark} {}  {}  {}  updated={:?}", p.uid, p.name, p.url, p.updated_at);
                     }
                 }
                 other => return Err(rpc::unexpected(other).into()),

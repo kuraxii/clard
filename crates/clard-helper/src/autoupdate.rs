@@ -10,7 +10,7 @@
 use std::{sync::Arc, time::Duration};
 
 use clard_proto::{Event, SubscriptionInfo};
-use tokio::sync::{broadcast, Mutex};
+use tokio::sync::{Mutex, broadcast};
 
 use crate::audit::{Actor, Audit};
 use crate::config::Ctx;
@@ -77,14 +77,23 @@ async fn run_once(
                     Ok(y) => y,
                     Err(e) => {
                         tracing::warn!("auto update {name} 转换失败: {e}");
-                        audit.result("profile.update", &op_id, &Actor::system(), "error", Some(&e.to_string()), None);
+                        audit.result(
+                            "profile.update",
+                            &op_id,
+                            &Actor::system(),
+                            "error",
+                            Some(&e.to_string()),
+                            None,
+                        );
                         continue;
                     }
                 };
                 let mut st = store.lock().await;
-                let hitting_current = st.list().iter().find(|p| p.url == url).is_some_and(|p| {
-                    st.current().is_some_and(|c| c.uid == p.uid)
-                });
+                let hitting_current = st
+                    .list()
+                    .iter()
+                    .find(|p| p.url == url)
+                    .is_some_and(|p| st.current().is_some_and(|c| c.uid == p.uid));
                 if hitting_current {
                     // current 事务化：regenerate 成功才正式替换，失败恢复旧内容+索引（防污染）
                     let idx_backup = st.index_snapshot();
@@ -124,19 +133,40 @@ async fn run_once(
                             }
                         }
                         Ok(false) => audit.result("profile.update", &op_id, &Actor::system(), "missing", None, None),
-                        Err(e) => audit.result("profile.update", &op_id, &Actor::system(), "error", Some(&e.to_string()), None),
+                        Err(e) => audit.result(
+                            "profile.update",
+                            &op_id,
+                            &Actor::system(),
+                            "error",
+                            Some(&e.to_string()),
+                            None,
+                        ),
                     }
                 } else {
                     match st.auto_update(&url, &converted, Some(info)) {
                         Ok(true) => audit.result("profile.update", &op_id, &Actor::system(), "ok", None, None),
                         Ok(false) => audit.result("profile.update", &op_id, &Actor::system(), "missing", None, None),
-                        Err(e) => audit.result("profile.update", &op_id, &Actor::system(), "error", Some(&e.to_string()), None),
+                        Err(e) => audit.result(
+                            "profile.update",
+                            &op_id,
+                            &Actor::system(),
+                            "error",
+                            Some(&e.to_string()),
+                            None,
+                        ),
                     }
                 }
             }
             Err(e) => {
                 tracing::warn!("auto update {name} failed: {e}");
-                audit.result("profile.update", &op_id, &Actor::system(), "error", Some(&e.to_string()), None);
+                audit.result(
+                    "profile.update",
+                    &op_id,
+                    &Actor::system(),
+                    "error",
+                    Some(&e.to_string()),
+                    None,
+                );
             }
         }
     }
@@ -191,7 +221,7 @@ fn now_unix() -> i64 {
 
 #[cfg(test)]
 mod tests {
-    use super::{parse_subscription_userinfo, SubscriptionInfo};
+    use super::{SubscriptionInfo, parse_subscription_userinfo};
 
     #[test]
     fn parse_userinfo_extracts_fields() {

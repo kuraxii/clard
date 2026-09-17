@@ -11,7 +11,7 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use clard_proto::Event;
-use tokio::sync::{broadcast, Mutex};
+use tokio::sync::{Mutex, broadcast};
 
 use crate::audit::{Actor, Audit};
 use crate::core::CoreManager;
@@ -79,11 +79,7 @@ pub fn spawn(
 }
 
 /// 核心崩溃检测：期望运行但已停止 → 退避重启；超限 → fail-open。
-async fn check_core_crash(
-    core: &Mutex<CoreManager>,
-    audit: &Audit,
-    events: &broadcast::Sender<Event>,
-) {
+async fn check_core_crash(core: &Mutex<CoreManager>, audit: &Audit, events: &broadcast::Sender<Event>) {
     enum Action {
         Restart(Duration),
         FailOpen,

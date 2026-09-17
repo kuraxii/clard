@@ -6,8 +6,11 @@
 //! - 常驻运行：flock 单实例 → unix socket RPC → 审计双写；
 //! - 安装/卸载由 RPM 包管理承担（packaging/clard.spec 的 %post/%preun，doc/01 §4.1/§4.4）。
 
-#![deny(unsafe_code)]  // 仅 core.rs 核心生命周期以 allow 豁免（PR_SET_PDEATHSIG，见 core.rs 顶部说明）
-#![cfg_attr(test, allow(clippy::panic, clippy::unwrap_used, clippy::expect_used, clippy::indexing_slicing))]
+#![deny(unsafe_code)] // 仅 core.rs 核心生命周期以 allow 豁免（PR_SET_PDEATHSIG，见 core.rs 顶部说明）
+#![cfg_attr(
+    test,
+    allow(clippy::panic, clippy::unwrap_used, clippy::expect_used, clippy::indexing_slicing)
+)]
 #![warn(
     rust_2018_idioms,
     trivial_casts,

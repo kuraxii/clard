@@ -5,7 +5,10 @@
 //! - 只被 `clard-tui` 使用；`clard-helper` 不链接本 crate。
 
 #![forbid(unsafe_code)]
-#![cfg_attr(test, allow(clippy::panic, clippy::unwrap_used, clippy::expect_used, clippy::indexing_slicing))]
+#![cfg_attr(
+    test,
+    allow(clippy::panic, clippy::unwrap_used, clippy::expect_used, clippy::indexing_slicing)
+)]
 #![warn(
     rust_2018_idioms,
     trivial_casts,
@@ -16,8 +19,7 @@
     clippy::redundant_closure
 )]
 
-
-pub mod mihomo;
 pub mod geodata;
+pub mod mihomo;
 pub mod profiles;
 pub mod upgrade;

@@ -91,10 +91,7 @@ pub fn asset_arch() -> Result<&'static str, UpgradeError> {
 
 /// 从 GitHub release API 解析最新版本与对应资产 URL。
 /// `api_url` 生产为 [`GITHUB_API_URL`]，测试注入 mock 地址。
-pub async fn fetch_latest_release(
-    client: &reqwest::Client,
-    api_url: &str,
-) -> Result<ReleaseInfo, UpgradeError> {
+pub async fn fetch_latest_release(client: &reqwest::Client, api_url: &str) -> Result<ReleaseInfo, UpgradeError> {
     let arch = asset_arch()?;
     let resp = client
         .get(api_url)
@@ -106,12 +103,9 @@ pub async fn fetch_latest_release(
     if !resp.status().is_success() {
         return Err(UpgradeError::Release(format!("HTTP {}", resp.status().as_u16())));
     }
-    let body = resp
-        .bytes()
-        .await
-        .map_err(|e| UpgradeError::Release(e.to_string()))?;
-    let v: serde_json::Value = serde_json::from_slice(&body)
-        .map_err(|e| UpgradeError::Release(format!("JSON 解析失败: {e}")))?;
+    let body = resp.bytes().await.map_err(|e| UpgradeError::Release(e.to_string()))?;
+    let v: serde_json::Value =
+        serde_json::from_slice(&body).map_err(|e| UpgradeError::Release(format!("JSON 解析失败: {e}")))?;
     let tag = v
         .get("tag_name")
         .and_then(|t| t.as_str())
@@ -149,28 +143,23 @@ pub async fn download_latest(
 }
 
 /// 获取期望 sha256（`<url>.sha256sum`，第一行 `<hex>  <filename>`）。
-pub async fn fetch_expected_sha256(
-    client: &reqwest::Client,
-    url: &str,
-) -> Result<String, UpgradeError> {
+pub async fn fetch_expected_sha256(client: &reqwest::Client, url: &str) -> Result<String, UpgradeError> {
     let sum_url = format!("{url}.sha256sum");
-    let bytes = fetch_bytes(client, &sum_url, SHA256SUM_LIMIT).await.map_err(|e| {
-        UpgradeError::ShaSum {
+    let bytes = fetch_bytes(client, &sum_url, SHA256SUM_LIMIT)
+        .await
+        .map_err(|e| UpgradeError::ShaSum {
             url: sum_url.clone(),
             msg: match e {
                 UpgradeError::HttpStatus(s) => format!("HTTP {s}"),
                 other => other.to_string(),
             },
-        }
-    })?;
+        })?;
     let text = String::from_utf8(bytes).map_err(|_| UpgradeError::ShaSum {
         url: sum_url,
         msg: "非 UTF-8".into(),
     })?;
     let line = text.lines().find(|l| !l.trim().is_empty()).unwrap_or_default();
-    parse_sha256sum_line(line).ok_or_else(|| UpgradeError::ShaSumFormat {
-        line: line.to_string(),
-    })
+    parse_sha256sum_line(line).ok_or_else(|| UpgradeError::ShaSumFormat { line: line.to_string() })
 }
 
 /// 解析 `<hex>  <filename>` 行的 hex 部分（纯函数，可单测）。
@@ -187,10 +176,7 @@ pub fn parse_sha256sum_line(line: &str) -> Option<String> {
 }
 
 /// 下载 + 期望哈希 + 本地校验，返回 (安装包字节, 期望哈希)。哈希不符即拒绝。
-pub async fn download_and_verify(
-    client: &reqwest::Client,
-    url: &str,
-) -> Result<(Vec<u8>, String), UpgradeError> {
+pub async fn download_and_verify(client: &reqwest::Client, url: &str) -> Result<(Vec<u8>, String), UpgradeError> {
     let expected = fetch_expected_sha256(client, url).await?;
     let bytes = download_core(client, url).await?;
     let actual = sha256_hex(&bytes);
@@ -200,11 +186,7 @@ pub async fn download_and_verify(
     Ok((bytes, expected))
 }
 
-async fn fetch_bytes(
-    client: &reqwest::Client,
-    url: &str,
-    limit: u64,
-) -> Result<Vec<u8>, UpgradeError> {
+async fn fetch_bytes(client: &reqwest::Client, url: &str, limit: u64) -> Result<Vec<u8>, UpgradeError> {
     let resp = client
         .get(url)
         .timeout(TIMEOUT)
@@ -250,11 +232,7 @@ mod tests {
     use super::*;
 
     /// 本地 HTTP 服务：按路径分发（`/core` 主体、`/core.sha256sum` 哈希）；accept 循环处理多次请求。
-    async fn serve_router(
-        bin: Vec<u8>,
-        sha_file: Option<String>,
-        gzip: bool,
-    ) -> SocketAddr {
+    async fn serve_router(bin: Vec<u8>, sha_file: Option<String>, gzip: bool) -> SocketAddr {
         let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
         let addr = listener.local_addr().unwrap();
         tokio::spawn(async move {
@@ -289,8 +267,7 @@ mod tests {
                     }
                 } else if gzip {
                     use std::io::Write;
-                    let mut enc =
-                        flate2::write::GzEncoder::new(Vec::new(), flate2::Compression::default());
+                    let mut enc = flate2::write::GzEncoder::new(Vec::new(), flate2::Compression::default());
                     enc.write_all(&bin).unwrap();
                     ("200 OK", enc.finish().unwrap())
                 } else {
@@ -349,7 +326,9 @@ mod tests {
         let gz = enc.finish().unwrap();
         let addr = serve_router(gz, None, false).await;
         // 服务端给的是 gz 字节；URL 带 .gz → 解压
-        let out = download_core(&client(), &format!("http://{addr}/mihomo.gz")).await.unwrap();
+        let out = download_core(&client(), &format!("http://{addr}/mihomo.gz"))
+            .await
+            .unwrap();
         assert_eq!(out, bin);
     }
 
@@ -390,7 +369,9 @@ mod tests {
     async fn download_core_content_length_over_limit_rejected() {
         let addr = serve_router(vec![0u8; 100], None, false).await;
         // 10 字节上限：Content-Length 预判拒绝
-        let err = fetch_bytes(&client(), &format!("http://{addr}/big"), 10).await.unwrap_err();
+        let err = fetch_bytes(&client(), &format!("http://{addr}/big"), 10)
+            .await
+            .unwrap_err();
         assert_eq!(err, UpgradeError::TooLarge(10));
     }
 
@@ -406,19 +387,24 @@ mod tests {
         let with_asset = with_asset;
         tokio::spawn(async move {
             use std::io::Write;
-            let mut enc =
-                flate2::write::GzEncoder::new(Vec::new(), flate2::Compression::default());
+            let mut enc = flate2::write::GzEncoder::new(Vec::new(), flate2::Compression::default());
             enc.write_all(&payload).unwrap();
             let gz = enc.finish().unwrap();
             for _ in 0..4 {
-                let Ok((mut sock, _)) = listener.accept().await else { break };
+                let Ok((mut sock, _)) = listener.accept().await else {
+                    break;
+                };
                 let mut buf = [0u8; 8192];
                 let mut read = 0;
                 loop {
                     let n = sock.read(&mut buf[read..]).await.unwrap();
-                    if n == 0 { break; }
+                    if n == 0 {
+                        break;
+                    }
                     read += n;
-                    if buf[..read].windows(4).any(|w| w == b"\r\n\r\n") { break; }
+                    if buf[..read].windows(4).any(|w| w == b"\r\n\r\n") {
+                        break;
+                    }
                 }
                 let req = String::from_utf8_lossy(&buf[..read]);
                 let path = req

@@ -87,7 +87,14 @@ pub fn convert(line: &str) -> Result<Value, ConfigGenError> {
             }
             if let Some((k, v)) = raw.split_once('=') {
                 if !k.is_empty() {
-                    opts.insert(k.to_string(), if v.is_empty() { "true".to_string() } else { v.to_string() });
+                    opts.insert(
+                        k.to_string(),
+                        if v.is_empty() {
+                            "true".to_string()
+                        } else {
+                            v.to_string()
+                        },
+                    );
                 }
             }
         }
@@ -95,8 +102,16 @@ pub fn convert(line: &str) -> Result<Value, ConfigGenError> {
             "obfs-local" | "simple-obfs" => {
                 kv(&mut m, "plugin", "obfs");
                 let mut po = Mapping::new();
-                kv_opt(&mut po, "mode", get_if_not_blank(opts.get("obfs").map(String::as_str)).map(Value::from));
-                kv_opt(&mut po, "host", get_if_not_blank(opts.get("obfs-host").map(String::as_str)).map(Value::from));
+                kv_opt(
+                    &mut po,
+                    "mode",
+                    get_if_not_blank(opts.get("obfs").map(String::as_str)).map(Value::from),
+                );
+                kv_opt(
+                    &mut po,
+                    "host",
+                    get_if_not_blank(opts.get("obfs-host").map(String::as_str)).map(Value::from),
+                );
                 if !po.is_empty() {
                     kv(&mut m, "plugin-opts", Value::Mapping(po));
                 }
@@ -112,7 +127,11 @@ pub fn convert(line: &str) -> Result<Value, ConfigGenError> {
                         .or_else(|| get_if_not_blank(opts.get("host").map(String::as_str)))
                         .map(Value::from),
                 );
-                kv_opt(&mut po, "path", get_if_not_blank(opts.get("path").map(String::as_str)).map(Value::from));
+                kv_opt(
+                    &mut po,
+                    "path",
+                    get_if_not_blank(opts.get("path").map(String::as_str)).map(Value::from),
+                );
                 if opts.contains_key("tls") {
                     kv(&mut po, "tls", true);
                 }

@@ -23,9 +23,23 @@ pub(crate) use helpers::decode_base64_or_original;
 
 /// 已识别的节点协议前缀（用于判断「这是节点列表」）
 const KNOWN_SCHEMES: &[&str] = &[
-    "vless://", "vmess://", "ss://", "trojan://", "hysteria2://", "hy2://", "tuic://",
-    "wireguard://", "wg://", "ssr://", "anytls://", "hysteria://", "hy://", "socks5://",
-    "socks://", "http://", "https://",
+    "vless://",
+    "vmess://",
+    "ss://",
+    "trojan://",
+    "hysteria2://",
+    "hy2://",
+    "tuic://",
+    "wireguard://",
+    "wg://",
+    "ssr://",
+    "anytls://",
+    "hysteria://",
+    "hy://",
+    "socks5://",
+    "socks://",
+    "http://",
+    "https://",
 ];
 
 /// 内容是否像节点列表：首个非空行以已知协议前缀开头。
@@ -50,9 +64,7 @@ pub fn node_list_to_yaml(text: &str) -> Result<Value, ConfigGenError> {
             continue;
         }
         let proxy = convert_node(line).map_err(|e| match e {
-            ConfigGenError::UnsupportedScheme(s) => {
-                ConfigGenError::UnsupportedScheme(format!("第 {} 行: {s}", i + 1))
-            }
+            ConfigGenError::UnsupportedScheme(s) => ConfigGenError::UnsupportedScheme(format!("第 {} 行: {s}", i + 1)),
             other => other,
         })?;
         proxies.push(proxy);

@@ -5,8 +5,7 @@
 //! 恢复后由当前配置重新生成）。恢复时校验归档结构（拒绝路径穿越/超大）。
 
 use std::{
-    fs,
-    io,
+    fs, io,
     path::{Path, PathBuf},
     time::{SystemTime, UNIX_EPOCH},
 };
@@ -65,7 +64,9 @@ fn allowed_entry(path: &Path) -> bool {
 /// 创建备份（doc/05 §8 R8.1）。`dir` 为备份目录（生产用 `backup_dir()`，测试可注入）。
 pub fn create(dir: &Path, state: &Path, name: Option<&str>) -> Result<BackupItem, BackupError> {
     fs::create_dir_all(dir)?;
-    let name = name.map(str::to_string).unwrap_or_else(|| format!("backup-{}", now_unix()));
+    let name = name
+        .map(str::to_string)
+        .unwrap_or_else(|| format!("backup-{}", now_unix()));
     let path = dir.join(format!("{name}.tar.gz"));
 
     let file = fs::File::create(&path)?;
@@ -261,7 +262,10 @@ mod tests {
         assert!(allowed_entry(Path::new("profiles/R1.yaml")));
         assert!(!allowed_entry(Path::new("../evil.txt")));
         assert!(!allowed_entry(Path::new("/etc/passwd")));
-        assert!(!allowed_entry(Path::new("profiles/sub/x.yaml")), "profiles/ 下不允许子目录");
+        assert!(
+            !allowed_entry(Path::new("profiles/sub/x.yaml")),
+            "profiles/ 下不允许子目录"
+        );
         assert!(!allowed_entry(Path::new("runtime/config.yaml")));
     }
 

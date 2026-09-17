@@ -18,12 +18,11 @@ fn base(
     let after_scheme = line
         .strip_prefix(&format!("{scheme}://"))
         .ok_or_else(|| ConfigGenError::InvalidNode(format!("不是 {scheme} URI")))?;
-    let parsed = parse_url_like(after_scheme)
-        .ok_or_else(|| ConfigGenError::InvalidNode(format!("{scheme} URI 解析失败")))?;
+    let parsed =
+        parse_url_like(after_scheme).ok_or_else(|| ConfigGenError::InvalidNode(format!("{scheme} URI 解析失败")))?;
     let port = parse_port_or_default(parsed.port.as_deref(), default_port);
     let auth = parsed.auth.as_deref().map(safe_decode_uri_component);
-    let name = decode_and_trim(parsed.fragment.as_deref())
-        .unwrap_or_else(|| format!("{label} {}:{port}", parsed.host));
+    let name = decode_and_trim(parsed.fragment.as_deref()).unwrap_or_else(|| format!("{label} {}:{port}", parsed.host));
 
     let mut m = Mapping::new();
     kv(&mut m, "type", type_name);

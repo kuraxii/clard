@@ -90,9 +90,7 @@ pub fn global() -> HelperConfig {
 /// 变化后由调用方对核心做 log-level 字段级 PATCH 热更）。
 pub fn reload_if_changed() -> bool {
     let mut cfg = CFG.write().unwrap_or_else(|e| e.into_inner());
-    let cur_mtime = std::fs::metadata(HelperConfig::path())
-        .and_then(|m| m.modified())
-        .ok();
+    let cur_mtime = std::fs::metadata(HelperConfig::path()).and_then(|m| m.modified()).ok();
     if cur_mtime == cfg.mtime {
         return false;
     }

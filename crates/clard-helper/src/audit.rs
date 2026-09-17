@@ -24,10 +24,7 @@ pub struct Actor {
 impl Actor {
     /// 系统自身触发的操作（如自动更新定时器）使用的占位身份。
     pub fn system() -> Self {
-        Self {
-            uid: u32::MAX,
-            pid: -1,
-        }
+        Self { uid: u32::MAX, pid: -1 }
     }
 }
 
@@ -62,17 +59,7 @@ impl Audit {
         let ts = now_millis();
         let op_id = format!("{ts}-{:06}", self.seq.fetch_add(1, Ordering::Relaxed));
         let net = net_snapshot();
-        self.write(
-            op,
-            &op_id,
-            "intent",
-            actor,
-            "pending",
-            intent_desc,
-            None,
-            net,
-            None,
-        );
+        self.write(op, &op_id, "intent", actor, "pending", intent_desc, None, net, None);
         op_id
     }
 
@@ -167,10 +154,12 @@ pub fn net_snapshot() -> Option<String> {
             .and_then(|p| p.trim().parse::<i64>().ok())
             .is_some_and(|p| (9100..9110).contains(&p))
     });
-    Some(serde_json::json!({
-        "clard0": if link.is_empty() { "absent" } else { "present" },
-        "table2023_route": !route4.is_empty(),
-        "rule9100": has_rule,
-    })
-    .to_string())
+    Some(
+        serde_json::json!({
+            "clard0": if link.is_empty() { "absent" } else { "present" },
+            "table2023_route": !route4.is_empty(),
+            "rule9100": has_rule,
+        })
+        .to_string(),
+    )
 }

@@ -257,9 +257,8 @@ impl CoreManager {
 
 /// 校验核心二进制（§5.1）：存在、非 symlink、root 拥有、非 group/other 可写。
 fn verify_core_binary(bin: &Path) -> Result<(), String> {
-    let meta = fs::symlink_metadata(bin).map_err(|e| {
-        format!("核心二进制缺失（{}），请先在设置页「Core」安装核心: {e}", bin.display())
-    })?;
+    let meta = fs::symlink_metadata(bin)
+        .map_err(|e| format!("核心二进制缺失（{}），请先在设置页「Core」安装核心: {e}", bin.display()))?;
     if meta.file_type().is_symlink() {
         return Err(format!("核心二进制是符号链接，拒绝执行: {}", bin.display()));
     }
@@ -269,7 +268,10 @@ fn verify_core_binary(bin: &Path) -> Result<(), String> {
     }
     let mode = meta.permissions().mode();
     if mode & 0o022 != 0 {
-        return Err(format!("核心二进制 group/other 可写（mode {mode:o}），拒绝执行: {}", bin.display()));
+        return Err(format!(
+            "核心二进制 group/other 可写（mode {mode:o}），拒绝执行: {}",
+            bin.display()
+        ));
     }
     Ok(())
 }
@@ -445,9 +447,7 @@ fn verify_inbox_sha256(inbox_path: &Path, expected_sha256: &str) -> Result<fs::F
     let mut hasher = Sha256::new();
     let mut buf = [0u8; 64 * 1024];
     loop {
-        let n = f
-            .read(&mut buf)
-            .map_err(|e| format!("读取 inbox 文件失败: {e}"))?;
+        let n = f.read(&mut buf).map_err(|e| format!("读取 inbox 文件失败: {e}"))?;
         if n == 0 {
             break;
         }
@@ -457,7 +457,9 @@ fn verify_inbox_sha256(inbox_path: &Path, expected_sha256: &str) -> Result<fs::F
     let expected = expected_sha256.trim().to_ascii_lowercase();
     if actual != expected {
         let _ = fs::remove_file(inbox_path);
-        return Err(format!("校验和失败：期望 {expected}，实际 {actual}（已删除 inbox 文件）"));
+        return Err(format!(
+            "校验和失败：期望 {expected}，实际 {actual}（已删除 inbox 文件）"
+        ));
     }
     Ok(f)
 }
@@ -514,11 +516,7 @@ mod tests {
     use super::*;
 
     /// 起一个 unix socket mock HTTP 服务，响应指定 status/body，并记录请求。
-    async fn spawn_mock(
-        path: PathBuf,
-        status: &str,
-        body: &str,
-    ) -> tokio::task::JoinHandle<(String, String, String)> {
+    async fn spawn_mock(path: PathBuf, status: &str, body: &str) -> tokio::task::JoinHandle<(String, String, String)> {
         let _ = fs::remove_file(&path);
         let listener = UnixListener::bind(&path).unwrap();
         let status = status.to_string();
@@ -633,7 +631,10 @@ mod tests {
 
         let e = install_core(&state, &targets, &link, &"0".repeat(64)).unwrap_err();
         assert!(e.contains("打开 inbox 文件失败"), "O_NOFOLLOW 拒绝 symlink: {e}");
-        assert!(!fs::read_to_string(&target).map(|s| s.is_empty()).unwrap_or(true), "目标未被读取/影响");
+        assert!(
+            !fs::read_to_string(&target).map(|s| s.is_empty()).unwrap_or(true),
+            "目标未被读取/影响"
+        );
         let _ = fs::remove_file(&target);
     }
 
@@ -732,9 +733,7 @@ mod log_level_tests {
             let text = String::from_utf8_lossy(&buf);
             let req_line = text.lines().next().unwrap_or_default().to_string();
             let method = req_line.split(' ').next().unwrap_or("").to_string();
-            let resp = format!(
-                "HTTP/1.1 {status}\r\nContent-Length: 0\r\nConnection: close\r\n\r\n"
-            );
+            let resp = format!("HTTP/1.1 {status}\r\nContent-Length: 0\r\nConnection: close\r\n\r\n");
             sock.write_all(resp.as_bytes()).await.unwrap();
             let _ = sock.shutdown().await;
             let has_log_level = text.contains("log-level");

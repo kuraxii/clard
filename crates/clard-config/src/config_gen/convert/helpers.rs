@@ -128,10 +128,7 @@ pub fn parse_vless_flow(v: Option<&str>) -> Option<String> {
     if flow.is_empty() || flow.eq_ignore_ascii_case("none") {
         return None;
     }
-    let valid = flow
-        .chars()
-        .next()
-        .is_some_and(|c| c.is_ascii_alphanumeric())
+    let valid = flow.chars().next().is_some_and(|c| c.is_ascii_alphanumeric())
         && flow.chars().all(|c| c.is_ascii_alphanumeric() || c == '-');
     valid.then(|| flow.to_string())
 }
@@ -151,13 +148,37 @@ pub fn parse_port_or_default(port: Option<&str>, dft: u16) -> u16 {
 /// 密文别名/白名单；未知 → `auto`。
 pub fn get_cipher(v: Option<&str>) -> String {
     const KNOWN: &[&str] = &[
-        "none", "auto", "dummy", "aes-128-gcm", "aes-192-gcm", "aes-256-gcm", "lea-128-gcm",
-        "lea-192-gcm", "lea-256-gcm", "aes-128-gcm-siv", "aes-256-gcm-siv",
-        "2022-blake3-aes-128-gcm", "2022-blake3-aes-256-gcm", "aes-128-cfb", "aes-192-cfb",
-        "aes-256-cfb", "aes-128-ctr", "aes-192-ctr", "aes-256-ctr", "chacha20", "chacha20-ietf",
-        "chacha20-ietf-poly1305", "2022-blake3-chacha20-poly1305", "rabbit128-poly1305",
-        "xchacha20-ietf-poly1305", "xchacha20", "aegis-128l", "aegis-256", "aez-384",
-        "deoxys-ii-256-128", "rc4-md5",
+        "none",
+        "auto",
+        "dummy",
+        "aes-128-gcm",
+        "aes-192-gcm",
+        "aes-256-gcm",
+        "lea-128-gcm",
+        "lea-192-gcm",
+        "lea-256-gcm",
+        "aes-128-gcm-siv",
+        "aes-256-gcm-siv",
+        "2022-blake3-aes-128-gcm",
+        "2022-blake3-aes-256-gcm",
+        "aes-128-cfb",
+        "aes-192-cfb",
+        "aes-256-cfb",
+        "aes-128-ctr",
+        "aes-192-ctr",
+        "aes-256-ctr",
+        "chacha20",
+        "chacha20-ietf",
+        "chacha20-ietf-poly1305",
+        "2022-blake3-chacha20-poly1305",
+        "rabbit128-poly1305",
+        "xchacha20-ietf-poly1305",
+        "xchacha20",
+        "aegis-128l",
+        "aegis-256",
+        "aez-384",
+        "deoxys-ii-256-128",
+        "rc4-md5",
     ];
     let Some(v) = v else { return "none".into() };
     if v == "chacha20-poly1305" {
@@ -221,7 +242,6 @@ pub fn parse_url_like(input: &str) -> Option<UrlParts> {
         fragment,
     })
 }
-
 
 #[cfg(test)]
 mod tests {
@@ -291,7 +311,10 @@ mod tests {
         assert!(parse_bool_or_presence(Some("true")));
         assert!(!parse_bool_or_presence(Some("false")));
         assert_eq!(parse_vless_flow(Some("none")), None);
-        assert_eq!(parse_vless_flow(Some("xtls-rprx-vision")).as_deref(), Some("xtls-rprx-vision"));
+        assert_eq!(
+            parse_vless_flow(Some("xtls-rprx-vision")).as_deref(),
+            Some("xtls-rprx-vision")
+        );
         assert_eq!(parse_vless_flow(Some("bad flow!")), None);
         assert_eq!(get_cipher(Some("chacha20-poly1305")), "chacha20-ietf-poly1305");
         assert_eq!(get_cipher(Some("aes-128-gcm")), "aes-128-gcm");

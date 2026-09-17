@@ -5,9 +5,7 @@
 use serde_json::Value as Json;
 use serde_yaml_ng::{Mapping, Value};
 
-use super::helpers::{
-    decode_base64_or_original, get_cipher, kv, kv_opt, parse_bool, parse_required_port,
-};
+use super::helpers::{decode_base64_or_original, get_cipher, kv, kv_opt, parse_bool, parse_required_port};
 use crate::config_gen::ConfigGenError;
 
 fn parse_vmess_params(decoded: &str) -> Result<Json, ConfigGenError> {
@@ -51,7 +49,11 @@ pub fn convert(line: &str) -> Result<Value, ConfigGenError> {
     kv(&mut m, "server", server);
     kv(&mut m, "port", i64::from(port));
     kv(&mut m, "uuid", uuid);
-    kv(&mut m, "cipher", get_cipher(Some(get_str("scy").unwrap_or("auto"))).as_str());
+    kv(
+        &mut m,
+        "cipher",
+        get_cipher(Some(get_str("scy").unwrap_or("auto"))).as_str(),
+    );
     kv(&mut m, "alterId", obj.get("aid").and_then(Json::as_u64).unwrap_or(0));
 
     // tls：tls 字段 ∈ {tls, true, 1, "1", "true"}
@@ -91,11 +93,13 @@ pub fn convert(line: &str) -> Result<Value, ConfigGenError> {
                 kv_opt(
                     &mut wo,
                     "headers",
-                    host.map(|h| Value::Mapping({
-                        let mut hd = Mapping::new();
-                        kv(&mut hd, "Host", h);
-                        hd
-                    })),
+                    host.map(|h| {
+                        Value::Mapping({
+                            let mut hd = Mapping::new();
+                            kv(&mut hd, "Host", h);
+                            hd
+                        })
+                    }),
                 );
                 if httpupgrade {
                     kv(&mut wo, "v2ray-http-upgrade", true);
@@ -122,7 +126,9 @@ pub fn convert(line: &str) -> Result<Value, ConfigGenError> {
             }
             "http" => {
                 let mut ho = Mapping::new();
-                let paths = path.map(|p| Value::Sequence(vec![Value::from(p)])).unwrap_or_else(|| Value::Sequence(vec![Value::from("/")]));
+                let paths = path
+                    .map(|p| Value::Sequence(vec![Value::from(p)]))
+                    .unwrap_or_else(|| Value::Sequence(vec![Value::from("/")]));
                 kv(&mut ho, "path", paths);
                 if let Some(host) = host {
                     let mut hd = Mapping::new();

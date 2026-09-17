@@ -91,10 +91,7 @@ impl HttpFetcher {
             .get("content-disposition")
             .and_then(|v| v.to_str().ok())
             .and_then(parse_content_disposition);
-        let bytes = resp
-            .bytes()
-            .await
-            .map_err(|e| DownloadError::Request(e.to_string()))?;
+        let bytes = resp.bytes().await.map_err(|e| DownloadError::Request(e.to_string()))?;
         if bytes.is_empty() {
             return Err(DownloadError::Empty);
         }
@@ -241,10 +238,7 @@ mod tests {
             b"proxies: []\n",
         )
         .await;
-        let (body, info, filename) = fetcher()
-            .fetch_with_info(&format!("http://{addr}/sub"))
-            .await
-            .unwrap();
+        let (body, info, filename) = fetcher().fetch_with_info(&format!("http://{addr}/sub")).await.unwrap();
         assert_eq!(body, "proxies: []\n");
         assert_eq!(info, SubscriptionInfo::default());
         assert_eq!(filename.as_deref(), Some("My Sub.yaml"));
@@ -258,20 +252,14 @@ mod tests {
             b"proxies: []\n",
         )
         .await;
-        let (_, _, filename) = fetcher()
-            .fetch_with_info(&format!("http://{addr}/sub"))
-            .await
-            .unwrap();
+        let (_, _, filename) = fetcher().fetch_with_info(&format!("http://{addr}/sub")).await.unwrap();
         assert_eq!(filename.as_deref(), Some("sub.yaml"));
     }
 
     #[tokio::test]
     async fn fetch_with_info_no_disposition_is_none() {
         let addr = serve_once("200 OK", b"proxies: []\n").await;
-        let (_, _, filename) = fetcher()
-            .fetch_with_info(&format!("http://{addr}/sub"))
-            .await
-            .unwrap();
+        let (_, _, filename) = fetcher().fetch_with_info(&format!("http://{addr}/sub")).await.unwrap();
         assert_eq!(filename, None);
     }
 
@@ -295,7 +283,10 @@ mod tests {
 
     #[test]
     fn default_name_uses_filename_first() {
-        assert_eq!(default_name(Some("机场A.yaml"), "https://example.com/sub"), "机场A.yaml");
+        assert_eq!(
+            default_name(Some("机场A.yaml"), "https://example.com/sub"),
+            "机场A.yaml"
+        );
         // 空/空白 filename 视为缺失，回退 URL 最后一段
         assert_eq!(default_name(Some("   "), "https://example.com/sub-a"), "sub-a");
     }
@@ -347,9 +338,7 @@ mod tests {
 
     #[test]
     fn parse_subscription_userinfo_extracts_fields() {
-        let info = parse_subscription_userinfo(
-            "upload=100; download=200; total=300; expire=1700000000",
-        );
+        let info = parse_subscription_userinfo("upload=100; download=200; total=300; expire=1700000000");
         assert_eq!(info.upload, 100);
         assert_eq!(info.download, 200);
         assert_eq!(info.total, 300);

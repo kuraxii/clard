@@ -388,7 +388,11 @@ mod tests {
             .as_ref()
             .map(|v| v.iter().map(String::as_str).collect())
             .unwrap_or_default();
-        assert_eq!(order, vec!["apple", "banana", "Cherry"], "固定名称升序（ascii 忽略大小写）");
+        assert_eq!(
+            order,
+            vec!["apple", "banana", "Cherry"],
+            "固定名称升序（ascii 忽略大小写）"
+        );
     }
 
     #[test]

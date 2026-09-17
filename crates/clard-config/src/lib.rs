@@ -5,7 +5,10 @@
 //! 未来承担配置拼装（设置变更即重生成）时可按 §3.1 边界规则链接本 crate。
 
 #![forbid(unsafe_code)]
-#![cfg_attr(test, allow(clippy::panic, clippy::unwrap_used, clippy::expect_used, clippy::indexing_slicing))]
+#![cfg_attr(
+    test,
+    allow(clippy::panic, clippy::unwrap_used, clippy::expect_used, clippy::indexing_slicing)
+)]
 #![warn(
     rust_2018_idioms,
     trivial_casts,

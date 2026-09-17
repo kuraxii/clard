@@ -4,11 +4,7 @@
 //! 帧格式：u32 BE 长度前缀 + JSON（doc/01 §11）。
 //! 并发：所有状态变更经同一把 `Mutex` 串行（doc/01 §9 单写者）。
 
-use std::{
-    io,
-    path::PathBuf,
-    sync::Arc,
-};
+use std::{io, path::PathBuf, sync::Arc};
 
 use clard_proto::{Request, Response};
 use tokio::{
@@ -83,14 +79,10 @@ pub async fn run() -> io::Result<()> {
 
     let audit = Arc::new(Audit::open());
     let store = Arc::new(Mutex::new(
-        ProfilesStore::open(&state).map_err(|e| {
-            io::Error::other(format!("打开配置索引失败: {e}"))
-        })?,
+        ProfilesStore::open(&state).map_err(|e| io::Error::other(format!("打开配置索引失败: {e}")))?,
     ));
     let settings = Arc::new(Mutex::new(
-        SettingsStore::open(&state).map_err(|e| {
-            io::Error::other(format!("打开设置失败: {e}"))
-        })?,
+        SettingsStore::open(&state).map_err(|e| io::Error::other(format!("打开设置失败: {e}")))?,
     ));
     let core = Arc::new(Mutex::new(CoreManager::new(&state)));
     // 事件广播（§5.6 Subscribe：状态变化/Degraded 推给订阅连接）
@@ -167,7 +159,13 @@ pub async fn run() -> io::Result<()> {
     }
 
     // 订阅自动更新定时器（R2.8；0=关，见 clard.toml）
-    autoupdate::spawn(store.clone(), settings.clone(), core.clone(), audit.clone(), events_tx.clone());
+    autoupdate::spawn(
+        store.clone(),
+        settings.clone(),
+        core.clone(),
+        audit.clone(),
+        events_tx.clone(),
+    );
 
     // §5.4/§6.5 watchdog：核心崩溃退避重启 + TUN 健康 fail-open
     crate::watchdog::spawn(settings.clone(), core.clone(), audit.clone(), events_tx.clone());
@@ -197,8 +195,7 @@ pub async fn run() -> io::Result<()> {
     // §5.2 优雅退出：SIGTERM → 停核心 + cleanup-tun（fail-open）→ 退出。
     // 否则 helper 被 systemctl restart / kill -TERM 时 mihomo 子进程会成孤儿。
     let mut sigterm =
-        tokio::signal::unix::signal(tokio::signal::unix::SignalKind::terminate())
-            .map_err(io::Error::other)?;
+        tokio::signal::unix::signal(tokio::signal::unix::SignalKind::terminate()).map_err(io::Error::other)?;
 
     loop {
         tokio::select! {
@@ -289,8 +286,7 @@ async fn subscribe_loop(
 }
 
 async fn write_event(stream: &mut UnixStream, ev: &clard_proto::Event) -> io::Result<()> {
-    let buf = serde_json::to_vec(ev)
-        .map_err(|e| io::Error::new(io::ErrorKind::InvalidData, e.to_string()))?;
+    let buf = serde_json::to_vec(ev).map_err(|e| io::Error::new(io::ErrorKind::InvalidData, e.to_string()))?;
     stream.write_all(&(buf.len() as u32).to_be_bytes()).await?;
     stream.write_all(&buf).await?;
     Ok(())
@@ -306,14 +302,12 @@ async fn read_frame(stream: &mut UnixStream) -> io::Result<Option<Request>> {
     }
     let mut buf = vec![0u8; len];
     stream.read_exact(&mut buf).await?;
-    let req = serde_json::from_slice(&buf)
-        .map_err(|e| io::Error::new(io::ErrorKind::InvalidData, e.to_string()))?;
+    let req = serde_json::from_slice(&buf).map_err(|e| io::Error::new(io::ErrorKind::InvalidData, e.to_string()))?;
     Ok(Some(req))
 }
 
 async fn write_frame(stream: &mut UnixStream, resp: &Response) -> io::Result<()> {
-    let buf = serde_json::to_vec(resp)
-        .map_err(|e| io::Error::new(io::ErrorKind::InvalidData, e.to_string()))?;
+    let buf = serde_json::to_vec(resp).map_err(|e| io::Error::new(io::ErrorKind::InvalidData, e.to_string()))?;
     stream.write_all(&(buf.len() as u32).to_be_bytes()).await?;
     stream.write_all(&buf).await?;
     Ok(())

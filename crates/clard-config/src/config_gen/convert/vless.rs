@@ -3,8 +3,8 @@
 use serde_yaml_ng::{Mapping, Value};
 
 use super::helpers::{
-    Query, decode_and_trim, decode_base64_or_original, kv, kv_opt, parse_bool_or_presence,
-    parse_required_port, parse_url_like, parse_vless_flow, safe_decode_uri_component,
+    Query, decode_and_trim, decode_base64_or_original, kv, kv_opt, parse_bool_or_presence, parse_required_port,
+    parse_url_like, parse_vless_flow, safe_decode_uri_component,
 };
 use crate::config_gen::ConfigGenError;
 
@@ -29,8 +29,7 @@ pub fn convert(line: &str) -> Result<Value, ConfigGenError> {
             };
             rest = format!("{}{}?", decode_base64_or_original(&base64_part), other);
             is_shadowrocket = true;
-            parse_url_like(&rest)
-                .ok_or_else(|| ConfigGenError::InvalidNode("vless URI 解析失败".into()))?
+            parse_url_like(&rest).ok_or_else(|| ConfigGenError::InvalidNode("vless URI 解析失败".into()))?
         }
     };
 
@@ -86,10 +85,15 @@ pub fn convert(line: &str) -> Result<Value, ConfigGenError> {
     kv_opt(
         &mut m,
         "alpn",
-        q.get("alpn").map(|v| Value::Sequence(v.split(',').map(Value::from).collect())),
+        q.get("alpn")
+            .map(|v| Value::Sequence(v.split(',').map(Value::from).collect())),
     );
     if q.has("allowInsecure") {
-        kv(&mut m, "skip-cert-verify", parse_bool_or_presence(q.get("allowInsecure")));
+        kv(
+            &mut m,
+            "skip-cert-verify",
+            parse_bool_or_presence(q.get("allowInsecure")),
+        );
     }
 
     if security == "reality" {

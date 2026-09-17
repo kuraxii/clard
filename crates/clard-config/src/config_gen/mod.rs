@@ -334,7 +334,11 @@ mod tests {
         let out = generate(profile, None, &opts()).unwrap();
         let m = as_mapping(&out);
         assert_eq!(get(&m, "mixed-port").unwrap().as_i64(), Some(7890));
-        assert_eq!(get(&m, "port").unwrap().as_i64(), Some(0), "profile port 归零，防与 mixed-port 抢端口");
+        assert_eq!(
+            get(&m, "port").unwrap().as_i64(),
+            Some(0),
+            "profile port 归零，防与 mixed-port 抢端口"
+        );
         assert_eq!(get(&m, "socks-port").unwrap().as_i64(), Some(0));
         assert_eq!(get(&m, "redir-port").unwrap().as_i64(), Some(0));
         assert_eq!(get(&m, "tproxy-port").unwrap().as_i64(), Some(0));

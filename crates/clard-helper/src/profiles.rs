@@ -193,7 +193,9 @@ impl ProfilesStore {
     pub fn memorize(&mut self, group: &str, node: &str) -> Result<(), ProfilesError> {
         let uid = self
             .current()
-            .ok_or_else(|| ProfilesError::NotFound { uid: "(无当前配置)".into() })?
+            .ok_or_else(|| ProfilesError::NotFound {
+                uid: "(无当前配置)".into(),
+            })?
             .uid
             .clone();
         let p = self
@@ -253,9 +255,8 @@ impl ProfilesStore {
         let file = PathBuf::from(PROFILES_SUBDIR).join(format!("{uid}.yaml"));
         write_file(&self.root.join(&file), yaml)?;
         let name = name.map(str::to_string).unwrap_or_else(|| default_name(url));
-        let (upload, download, total, expire) = info.map_or((0, 0, 0, None), |i| {
-            (i.upload, i.download, i.total, i.expire)
-        });
+        let (upload, download, total, expire) =
+            info.map_or((0, 0, 0, None), |i| (i.upload, i.download, i.total, i.expire));
         self.index.items.push(Profile {
             uid: uid.clone(),
             name,
@@ -425,9 +426,7 @@ fn backup_path(path: &Path, n: u32) -> PathBuf {
 }
 
 fn modified_to_unix(t: SystemTime) -> i64 {
-    t.duration_since(UNIX_EPOCH)
-        .map(|d| d.as_secs() as i64)
-        .unwrap_or(0)
+    t.duration_since(UNIX_EPOCH).map(|d| d.as_secs() as i64).unwrap_or(0)
 }
 
 fn write_file(path: &Path, content: &str) -> Result<(), ProfilesError> {

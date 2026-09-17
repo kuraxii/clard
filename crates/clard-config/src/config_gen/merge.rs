@@ -47,13 +47,26 @@ mod tests {
     #[test]
     fn scalar_overridden_by_overlay() {
         let out = deep_merge(&parse("port: 1\n"), &parse("port: 2\n"));
-        assert_eq!(out.as_mapping().unwrap().get(Value::String("port".into())).unwrap().as_i64(), Some(2));
+        assert_eq!(
+            out.as_mapping()
+                .unwrap()
+                .get(Value::String("port".into()))
+                .unwrap()
+                .as_i64(),
+            Some(2)
+        );
     }
 
     #[test]
     fn list_replaced_entirely() {
         let out = deep_merge(&parse("dns-hijack: [a]\n"), &parse("dns-hijack: [b, c]\n"));
-        let seq = out.as_mapping().unwrap().get(Value::String("dns-hijack".into())).unwrap().as_sequence().unwrap();
+        let seq = out
+            .as_mapping()
+            .unwrap()
+            .get(Value::String("dns-hijack".into()))
+            .unwrap()
+            .as_sequence()
+            .unwrap();
         assert_eq!(seq.len(), 2);
     }
 

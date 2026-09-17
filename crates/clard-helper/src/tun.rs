@@ -15,7 +15,6 @@ pub const TUN_TABLE: i64 = 2023;
 /// 清理区间（§6.4：删除 [9100, 9110) 的 rule）。
 pub const RULE_RANGE: std::ops::Range<i64> = 9100..9110;
 
-
 /// 外部命令工具路径（测试注入 fake 脚本）。
 #[derive(Debug, Clone)]
 pub struct Tools {
@@ -172,7 +171,11 @@ pub async fn cleanup_tun(tools: &Tools) -> (bool, Vec<String>) {
     for family in ["-4", "-6"] {
         let out = run(&tools.ip, &[family, "route", "flush", "table", &TUN_TABLE.to_string()]).await;
         if !out.ok() {
-            tracing::warn!("cleanup: ip {family} route flush table {}: {}", TUN_TABLE, out.stderr.trim());
+            tracing::warn!(
+                "cleanup: ip {family} route flush table {}: {}",
+                TUN_TABLE,
+                out.stderr.trim()
+            );
         }
     }
     // 3. ip link del clard0（存在才删；非持久 TUN 本应随进程消失，兜底）
@@ -227,11 +230,7 @@ async fn residuals(tools: &Tools) -> Vec<String> {
 /// TUN 开启前置检查（§5.6/§8.4）：能力探测 + 其他 TUN 占用检测 + 自身残留清理。
 /// `core_running` 时若检测到自身标识占用视为冲突（报错）；核心未运行则先清理残留再继续。
 /// 返回**其他 TUN 设备警告列表**（`force=true` 时跳过该项检测，§6.2 用户已确认共存）。
-pub(crate) async fn precheck_tun_enable(
-    core_running: bool,
-    force: bool,
-    tools: &Tools,
-) -> Result<Vec<String>, String> {
+pub(crate) async fn precheck_tun_enable(core_running: bool, force: bool, tools: &Tools) -> Result<Vec<String>, String> {
     capability_check(tools).await?;
     // 其他活跃 TUN：默认返回警告（TUI 二次确认后 force 强开）；force 时跳过
     let warnings = if force {
@@ -293,7 +292,11 @@ mod tests {
             resolvectl: "resolvectl".into(),
         };
         let warns = check_other_tun(&tools).await;
-        assert_eq!(warns, vec!["tailscale0"], "只应警告真 TUN，跳过 clard0 自身与 vnet1 tap");
+        assert_eq!(
+            warns,
+            vec!["tailscale0"],
+            "只应警告真 TUN，跳过 clard0 自身与 vnet1 tap"
+        );
     }
 
     #[test]

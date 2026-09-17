@@ -41,12 +41,7 @@ fn log_path(source: LogSource) -> PathBuf {
 /// 追加一行到 TUI 应用日志（R6.2，大小/份数可配：helper.toml，R7.5）。
 pub fn append_tui_log(line: &str) -> std::io::Result<()> {
     let cfg = crate::helper_config::global();
-    append_rotated(
-        &log_path(LogSource::Tui),
-        line,
-        cfg.app_log_max_bytes,
-        cfg.app_log_keep,
-    )
+    append_rotated(&log_path(LogSource::Tui), line, cfg.app_log_max_bytes, cfg.app_log_keep)
 }
 
 /// 追加一行到核心日志（stdout 管道转储，10MB×5 轮转）。
@@ -55,12 +50,7 @@ pub fn append_core_log(line: &str) -> std::io::Result<()> {
 }
 
 /// 追加一行，超过上限先轮转（`x.log` → `x.log.1` … `x.log.{keep-1}`，最旧删除）。
-pub fn append_rotated(
-    path: &Path,
-    line: &str,
-    max_bytes: u64,
-    keep: usize,
-) -> std::io::Result<()> {
+pub fn append_rotated(path: &Path, line: &str, max_bytes: u64, keep: usize) -> std::io::Result<()> {
     if let Some(parent) = path.parent() {
         fs::create_dir_all(parent)?;
     }
@@ -138,13 +128,19 @@ mod tests {
         append_rotated(&path, "bbbb", 12, 3).unwrap();
         append_rotated(&path, "cccc", 12, 3).unwrap(); // 触发：当前 → .1
         assert_eq!(fs::read_to_string(&path).unwrap(), "cccc\n");
-        assert_eq!(fs::read_to_string(dir.path().join("audit.log.1")).unwrap(), "aaaa\nbbbb\n");
+        assert_eq!(
+            fs::read_to_string(dir.path().join("audit.log.1")).unwrap(),
+            "aaaa\nbbbb\n"
+        );
 
         append_rotated(&path, "dddd", 12, 3).unwrap();
         append_rotated(&path, "eeee", 12, 3).unwrap();
         append_rotated(&path, "ffff", 12, 3).unwrap(); // .1→.2，当前→.1
         assert!(dir.path().join("audit.log.1").exists());
-        assert_eq!(fs::read_to_string(dir.path().join("audit.log.2")).unwrap(), "aaaa\nbbbb\n");
+        assert_eq!(
+            fs::read_to_string(dir.path().join("audit.log.2")).unwrap(),
+            "aaaa\nbbbb\n"
+        );
         // keep=3：最多 .log.2，不会出现 .log.3
         assert!(!dir.path().join("audit.log.3").exists());
     }
