@@ -518,9 +518,6 @@ fn patch_affects_config(patch: &SettingsPatch) -> bool {
         || patch.tun_dns_mode.is_some()
         || patch.dns_hijack.is_some()
         || patch.route_exclude_address.is_some()
-        || patch.exclude_uid.is_some()
-        || patch.exclude_interface.is_some()
-        || patch.exclude_dst_port.is_some()
         || patch.strict_route.is_some()
         || patch.auto_redirect.is_some()
 }

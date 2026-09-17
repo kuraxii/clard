@@ -74,9 +74,6 @@ pub fn options_from(settings: &Settings, log_level: &str) -> ConfigGenOptions {
                 } else {
                     settings.route_exclude_address.clone()
                 },
-                exclude_uid: settings.exclude_uid.clone(),
-                exclude_interface: settings.exclude_interface.clone(),
-                exclude_dst_port: settings.exclude_dst_port.clone(),
                 strict_route: settings.strict_route,
                 auto_redirect: settings.auto_redirect,
                 ..d

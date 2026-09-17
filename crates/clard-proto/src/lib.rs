@@ -148,12 +148,6 @@ pub struct Settings {
     pub dns_hijack: Vec<String>,
     /// route-exclude-address；空 = 用默认私网段（doc/01 §6.7）
     pub route_exclude_address: Vec<String>,
-    /// exclude-uid（该本地用户不被接管，doc/01 §6.7）
-    pub exclude_uid: Vec<u32>,
-    /// exclude-interface（该网卡不参与）
-    pub exclude_interface: Vec<String>,
-    /// exclude-dst-port（该目的端口不参与）
-    pub exclude_dst_port: Vec<u16>,
     /// strict-route（默认禁用；开启需二次确认，残留即断网，doc/01 §6.3）
     pub strict_route: bool,
     /// auto-redirect（默认禁用；开启需二次确认，nftables 残留面，doc/01 §6.3）
@@ -174,9 +168,6 @@ impl Default for Settings {
             tun_dns_mode: "fake-ip".into(),
             dns_hijack: Vec::new(),
             route_exclude_address: Vec::new(),
-            exclude_uid: Vec::new(),
-            exclude_interface: Vec::new(),
-            exclude_dst_port: Vec::new(),
             strict_route: false,
             auto_redirect: false,
         }
@@ -203,9 +194,6 @@ pub struct SettingsPatch {
     pub tun_dns_mode: Option<String>,
     pub dns_hijack: Option<Vec<String>>,
     pub route_exclude_address: Option<Vec<String>>,
-    pub exclude_uid: Option<Vec<u32>>,
-    pub exclude_interface: Option<Vec<String>>,
-    pub exclude_dst_port: Option<Vec<u16>>,
     pub strict_route: Option<bool>,
     pub auto_redirect: Option<bool>,
 }

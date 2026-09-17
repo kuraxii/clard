@@ -141,15 +141,6 @@ impl SettingsStore {
         if let Some(v) = &patch.route_exclude_address {
             self.settings.route_exclude_address = v.clone();
         }
-        if let Some(v) = &patch.exclude_uid {
-            self.settings.exclude_uid = v.clone();
-        }
-        if let Some(v) = &patch.exclude_interface {
-            self.settings.exclude_interface = v.clone();
-        }
-        if let Some(v) = &patch.exclude_dst_port {
-            self.settings.exclude_dst_port = v.clone();
-        }
         if let Some(v) = patch.strict_route {
             self.settings.strict_route = v;
         }
@@ -216,9 +207,6 @@ mod tests {
                     tun_dns_mode: Some("redir-host".into()),
                     dns_hijack: Some(vec!["any:53".into()]),
                     route_exclude_address: Some(vec!["10.0.0.0/8".into()]),
-                    exclude_uid: Some(vec![1000]),
-                    exclude_interface: Some(vec!["eth1".into()]),
-                    exclude_dst_port: Some(vec![5353]),
                     strict_route: Some(false),
                     auto_redirect: Some(true),
                 })
@@ -236,9 +224,6 @@ mod tests {
         assert_eq!(s.tun_dns_mode, "redir-host");
         assert_eq!(s.dns_hijack, vec!["any:53"]);
         assert_eq!(s.route_exclude_address, vec!["10.0.0.0/8"]);
-        assert_eq!(s.exclude_uid, vec![1000]);
-        assert_eq!(s.exclude_interface, vec!["eth1"]);
-        assert_eq!(s.exclude_dst_port, vec![5353]);
         assert!(!s.strict_route);
         assert!(s.auto_redirect);
     }
