@@ -10,7 +10,7 @@
 # --no-mihomo）则包内不含，首次使用经 InstallCore 安装。
 
 Name:           clard
-Version:        0.2.0
+Version:        0.2.1
 # 不带 dist 标记（如 fc41）：包名/版本/架构即可，便于跨发行版复用构建产物
 Release:        1
 Summary:        Clard — Linux transparent proxy manager (system helper + TUI client)
@@ -107,6 +107,10 @@ systemctl restart clard-helper.service >/dev/null 2>&1 || :
 %endif
 
 %changelog
+* Thu Sep 17 2026 zjzhu <zjzhu@kuraxii.dev> - 0.2.1-1
+- 新增设置页 DNS 页签（仅 TUN 开启时生效）：fake-ip-filter-mode（blacklist/whitelist/rule）、fake-ip-filter、use-hosts/use-system-hosts、hosts（domain=ip 静态映射，注入顶层）、nameserver-policy（domain=dns 按域名指定上游）、nameserver/default-nameserver（空 = clard 默认）
+- 移除 exclude-uid/interface/dst-port 可配置项（基本用不上，TUN 页签 11→8 行）
+- 代理页节点默认按名称排序并移除 s 快捷键；测速仅测试当前选中分组（t/T）
 * Tue Sep 15 2026 zjzhu <zjzhu@kuraxii.dev> - 0.2.0-1
 - 代理模式切换（rule 分流 / global 全代理 / direct 全直连）：设置页 General「Mode」循环切换，白名单 regenerate 热重载
 - geo 数据随 RPM 分发到核心 -d 目录（/var/clard/lib/runtime）安装即用；TUI `g` 更新（inbox 校验 + 原子替换）；`%config` 升级备份旧 .rpmsave 并应用新文件
