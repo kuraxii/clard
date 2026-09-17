@@ -8,6 +8,7 @@ pub mod profiles;
 pub mod proxy;
 pub mod rules;
 pub mod settings;
+pub mod sysinfo;
 
 use std::sync::{
     Arc,

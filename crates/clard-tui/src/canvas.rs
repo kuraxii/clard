@@ -302,7 +302,7 @@ impl HomeLayout {
         };
 
         draw_home_core(f, *left_top, app, theme);
-        draw_home_profile(f, *left_bottom, app, theme);
+        draw_home_sysinfo(f, *left_bottom, app, theme);
         draw_home_traffic(f, *right_top, app, theme);
         draw_home_service(f, *right_bottom, app, theme);
     }
@@ -350,20 +350,29 @@ fn draw_home_core(f: &mut Frame<'_>, area: Rect, app: &APP, theme: Theme) {
     );
 }
 
-fn draw_home_profile(f: &mut Frame<'_>, area: Rect, app: &APP, theme: Theme) {
-    let (name, updated) = app
-        .profiles
-        .selected()
-        .filter(|p| Some(p.uid.as_str()) == app.profiles.current.as_deref())
-        .map(|p| {
-            let updated = p.updated_at.map(format_unix_time).unwrap_or_else(|| "-".to_string());
-            (p.name.clone(), updated)
-        })
-        .unwrap_or_else(|| ("(none)".to_string(), "-".to_string()));
-    let lines = vec![kv_line("Profile", &name, theme), kv_line("Updated", &updated, theme)];
+fn draw_home_sysinfo(f: &mut Frame<'_>, area: Rect, app: &APP, theme: Theme) {
+    // R1.1a：非 clard 数据，TUI 直接读系统文件；网关无默认路由时不显示该行。
+    let s = &app.home.sysinfo;
+    let mem_total = format_network_bytes(s.mem_total_kib.saturating_mul(1024));
+    let mem_avail = format_network_bytes(s.mem_available_kib.saturating_mul(1024));
+    let gpu = if s.gpu.is_empty() {
+        "-".to_string()
+    } else {
+        s.gpu.clone()
+    };
+    let mut lines = vec![
+        kv_line("OS", if s.os.is_empty() { "-" } else { &s.os }, theme),
+        kv_line("Kernel", if s.kernel.is_empty() { "-" } else { &s.kernel }, theme),
+        kv_line("CPU", if s.cpu.is_empty() { "-" } else { &s.cpu }, theme),
+        kv_line("GPU", &gpu, theme),
+        kv_line("Memory", &format!("{mem_avail} / {mem_total}"), theme),
+    ];
+    if let Some((iface, ip)) = &s.gateway {
+        lines.push(kv_line("Gateway", &format!("{ip} ({iface})"), theme));
+    }
     f.render_widget(
         Paragraph::new(lines)
-            .block(panel_block("Profile", false, theme))
+            .block(panel_block("System", false, theme))
             .wrap(Wrap { trim: true }),
         area,
     );

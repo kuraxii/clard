@@ -174,6 +174,8 @@ pub async fn start_clard() -> Result<()> {
     let backend = default_backend()?;
 
     let mut app = APP::init(sender.clone(), Arc::new(backend.clone()));
+    // 系统信息（System 面板）：启动采集一次，之后 10s 周期刷新（内存/网关动态）
+    app.home.refresh_sysinfo();
     // 流量 WS 全局订阅一次（主页/连接页共用）
     app.subscribe_traffic();
     // 启动即拉取 helper 版本与核心状态（主页展示）
@@ -195,6 +197,8 @@ pub async fn start_clard() -> Result<()> {
 
     let mut connections_refresh = tokio::time::interval(Duration::from_secs(1));
     connections_refresh.set_missed_tick_behavior(MissedTickBehavior::Skip);
+    let mut sysinfo_refresh = tokio::time::interval(Duration::from_secs(10));
+    sysinfo_refresh.set_missed_tick_behavior(MissedTickBehavior::Skip);
 
     painter.draw(&mut terminal, &app);
     loop {
@@ -203,6 +207,11 @@ pub async fn start_clard() -> Result<()> {
                 if app.current_page == app::page::Page::Connections {
                     app.fetch_connections();
                 }
+            }
+            _ = sysinfo_refresh.tick() => {
+                // System 面板刷新（内存/网关）并重绘
+                app.home.refresh_sysinfo();
+                painter.draw(&mut terminal, &app);
             }
             recv = receiver.recv() => {
                 let Some(recv) = recv else {
