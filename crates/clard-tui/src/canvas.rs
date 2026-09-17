@@ -1346,13 +1346,6 @@ fn draw_proxy_list(f: &mut Frame<'_>, area: Rect, state: &ProxyState, theme: The
                 } else {
                     Style::default().fg(theme.error)
                 };
-                let state_text = if is_now {
-                    "ACTIVE"
-                } else if alive {
-                    "ready"
-                } else {
-                    "down"
-                };
                 let delay_text = delay_display(delay);
                 let spark = extra.map(|extra| sparkline_history(&extra.history)).unwrap_or_default();
 
@@ -1368,7 +1361,6 @@ fn draw_proxy_list(f: &mut Frame<'_>, area: Rect, state: &ProxyState, theme: The
                         },
                     ),
                     Span::styled(format!("  {:>6}", delay_text), delay_style(delay, theme)),
-                    Span::styled(format!("  {:<6}", state_text), theme.muted_style()),
                     Span::styled(format!("  {}", spark), Style::default().fg(theme.secondary)),
                 ])));
             }
