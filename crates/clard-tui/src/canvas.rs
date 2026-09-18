@@ -367,8 +367,14 @@ fn draw_home_sysinfo(f: &mut Frame<'_>, area: Rect, app: &APP, theme: Theme) {
         kv_line("GPU", &gpu, theme),
         kv_line("Memory", &format!("{mem_avail} / {mem_total}"), theme),
     ];
-    if let Some((iface, ip)) = &s.gateway {
-        lines.push(kv_line("Gateway", &format!("{ip} ({iface})"), theme));
+    // 多网卡：每块物理网卡一行（网关 · DHCP DNS；DNS 无值则只显示网关）
+    for n in &s.nets {
+        let v = if n.dns.is_empty() {
+            n.gateway.clone()
+        } else {
+            format!("{} · dns {}", n.gateway, n.dns.join(", "))
+        };
+        lines.push(kv_line(&n.iface, &v, theme));
     }
     f.render_widget(
         Paragraph::new(lines)
