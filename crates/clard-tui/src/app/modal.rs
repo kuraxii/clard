@@ -174,6 +174,71 @@ pub enum ConfirmPurpose {
     UpdateGeoData,
 }
 
+/// 选择列表弹窗状态（doc/03 §4.3）：设置页枚举项的可选项列表。
+/// `↑`/`↓`（或 `k`/`j`）移动、`Enter` 选择、`Esc` 取消，打开时高亮当前值。
+#[derive(Debug)]
+pub struct ChoiceListState {
+    pub title: String,
+    /// 可选项（显示文本即值）。
+    pub options: Vec<String>,
+    /// 当前选中下标（打开时定位到当前值）。
+    pub selected: usize,
+    /// 提交目标。
+    pub purpose: ChoicePurpose,
+}
+
+impl ChoiceListState {
+    pub fn new(title: impl Into<String>, options: Vec<String>, current: usize, purpose: ChoicePurpose) -> Self {
+        let max = options.len().saturating_sub(1);
+        Self {
+            title: title.into(),
+            options,
+            selected: current.min(max),
+            purpose,
+        }
+    }
+
+    pub fn move_up(&mut self) {
+        if self.options.is_empty() {
+            return;
+        }
+        self.selected = if self.selected == 0 {
+            self.options.len() - 1
+        } else {
+            self.selected - 1
+        };
+    }
+
+    pub fn move_down(&mut self) {
+        if self.options.is_empty() {
+            return;
+        }
+        self.selected = (self.selected + 1) % self.options.len();
+    }
+
+    /// 当前选中项（显示文本即提交值）。
+    pub fn selected_value(&self) -> Option<&str> {
+        self.options.get(self.selected).map(String::as_str)
+    }
+}
+
+/// 选择列表弹窗的提交目标（设置页枚举项）。
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum ChoicePurpose {
+    /// 代理模式：rule / global / direct（doc/05 §7 R7.1）
+    SetMode,
+    /// 语言：en / zh
+    SetLanguage,
+    /// 主题：dark / light
+    SetTheme,
+    /// TUN stack：gvisor / system / mixed（doc/05 §7 R7.2）
+    SetTunStack,
+    /// TUN 下 DNS 模式：fake-ip / redir-host
+    SetTunDnsMode,
+    /// fake-ip-filter-mode：blacklist / whitelist / rule（doc/05 R7.2.1）
+    SetDnsFilterMode,
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -251,5 +316,38 @@ mod tests {
         input.backspace(); // 删 '文'
         assert_eq!(input.text(), "中");
         assert_eq!(input.cursor, "中".len());
+    }
+
+    #[test]
+    fn choice_list_selects_and_wraps() {
+        let mut c = ChoiceListState::new(
+            "mode",
+            vec!["rule".into(), "global".into(), "direct".into()],
+            0,
+            ChoicePurpose::SetMode,
+        );
+        assert_eq!(c.selected, 0);
+        assert_eq!(c.selected_value(), Some("rule"));
+        c.move_down();
+        assert_eq!(c.selected_value(), Some("global"));
+        c.move_down();
+        assert_eq!(c.selected_value(), Some("direct"));
+        c.move_down();
+        assert_eq!(c.selected_value(), Some("rule"), "down 循环回卷");
+        c.move_up();
+        assert_eq!(c.selected_value(), Some("direct"), "up 回卷到末尾");
+    }
+
+    #[test]
+    fn choice_list_clamps_current_and_tolerates_empty() {
+        let c = ChoiceListState::new("t", vec!["a".into(), "b".into()], 99, ChoicePurpose::SetTheme);
+        assert_eq!(c.selected, 1, "越界 current 收拢到末尾");
+
+        let mut empty = ChoiceListState::new("t", Vec::<String>::new(), 0, ChoicePurpose::SetTheme);
+        assert_eq!(empty.selected, 0);
+        assert_eq!(empty.selected_value(), None);
+        empty.move_down();
+        empty.move_up();
+        assert_eq!(empty.selected, 0, "空列表移动为 no-op");
     }
 }

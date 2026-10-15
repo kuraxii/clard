@@ -86,6 +86,10 @@ pub fn handle_key_event(event: KeyEvent, app: &mut APP, sender: mpsc::UnboundedS
         app.on_confirm_key(event);
         return;
     }
+    if app.choice.is_some() {
+        app.on_choice_key(event);
+        return;
+    }
     if app.input.is_some() {
         app.on_input_key(event);
         return;

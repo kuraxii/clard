@@ -4,7 +4,7 @@ use ratatui::{
     layout::{Alignment, Constraint, Direction, Layout, Margin, Rect},
     style::{Color, Modifier, Style},
     text::{Line, Span},
-    widgets::{Block, BorderType, Borders, Cell, Clear, List, ListItem, Paragraph, Row, Table, Tabs, Wrap},
+    widgets::{Block, BorderType, Borders, Cell, Clear, List, ListItem, ListState, Paragraph, Row, Table, Tabs, Wrap},
 };
 
 use clard_core::mihomo::models::{Connection, DelayHistory, Proxy as ProxyModel, ProxyType, RuleBehavior};
@@ -14,7 +14,7 @@ use crate::app::{
     connections::{ConnUnit, ConnectionsSort, ConnectionsState},
     i18n,
     logs::{AuditRow, LogsState, LogsTab},
-    modal::{ConfirmState, InputState},
+    modal::{ChoiceListState, ConfirmState, InputState},
     page::Page,
     profiles::{HistoryView, ProfileBusy, ProfilesState},
     proxy::{ProxyFocus, ProxyState},
@@ -74,6 +74,9 @@ impl Painter {
             }
             if let Some(confirm) = &app.confirm {
                 draw_confirm_modal(f, area, confirm, theme);
+            }
+            if let Some(choice) = &app.choice {
+                draw_choice_modal(f, area, choice, theme);
             }
             if let Some(history) = &app.history {
                 draw_history_modal(f, area, history, theme);
@@ -1726,6 +1729,50 @@ fn draw_input_modal(f: &mut Frame<'_>, area: Rect, input: &InputState, theme: Th
     );
 }
 
+fn draw_choice_modal(f: &mut Frame<'_>, area: Rect, choice: &ChoiceListState, theme: Theme) {
+    let h = (choice.options.len() as u16).saturating_add(4).min(area.height);
+    let popup = centered_popup(40, h, area);
+    f.render_widget(Clear, popup);
+
+    let items: Vec<ListItem<'_>> = choice
+        .options
+        .iter()
+        .map(|opt| ListItem::new(Line::from(Span::styled(opt.clone(), Style::default().fg(theme.fg)))))
+        .collect();
+    let list = List::new(items)
+        .block(panel_block(choice.title.as_str(), true, theme))
+        .highlight_style(theme.selected_style())
+        .highlight_symbol("▸ ");
+
+    let list_area = popup.inner(Margin {
+        horizontal: 1,
+        vertical: 1,
+    });
+    let mut list_state = ListState::default();
+    list_state.select(Some(choice.selected));
+    f.render_stateful_widget(list, list_area, &mut list_state);
+
+    // 底部提示行（列表下方空行，不覆盖选项）
+    let hint_area = Rect {
+        x: list_area.x,
+        y: list_area.y + list_area.height.saturating_sub(1),
+        width: list_area.width,
+        height: 1,
+    };
+    f.render_widget(
+        Paragraph::new(Line::from(vec![
+            key_span("↑↓", theme),
+            Span::raw(" move · "),
+            key_span("Enter", theme),
+            Span::raw(" select · "),
+            key_span("Esc", theme),
+            Span::raw(" cancel"),
+        ]))
+        .alignment(Alignment::Center),
+        hint_area,
+    );
+}
+
 fn draw_history_modal(f: &mut Frame<'_>, area: Rect, history: &HistoryView, theme: Theme) {
     let popup = centered_rect(56, 60, area);
     f.render_widget(Clear, popup);
@@ -2311,6 +2358,15 @@ fn sparkline_u64(values: &[u64]) -> String {
             BARS.get(idx).copied().unwrap_or('█')
         })
         .collect()
+}
+
+/// 固定尺寸居中弹窗（选择列表用：行数 = 选项数 + 边框/提示）。
+fn centered_popup(width: u16, height: u16, area: Rect) -> Rect {
+    let h = height.min(area.height);
+    let w = width.min(area.width);
+    let x = area.x + area.width.saturating_sub(w) / 2;
+    let y = area.y + area.height.saturating_sub(h) / 2;
+    Rect::new(x, y, w, h)
 }
 
 fn centered_rect(percent_x: u16, percent_y: u16, area: Rect) -> Rect {

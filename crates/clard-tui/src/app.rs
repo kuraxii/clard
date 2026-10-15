@@ -20,7 +20,7 @@ use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
 use home::HomeState;
 use i18n::Lang;
 use logs::{LogsState, LogsTab};
-use modal::{ConfirmPurpose, ConfirmState, InputPurpose, InputState};
+use modal::{ChoiceListState, ChoicePurpose, ConfirmPurpose, ConfirmState, InputPurpose, InputState};
 use page::Page;
 use profiles::{HistoryView, ProfileBusy, ProfilesState};
 use proxy::{ProxyFocus, ProxyState};
@@ -50,6 +50,8 @@ pub struct APP {
     pub input: Option<InputState>,
     /// 确认弹窗（危险操作二次确认）
     pub confirm: Option<ConfirmState>,
+    /// 选择列表弹窗（设置页枚举项，doc/03 §4.3）
+    pub choice: Option<ChoiceListState>,
     /// 配置历史版本视图（`h` 打开）
     pub history: Option<HistoryView>,
     pub event_sender: UnboundedSender<ClardEvent>,
@@ -76,6 +78,7 @@ impl APP {
             rules: RulesState::default(),
             input: None,
             confirm: None,
+            choice: None,
             history: None,
             event_sender: sender,
             backend,
@@ -441,6 +444,74 @@ impl APP {
             }
             _ => {}
         }
+    }
+
+    /// 选择列表弹窗按键处理（doc/03 §4.3：`↑↓`/`jk` 移动、`Enter` 选择、`Esc` 取消）。
+    pub fn on_choice_key(&mut self, event: KeyEvent) {
+        if !event.modifiers.is_empty() {
+            return;
+        }
+        if self.choice.is_none() {
+            return;
+        }
+        match event.code {
+            KeyCode::Esc => self.choice = None,
+            KeyCode::Up | KeyCode::Char('k') => {
+                if let Some(c) = &mut self.choice {
+                    c.move_up();
+                }
+            }
+            KeyCode::Down | KeyCode::Char('j') => {
+                if let Some(c) = &mut self.choice {
+                    c.move_down();
+                }
+            }
+            KeyCode::Enter => {
+                let (purpose, value) = {
+                    let c = self.choice.as_ref().expect("choice is Some");
+                    (c.purpose.clone(), c.selected_value().map(str::to_string))
+                };
+                self.choice = None;
+                if let Some(value) = value {
+                    self.submit_choice(purpose, value);
+                }
+            }
+            _ => {}
+        }
+    }
+
+    /// 提交选择列表结果 → 对应设置补丁（枚举项选择列表，doc/03 §4.3）。
+    fn submit_choice(&mut self, purpose: ChoicePurpose, value: String) {
+        let patch = match purpose {
+            ChoicePurpose::SetMode => clard_proto::SettingsPatch {
+                mode: Some(value),
+                ..Default::default()
+            },
+            ChoicePurpose::SetLanguage => {
+                self.lang = Lang::parse(&value);
+                clard_proto::SettingsPatch {
+                    language: Some(value),
+                    ..Default::default()
+                }
+            }
+            ChoicePurpose::SetTheme => clard_proto::SettingsPatch {
+                theme: Some(value),
+                ..Default::default()
+            },
+            ChoicePurpose::SetTunStack => clard_proto::SettingsPatch {
+                tun_stack: Some(value),
+                ..Default::default()
+            },
+            ChoicePurpose::SetTunDnsMode => clard_proto::SettingsPatch {
+                tun_dns_mode: Some(value),
+                ..Default::default()
+            },
+            ChoicePurpose::SetDnsFilterMode => clard_proto::SettingsPatch {
+                dns_fake_ip_filter_mode: Some(value),
+                ..Default::default()
+            },
+        };
+        self.set_setting(patch);
     }
 
     fn submit_input(&mut self, purpose: InputPurpose, text: String) {
