@@ -207,6 +207,26 @@ fn validate_runtime(runtime: &str, settings: &Settings) -> Result<(), String> {
             return Err("固定标识缺失: iproute2-rule-index=9100".into());
         }
     }
+    // DNS 语义预检（doc/01 §8.2 R3）：`fake-ip-filter-mode: rule` 时 `fake-ip-filter` 每项
+    // 须为规则行（`类型,内容,fake-ip|real-ip`）。裸域名（如 `*.lan`）缺 action，mihomo 会
+    // 400 `invalid action`——这里在下发前拦截，给中文提示 + 回滚（设置不落盘）。
+    if let Some(dns) = get("dns").and_then(|v| v.as_mapping()) {
+        let dg = |k: &str| dns.get(Value::String(k.into()));
+        if dg("fake-ip-filter-mode").and_then(|v| v.as_str()) == Some("rule") {
+            if let Some(filter) = dg("fake-ip-filter").and_then(|v| v.as_sequence()) {
+                for item in filter {
+                    let entry = item.as_str().unwrap_or_default();
+                    let action = entry.rsplit(',').next().unwrap_or_default();
+                    if action != "fake-ip" && action != "real-ip" {
+                        return Err(format!(
+                            "DNS 页签 fake-ip-filter-mode=rule 的条目 '{entry}' 不是合法规则行 \
+                             （需 '类型,内容,fake-ip|real-ip'，如 DOMAIN-SUFFIX,example.com,fake-ip）"
+                        ));
+                    }
+                }
+            }
+        }
+    }
     Ok(())
 }
 
@@ -286,6 +306,54 @@ mod tests {
     fn audit_at() -> Audit {
         crate::helper_config::init(); // log_level 读取（OnceLock 幂等）
         Audit::open() // log_dir() 由 CLARD_LOG_DIR 控制，调用前设置
+    }
+
+    // ---- R3 DNS 语义校验（fake-ip-filter-mode=rule 规则行预检）----
+
+    /// 构造含固定标识 + 自定义 dns 块的产物 YAML（validate_runtime 直接校验用）。
+    fn runtime_yaml_with_dns(dns_block: &str) -> String {
+        format!(
+            "mixed-port: 7890\nbind-address: 127.0.0.1\n\
+             external-controller-unix: /run/clard/core.sock\n{dns_block}\n"
+        )
+    }
+
+    #[test]
+    fn validate_rule_mode_rejects_plain_domain() {
+        let settings = Settings::default();
+        let runtime =
+            runtime_yaml_with_dns("dns:\n  fake-ip-filter-mode: rule\n  fake-ip-filter:\n    - '*.rd.in.linx'\n");
+        let err = validate_runtime(&runtime, &settings).unwrap_err();
+        assert!(err.contains("fake-ip-filter-mode=rule"), "错误应指明 rule 模式: {err}");
+        assert!(err.contains("*.rd.in.linx"), "错误应带条目名: {err}");
+    }
+
+    #[test]
+    fn validate_rule_mode_accepts_rule_lines() {
+        let settings = Settings::default();
+        let runtime = runtime_yaml_with_dns(
+            "dns:\n  fake-ip-filter-mode: rule\n  fake-ip-filter:\n\
+             \x20   - DOMAIN-SUFFIX,example.com,fake-ip\n    - MATCH,real-ip\n",
+        );
+        validate_runtime(&runtime, &settings).unwrap();
+    }
+
+    #[test]
+    fn validate_blacklist_mode_accepts_plain_domains() {
+        let settings = Settings::default();
+        let runtime =
+            runtime_yaml_with_dns("dns:\n  fake-ip-filter-mode: blacklist\n  fake-ip-filter:\n    - '*.rd.in.linx'\n");
+        validate_runtime(&runtime, &settings).unwrap();
+    }
+
+    #[test]
+    fn validate_no_dns_block_passes() {
+        let settings = Settings::default();
+        validate_runtime(
+            "mixed-port: 7890\nexternal-controller-unix: /run/clard/core.sock\n",
+            &settings,
+        )
+        .unwrap();
     }
 
     // ---- options_from ----
