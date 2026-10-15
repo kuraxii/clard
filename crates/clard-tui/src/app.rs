@@ -64,6 +64,12 @@ pub struct APP {
     traffic_subscription_started: bool,
 }
 
+/// 枚举项当前值 → 选择列表初始下标（空/未知值回退到默认项）。
+fn enum_choice_index(current: &str, options: &[&str], default: &str) -> usize {
+    let cur = if current.is_empty() { default } else { current };
+    options.iter().position(|o| *o == cur).unwrap_or(0)
+}
+
 impl APP {
     pub fn init(sender: UnboundedSender<ClardEvent>, backend: Arc<Backend>) -> Self {
         APP {
@@ -467,9 +473,9 @@ impl APP {
                 }
             }
             KeyCode::Enter => {
-                let (purpose, value) = {
-                    let c = self.choice.as_ref().expect("choice is Some");
-                    (c.purpose.clone(), c.selected_value().map(str::to_string))
+                let (purpose, value) = match &self.choice {
+                    Some(c) => (c.purpose.clone(), c.selected_value().map(str::to_string)),
+                    None => return,
                 };
                 self.choice = None;
                 if let Some(value) = value {
@@ -1198,8 +1204,8 @@ impl APP {
         }
     }
 
-    /// TUN 页签编辑（R7.2）：`e` 编辑当前行。布尔项二次确认，枚举循环，列表项进输入弹窗。
-    /// DNS 页签编辑（doc/05 R7.2.1）：布尔/枚举循环切换，列表项弹输入框。
+    /// TUN 页签编辑（R7.2）：`e`/`Enter` 编辑当前行。布尔项二次确认，枚举项弹选择列表，列表项进输入弹窗。
+    /// DNS 页签编辑（doc/05 R7.2.1）：布尔开关，枚举项弹选择列表，列表项弹输入框。
     fn on_settings_dns_char(&mut self, c: char) {
         if c != 'e' {
             return;
@@ -1213,16 +1219,14 @@ impl APP {
                 let cur = s
                     .map(|s| s.dns_fake_ip_filter_mode.clone())
                     .unwrap_or_else(|| "blacklist".into());
-                let next = match cur.as_str() {
-                    "whitelist" => "rule",
-                    "rule" => "blacklist",
-                    _ => "whitelist",
-                };
-                let patch = clard_proto::SettingsPatch {
-                    dns_fake_ip_filter_mode: Some(next.to_string()),
-                    ..Default::default()
-                };
-                self.set_setting(patch);
+                let options = ["blacklist", "whitelist", "rule"];
+                let idx = enum_choice_index(&cur, &options, "blacklist");
+                self.choice = Some(ChoiceListState::new(
+                    "fake-ip-filter-mode",
+                    options.iter().map(|o| o.to_string()).collect(),
+                    idx,
+                    ChoicePurpose::SetDnsFilterMode,
+                ));
             }
             DnsRow::UseHosts => {
                 let next = !s.map(|s| s.dns_use_hosts).unwrap_or(true);
@@ -1322,16 +1326,14 @@ impl APP {
                     .as_ref()
                     .map(|s| s.tun_stack.clone())
                     .unwrap_or_else(|| "gvisor".into());
-                let next = match cur.as_str() {
-                    "system" => "gvisor",
-                    "gvisor" => "mixed",
-                    _ => "system",
-                };
-                let patch = clard_proto::SettingsPatch {
-                    tun_stack: Some(next.to_string()),
-                    ..Default::default()
-                };
-                self.set_tun_setting(patch);
+                let options = ["gvisor", "system", "mixed"];
+                let idx = enum_choice_index(&cur, &options, "gvisor");
+                self.choice = Some(ChoiceListState::new(
+                    "TUN stack",
+                    options.iter().map(|o| o.to_string()).collect(),
+                    idx,
+                    ChoicePurpose::SetTunStack,
+                ));
             }
             TunRow::TunDnsMode => {
                 let cur = self
@@ -1340,16 +1342,14 @@ impl APP {
                     .as_ref()
                     .map(|s| s.tun_dns_mode.clone())
                     .unwrap_or_else(|| "fake-ip".into());
-                let next = if cur.as_str() == "redir-host" {
-                    "fake-ip"
-                } else {
-                    "redir-host"
-                };
-                let patch = clard_proto::SettingsPatch {
-                    tun_dns_mode: Some(next.to_string()),
-                    ..Default::default()
-                };
-                self.set_tun_setting(patch);
+                let options = ["fake-ip", "redir-host"];
+                let idx = enum_choice_index(&cur, &options, "fake-ip");
+                self.choice = Some(ChoiceListState::new(
+                    "TUN DNS mode",
+                    options.iter().map(|o| o.to_string()).collect(),
+                    idx,
+                    ChoicePurpose::SetTunDnsMode,
+                ));
             }
             TunRow::DnsHijack => {
                 let mut input = InputState::new(
@@ -1447,23 +1447,21 @@ impl APP {
                 self.input = Some(InputState::new("Mixed port (1-65535)", InputPurpose::EditMixedPort));
             }
             GeneralRow::Mode => {
-                // 循环切换 rule → global → direct（doc/05 §7 R7.1）
+                // 代理模式选择列表（doc/05 §7 R7.1：rule/global/direct）
                 let cur = self
                     .settings
                     .settings
                     .as_ref()
                     .map(|s| s.mode.clone())
                     .unwrap_or_else(|| "rule".into());
-                let next = match cur.as_str() {
-                    "global" => "direct",
-                    "direct" => "rule",
-                    _ => "global",
-                };
-                let patch = clard_proto::SettingsPatch {
-                    mode: Some(next.to_string()),
-                    ..Default::default()
-                };
-                self.set_setting(patch);
+                let options = ["rule", "global", "direct"];
+                let idx = enum_choice_index(&cur, &options, "rule");
+                self.choice = Some(ChoiceListState::new(
+                    "Proxy mode",
+                    options.iter().map(|o| o.to_string()).collect(),
+                    idx,
+                    ChoicePurpose::SetMode,
+                ));
             }
             GeneralRow::AutoUpdateHours => {
                 self.input = Some(InputState::new(
@@ -1472,12 +1470,20 @@ impl APP {
                 ));
             }
             GeneralRow::Language => {
-                let next = self.lang.toggle();
-                let patch = clard_proto::SettingsPatch {
-                    language: Some(next.as_str().to_string()),
-                    ..Default::default()
-                };
-                self.set_setting(patch);
+                let cur = self
+                    .settings
+                    .settings
+                    .as_ref()
+                    .map(|s| s.language.clone())
+                    .unwrap_or_else(|| "en".into());
+                let options = ["en", "zh"];
+                let idx = enum_choice_index(&cur, &options, "en");
+                self.choice = Some(ChoiceListState::new(
+                    "Language",
+                    options.iter().map(|o| o.to_string()).collect(),
+                    idx,
+                    ChoicePurpose::SetLanguage,
+                ));
             }
             GeneralRow::Theme => {
                 let cur = self
@@ -1486,12 +1492,14 @@ impl APP {
                     .as_ref()
                     .map(|s| s.theme.clone())
                     .unwrap_or_else(|| "dark".into());
-                let next = if cur == "dark" { "light" } else { "dark" };
-                let patch = clard_proto::SettingsPatch {
-                    theme: Some(next.to_string()),
-                    ..Default::default()
-                };
-                self.set_setting(patch);
+                let options = ["dark", "light"];
+                let idx = enum_choice_index(&cur, &options, "dark");
+                self.choice = Some(ChoiceListState::new(
+                    "Theme",
+                    options.iter().map(|o| o.to_string()).collect(),
+                    idx,
+                    ChoicePurpose::SetTheme,
+                ));
             }
             GeneralRow::TestUrl => {
                 let mut input = InputState::new("Test URL (empty = default)", InputPurpose::EditTestUrl);
@@ -1506,6 +1514,7 @@ impl APP {
 
     fn on_settings_enter(&mut self) {
         match self.settings.tab {
+            SettingsTab::General => self.on_settings_general_char('e'),
             SettingsTab::Dns => self.on_settings_dns_char('e'),
             SettingsTab::Tun => self.on_settings_tun_char('e'),
             SettingsTab::Backup => {
@@ -2285,5 +2294,33 @@ async fn update_profile_flow(uid: String) -> Result<String, String> {
             format!("profile imported: {uid}")
         }),
         other => Err(rpc::unexpected(other).to_string()),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::enum_choice_index;
+
+    #[test]
+    fn choice_index_maps_current_to_option_position() {
+        assert_eq!(enum_choice_index("global", &["rule", "global", "direct"], "rule"), 1);
+        assert_eq!(enum_choice_index("zh", &["en", "zh"], "en"), 1);
+        assert_eq!(
+            enum_choice_index("rule", &["blacklist", "whitelist", "rule"], "blacklist"),
+            2
+        );
+    }
+
+    #[test]
+    fn choice_index_falls_back_on_empty_or_unknown() {
+        // 空串（TUN 默认值语义）回退默认项
+        assert_eq!(enum_choice_index("", &["gvisor", "system", "mixed"], "gvisor"), 0);
+        assert_eq!(enum_choice_index("", &["fake-ip", "redir-host"], "fake-ip"), 0);
+        // 未知值（手改 clard.toml）回退到首项
+        assert_eq!(enum_choice_index("bogus", &["dark", "light"], "dark"), 0);
+        assert_eq!(
+            enum_choice_index("bogus", &["blacklist", "whitelist", "rule"], "blacklist"),
+            0
+        );
     }
 }
