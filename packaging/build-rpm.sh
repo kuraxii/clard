@@ -84,12 +84,13 @@ fi
 
 # ---- geo 数据（geoip.metadb / geosite.dat，随包分发安装即用；TUI 可更新）----
 # 下载每文件最多重试 3 次，内容校验通过才算成功：
-#   源 = GitHub 官方最新 release（meta-rules-dat），jsDelivr 镜像已弃用（404）。
+#   源 = GitHub 官方最新 release（meta-rules-dat，格式对齐仓库 README 下载表），
+#   jsDelivr 镜像已弃用（404）。
 #   geoip.metadb = MaxMind MMDB，以 5 字节魔数 "MMDB\0"（4d 4d 44 42 00）开头；
 #   geosite.dat  = varint+protobuf 流（无魔数），以体积阈值过滤 429/HTML 错误页（真实文件 ≥1MiB）。
 # 3 次仍失败 → 显式 exit 1 构建中止，不再静默打出缺/坏 geo 的包（--no-geodata 可显式跳过）。
 GEO_MIRRORS=(
-    "https://github.com/MetaCubeX/meta-rules-dat/releases/latest/download"
+    "https://github.com/MetaCubeX/meta-rules-dat/releases/download/latest"
 )
 
 # 校验下载内容是否有效（返回 0 = 有效）。
