@@ -59,8 +59,9 @@ install -Dm755 %{SOURCE4} %{buildroot}%{_localstatedir}/clard/bin/mihomo
 %endif
 
 %post
-# 数据目录（helper 启动自检也会建，这里预建保证权限 root 0700）
-install -d -m 0700 %{_localstatedir}/clard/lib \
+# 数据目录（helper 启动自检也会建；0755 世界可读——本机用户可查阅日志/运行数据，
+# 订阅凭据随之可见，doc/01 §4.2 已注明取舍）
+install -d -m 0755 %{_localstatedir}/clard/lib \
                  %{_localstatedir}/clard/cache \
                  %{_localstatedir}/clard/log \
                  %{_localstatedir}/clard/backups \

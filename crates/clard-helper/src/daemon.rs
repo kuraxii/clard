@@ -72,6 +72,21 @@ pub async fn run() -> io::Result<()> {
     };
 
     std::fs::create_dir_all(&state)?;
+    // 数据目录世界可读（0755，doc/01 §4.2）：日志/运行数据便于本机其他用户查阅，
+    // 每次启动自愈（不受旧包 0700 或手工收紧影响）；inbox 仍 0733+sticky 供 TUI 写。
+    {
+        use std::os::unix::fs::PermissionsExt;
+        let var_clard = state.parent().map(Path::to_path_buf).unwrap_or_else(|| state.clone());
+        for sub in ["", "cache", "log", "backups", "bin"] {
+            let p = if sub.is_empty() {
+                state.clone()
+            } else {
+                var_clard.join(sub)
+            };
+            std::fs::create_dir_all(&p)?;
+            std::fs::set_permissions(&p, std::fs::Permissions::from_mode(0o755))?;
+        }
+    }
     // inbox 中转目录（0733 + sticky，TUI 普通用户可写；doc/01 §4/§5.5）
     std::fs::create_dir_all(inbox_dir())?;
     use std::os::unix::fs::PermissionsExt;
