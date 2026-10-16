@@ -32,3 +32,5 @@ Clard：Linux 代理管理工具（Rust）。架构 = root 常驻服务 `clard-h
 - 分阶段提交：每个可独立运行/回滚的逻辑单元立即 `git commit`。
 - 提交前先运行 `cargo fmt` 全局格式化（`rustfmt.toml` 为唯一基准）；格式化差异随提交一起保留，不单独还原（避免钩子漂移/工作区噪音）。
 - Conventional Commits，`<type>: <中文简述>`；type 取 feat/fix/refactor/docs/style/chore/build。
+- 简述用陈述句表达变更结果（如「代理页改为选择列表弹窗」），不用命令式/祈使句。
+- 简述禁止 `（…）` 括号解释后缀；补充背景写入提交正文或文档。
