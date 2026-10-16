@@ -10,7 +10,7 @@
 # --no-mihomo）则包内不含，首次使用经 InstallCore 安装。
 
 Name:           clard
-Version:        0.2.2
+Version:        0.3.0
 # 不带 dist 标记（如 fc41）：包名/版本/架构即可，便于跨发行版复用构建产物
 Release:        1
 Summary:        Clard — Linux transparent proxy manager (system helper + TUI client)
@@ -107,6 +107,10 @@ systemctl restart clard-helper.service >/dev/null 2>&1 || :
 %endif
 
 %changelog
+* Fri Oct 16 2026 zjzhu <zjzhu@kuraxii.dev> - 0.3.0-1
+- 设置枚举项改为选择列表弹窗（Enter/e 打开，↑↓/jk 移动，Enter 确认，Esc 取消，高亮当前值）：代理模式、语言、主题、TUN stack、TUN DNS mode、fake-ip-filter-mode；General 页 Enter 也触发编辑
+- fake-ip-filter-mode=rule 下发前校验（R3）：fake-ip-filter 条目须为规则行（如 DOMAIN-SUFFIX,example.com,fake-ip），裸域名直接中文报错回滚，不再暴露 mihomo HTTP 400 invalid action
+- 修复 clippy indexing-slicing（sysinfo IPv4 解析），CI --all-targets 全绿
 * Thu Sep 17 2026 zjzhu <zjzhu@kuraxii.dev> - 0.2.2-1
 - 主页 System 面板替换 Profile：OS/内核/CPU/GPU/内存（总/可用）/真实网卡网关（无默认路由不显示）；系统文件直读（非 clard 数据不走 IPC）+ 10s 周期刷新
 - 修复 mixed-port 端口冲突：订阅自带 port/socks-port 抢占 7890 导致 mixed 监听绑定失败、回读校验不通过（托管注入归零 port/socks-port/redir-port/tproxy-port）
