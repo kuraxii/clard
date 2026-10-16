@@ -23,7 +23,8 @@ Source2:        clard-helper
 Source3:        clard-helper.service
 # 可选：构建时下载的最新 mihomo（build-rpm.sh；缺失 = 包内不含核心）
 Source4:        mihomo
-# 可选：构建时下载的最新 geo 数据（build-rpm.sh；缺失 = 包内不含，TUI 可更新）
+# 可选：构建时下载的最新 geo 数据（build-rpm.sh 下载校验魔数/体积，每文件重试 3 次，
+# 失败构建中止；显式 --no-geodata = 包内不含，TUI 可更新）
 Source5:        geoip.metadb
 Source6:        geosite.dat
 
