@@ -10,7 +10,7 @@
 # --no-mihomo）则包内不含，首次使用经 InstallCore 安装。
 
 Name:           clard
-Version:        0.3.0
+Version:        0.3.1
 # 不带 dist 标记（如 fc41）：包名/版本/架构即可，便于跨发行版复用构建产物
 Release:        1
 Summary:        Clard — Linux transparent proxy manager (system helper + TUI client)
@@ -108,6 +108,9 @@ systemctl restart clard-helper.service >/dev/null 2>&1 || :
 %endif
 
 %changelog
+* Fri Oct 16 2026 zjzhu <zjzhu@kuraxii.dev> - 0.3.1-1
+- build-rpm.sh：geo 数据下载每文件最多重试 3 次并校验内容（MMDB 魔数 / geosite 体积），失败构建中止，避免 v0.3.0 把 GitHub 429 错误页打入包导致核心 MMDB invalid 起不来
+- AGENTS.md：新增提交信息陈述表达与禁止括号解释规则
 * Fri Oct 16 2026 zjzhu <zjzhu@kuraxii.dev> - 0.3.0-1
 - 设置枚举项改为选择列表弹窗（Enter/e 打开，↑↓/jk 移动，Enter 确认，Esc 取消，高亮当前值）：代理模式、语言、主题、TUN stack、TUN DNS mode、fake-ip-filter-mode；General 页 Enter 也触发编辑
 - fake-ip-filter-mode=rule 下发前校验（R3）：fake-ip-filter 条目须为规则行（如 DOMAIN-SUFFIX,example.com,fake-ip），裸域名直接中文报错回滚，不再暴露 mihomo HTTP 400 invalid action
