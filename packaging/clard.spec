@@ -23,10 +23,6 @@ Source2:        clard-helper
 Source3:        clard-helper.service
 # 可选：构建时下载的最新 mihomo（build-rpm.sh；缺失 = 包内不含核心）
 Source4:        mihomo
-# 可选：构建时下载的最新 geo 数据（build-rpm.sh 下载校验魔数/体积，每文件重试 3 次，
-# 失败构建中止；显式 --no-geodata = 包内不含，TUI 可更新）
-Source5:        geoip.metadb
-Source6:        geosite.dat
 
 # 预构建方案：无 BuildRequires；运行依赖
 # ip 用文件依赖（跨发行版免疫包名差异：Fedora 41 为 iproute，RHEL 为 iproute2）；
@@ -40,8 +36,6 @@ Requires(preun): systemd
 %global debug_package %{nil}
 # 是否随包分发 mihomo（build-rpm.sh 下载成功 = 1）
 %global mihomo_present %(test -f %{_sourcedir}/mihomo && echo 1 || echo 0)
-# 是否随包分发 geo 数据（build-rpm.sh 下载成功 = 1）
-%global geodata_present %(test -f %{_sourcedir}/geoip.metadb && echo 1 || echo 0)
 
 %description
 Clard 是 Linux 上的完整代理管理工具：系统级常驻服务 clard-helper（root，
@@ -62,11 +56,6 @@ install -Dm644 %{SOURCE3} %{buildroot}%{_unitdir}/clard-helper.service
 install -d -m 0755 %{buildroot}%{_sysconfdir}/clard
 %if %{mihomo_present}
 install -Dm755 %{SOURCE4} %{buildroot}%{_localstatedir}/clard/bin/mihomo
-%endif
-%if %{geodata_present}
-# mihomo 只在 -d 目录找 geoip.metadb（geodata-path 不生效）；regenerate 不清理 runtime 目录
-install -Dm644 %{SOURCE5} %{buildroot}%{_localstatedir}/clard/lib/runtime/geoip.metadb
-install -Dm644 %{SOURCE6} %{buildroot}%{_localstatedir}/clard/lib/runtime/geosite.dat
 %endif
 
 %post
@@ -100,16 +89,10 @@ systemctl restart clard-helper.service >/dev/null 2>&1 || :
 # noreplace：用户经 InstallCore 升级过的 mihomo 不被 rpm 升级覆盖
 %config(noreplace) %{_localstatedir}/clard/bin/mihomo
 %endif
-%if %{geodata_present}
-# %config（非 noreplace）：升级时备份旧文件为 .rpmsave 并应用包内新 geo 数据
-# （geo 数据期望随包刷新；核心 mihomo 仍用 noreplace 保护用户 InstallCore 升级）
-%config %{_localstatedir}/clard/lib/runtime/geoip.metadb
-%config %{_localstatedir}/clard/lib/runtime/geosite.dat
-%endif
 
 %changelog
 * Fri Oct 16 2026 zjzhu <zjzhu@kuraxii.dev> - 0.3.1-1
-- build-rpm.sh：geo 数据下载每文件最多重试 3 次并校验内容（MMDB 魔数 / geosite 体积），失败构建中止，避免 v0.3.0 把 GitHub 429 错误页打入包导致核心 MMDB invalid 起不来
+- geo 数据改为运行时安装（不随 RPM）：移除构建期 geo 下载与包内携带，升级永不触碰 /var/clard/lib/runtime 的 geo 文件（v0.3.0 构建期下载被 GitHub 429 把错误页打进包导致核心 MMDB invalid）；首次缺失由 TUI 自动安装，`g` 手动更新
 - AGENTS.md：新增提交信息陈述表达与禁止括号解释规则
 * Fri Oct 16 2026 zjzhu <zjzhu@kuraxii.dev> - 0.3.0-1
 - 设置枚举项改为选择列表弹窗（Enter/e 打开，↑↓/jk 移动，Enter 确认，Esc 取消，高亮当前值）：代理模式、语言、主题、TUN stack、TUN DNS mode、fake-ip-filter-mode；General 页 Enter 也触发编辑

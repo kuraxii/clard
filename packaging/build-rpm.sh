@@ -1,31 +1,26 @@
 #!/usr/bin/env bash
-# 构建 clard RPM：release 编译 → 下载最新 mihomo + geo 数据 → 收集产物 → rpmbuild。
+# 构建 clard RPM：release 编译 → 下载最新 mihomo → 收集产物 → rpmbuild。
+# geo 数据（geoip.metadb/geosite.dat）不随包分发，由 TUI 运行时安装（doc/01 §6.3）。
 #
 # 用法：
-#   bash packaging/build-rpm.sh              # 下载最新 mihomo + geo 数据打包（安装即用）
+#   bash packaging/build-rpm.sh              # 下载最新 mihomo 打包（安装即用）
 #   bash packaging/build-rpm.sh --no-mihomo  # 跳过 mihomo（包内不含核心，首次 InstallCore）
-#   bash packaging/build-rpm.sh --no-geodata # 跳过 geo 数据（包内不含 geoip/geosite）
-# geo 下载每文件最多重试 3 次，校验内容有效后才算成功；仍失败则构建中止
-# （v0.3.0 曾把 GitHub 429 错误页当有效数据打进包 → 核心 MMDB invalid 起不来）。
+#   bash packaging/build-rpm.sh --local-core # 用本机 /var/clard/bin/mihomo
 # 产物：~/rpmbuild/RPMS/*/clard-*.rpm
 # 安装：sudo dnf install ~/rpmbuild/RPMS/*/clard-*.rpm
 set -euo pipefail
 cd "$(dirname "$0")/.."
 
 WITH_MIHOMO=1
-WITH_GEODATA=1
 MODE_LOCAL=0
 case "${1:-}" in
-    ""|--no-mihomo|--local-core|--no-geodata) ;;
+    ""|--no-mihomo|--local-core) ;;
     *) echo "!! 未知参数 $1" >&2; exit 2 ;;
 esac
 if [ "${1:-}" = "--no-mihomo" ]; then
     WITH_MIHOMO=0
 elif [ "${1:-}" = "--local-core" ]; then
     MODE_LOCAL=1  # 用 /var/clard/bin/mihomo（本机已有），免 GitHub 下载
-fi
-if [ "${1:-}" = "--no-geodata" ]; then
-    WITH_GEODATA=0
 fi
 
 VERSION=$(grep -m1 '^version' Cargo.toml | sed -E 's/.*= *"([^"]+)"/\1/')
@@ -80,52 +75,6 @@ if [ "$WITH_MIHOMO" = "1" ]; then
     fi
 else
     echo "==> --no-mihomo：包内不含 mihomo"
-fi
-
-# ---- geo 数据（geoip.metadb / geosite.dat，随包分发安装即用；TUI 可更新）----
-# 下载每文件最多重试 3 次，内容校验通过才算成功：
-#   源 = GitHub 官方最新 release（meta-rules-dat，格式对齐仓库 README 下载表），
-#   jsDelivr 镜像已弃用（404）。
-#   geoip.metadb 为 MetaCubeX 自定义 metadb 格式（无 MaxMind MMDB 魔数），
-#   geosite.dat 为 varint+protobuf 流；两者均以体积阈值过滤 429/HTML 错误页（真实文件 ≥1MiB）。
-# 3 次仍失败 → 显式 exit 1 构建中止，不再静默打出缺/坏 geo 的包（--no-geodata 可显式跳过）。
-GEO_MIRRORS=(
-    "https://github.com/MetaCubeX/meta-rules-dat/releases/download/latest"
-)
-
-# 校验下载内容是否有效（返回 0 = 有效）。两个格式均无可靠魔数，统一以体积阈值
-# 过滤 429 错误文本/HTML 错误页（真实文件 8.4MB / 4.3MB，阈值 1MiB 远在其下）。
-geo_valid() {
-    local file="$1"
-    [ "$(stat -c %s "$file" 2>/dev/null || echo 0)" -ge 1048576 ]
-}
-
-if [ "$WITH_GEODATA" = "1" ]; then
-    echo "==> 下载最新 geo 数据（MetaCubeX meta-rules-dat，每文件最多重试 3 次）"
-    for name in geoip.metadb geosite.dat; do
-        ok=0
-        attempt=1
-        while [ "$attempt" -le 3 ]; do
-            for base in "${GEO_MIRRORS[@]}"; do
-                echo "    [$attempt/3] $name ← $base"
-                if curl -fL --retry 2 -m 300 -sS -o "$HOME/rpmbuild/SOURCES/$name" "$base/$name" \
-                    && geo_valid "$HOME/rpmbuild/SOURCES/$name"; then
-                    echo "    $name 已下载 ($(du -h "$HOME/rpmbuild/SOURCES/$name" | cut -f1)): $base"
-                    ok=1
-                    break
-                fi
-                rm -f "$HOME/rpmbuild/SOURCES/$name"
-            done
-            [ "$ok" = "1" ] && break
-            attempt=$((attempt + 1))
-        done
-        if [ "$ok" = "0" ]; then
-            echo "!! 下载 $name 失败：重试 3 次均未取得有效数据（限流/网络不可达），构建中止" >&2
-            exit 1
-        fi
-    done
-else
-    echo "==> --no-geodata：包内不含 geo 数据"
 fi
 
 echo "==> 源码归档（git HEAD，需先提交工作树）"
