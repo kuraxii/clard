@@ -86,25 +86,18 @@ fi
 # 下载每文件最多重试 3 次，内容校验通过才算成功：
 #   源 = GitHub 官方最新 release（meta-rules-dat，格式对齐仓库 README 下载表），
 #   jsDelivr 镜像已弃用（404）。
-#   geoip.metadb = MaxMind MMDB，以 5 字节魔数 "MMDB\0"（4d 4d 44 42 00）开头；
-#   geosite.dat  = varint+protobuf 流（无魔数），以体积阈值过滤 429/HTML 错误页（真实文件 ≥1MiB）。
+#   geoip.metadb 为 MetaCubeX 自定义 metadb 格式（无 MaxMind MMDB 魔数），
+#   geosite.dat 为 varint+protobuf 流；两者均以体积阈值过滤 429/HTML 错误页（真实文件 ≥1MiB）。
 # 3 次仍失败 → 显式 exit 1 构建中止，不再静默打出缺/坏 geo 的包（--no-geodata 可显式跳过）。
 GEO_MIRRORS=(
     "https://github.com/MetaCubeX/meta-rules-dat/releases/download/latest"
 )
 
-# 校验下载内容是否有效（返回 0 = 有效）。
+# 校验下载内容是否有效（返回 0 = 有效）。两个格式均无可靠魔数，统一以体积阈值
+# 过滤 429 错误文本/HTML 错误页（真实文件 8.4MB / 4.3MB，阈值 1MiB 远在其下）。
 geo_valid() {
-    local name="$1" file="$2"
-    case "$name" in
-        geoip.metadb)
-            [ "$(head -c 5 "$file" 2>/dev/null | od -An -tx1 | tr -d ' \n')" = "4d4d444200" ]
-            ;;
-        geosite.dat)
-            [ "$(stat -c %s "$file" 2>/dev/null || echo 0)" -ge 1048576 ]
-            ;;
-        *) return 1 ;;
-    esac
+    local file="$1"
+    [ "$(stat -c %s "$file" 2>/dev/null || echo 0)" -ge 1048576 ]
 }
 
 if [ "$WITH_GEODATA" = "1" ]; then
@@ -116,7 +109,7 @@ if [ "$WITH_GEODATA" = "1" ]; then
             for base in "${GEO_MIRRORS[@]}"; do
                 echo "    [$attempt/3] $name ← $base"
                 if curl -fL --retry 2 -m 300 -sS -o "$HOME/rpmbuild/SOURCES/$name" "$base/$name" \
-                    && geo_valid "$name" "$HOME/rpmbuild/SOURCES/$name"; then
+                    && geo_valid "$HOME/rpmbuild/SOURCES/$name"; then
                     echo "    $name 已下载 ($(du -h "$HOME/rpmbuild/SOURCES/$name" | cut -f1)): $base"
                     ok=1
                     break
