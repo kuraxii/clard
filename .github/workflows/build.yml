@@ -1,36 +1,54 @@
-# Clard GitHub Release 流水线：打 v* 标签（或手动触发）→ Fedora 容器内
-# 走本地同款 packaging/build-rpm.sh → 产出 RPM + 二进制 tarball → 创建 GitHub Release。
+# Clard 构建流水线：CI 检查 + release 构建发布合并为一个 workflow。
 #
-# 触发方式：
-#   git tag v0.1.0 && git push origin v0.1.0     # 自动构建并发布
-#   Actions 页手动 Run workflow（需填 tag 名）
+# 触发与行为：
+#   - push main / PR：只跑 check（clippy + test + --locked），失败即流水线失败；
+#   - 打 v* 标签（或 Actions 手动 dispatch）：check 通过后 → Fedora 容器构建
+#     RPM + 二进制 tarball → 发布 GitHub Release；check 失败则构建不启动。
 #
-# 两 job 结构：build 在 Fedora 容器内构建（与本地环境一致，systemd-rpm-macros 宏齐全），
-# 经 upload-artifact 传产物；release 在无容器的 runner 上传（容器内跑 node action 时
-# docker exec 的工作目录与 shell 步骤路径是两套 bind mount，glob 会漏文件，故拆开）。
-name: release
+# 拆分原因（保留自原 release.yml）：构建在容器内、发布在无容器 runner——
+# 容器内跑 node action 时 docker exec 的工作目录与 shell 步骤路径是两套 bind mount，
+# glob 会漏文件，故 build（容器）与 publish（runner）拆成两个 job。
+name: build
 
 on:
   push:
-    tags:
-      - 'v*'
+    branches: [main]
+    tags: ['v*']
+  pull_request:
   workflow_dispatch:
     inputs:
       tag_name:
-        description: '发布 tag 名（例如 v0.2.0）'
+        description: '发布 tag 名（例如 v0.3.2）'
         required: true
 
 permissions:
-  contents: write
+  contents: read
 
 jobs:
-  build:
+  check:
+    name: clippy + test
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@1.95.0
+        with:
+          components: clippy
+      - uses: Swatinem/rust-cache@v2
+      - name: clippy
+        run: cargo clippy --workspace --all-targets
+      - name: test
+        run: cargo test --workspace --locked
+
+  release-build:
     name: Build RPM + assets
     runs-on: ubuntu-latest
+    needs: check
+    # 仅 v* 标签或手动 dispatch 触发构建；check 失败则不会进入（ci 失败构建停止）
+    if: startsWith(github.ref, 'refs/tags/v') || github.event_name == 'workflow_dispatch'
     container:
       # 与 packaging/clard.spec 依赖一致：systemd-rpm-macros 提供 %systemd_post 等宏。
       # 钉 fedora:39（EOL，dnf 源需切 archive；自带 rust 1.73 不满足 edition 2024 →
-      # 用 rustup 装 1.95.0，对齐 rust-toolchain.toml / ci.yml）。
+      # 用 rustup 装 1.95.0，对齐 rust-toolchain.toml / check job）。
       image: fedora:39
       options: --user root
     steps:
@@ -81,10 +99,10 @@ jobs:
           path: dist/
           if-no-files-found: error
 
-  release:
+  publish:
     name: Publish GitHub Release
     runs-on: ubuntu-latest
-    needs: build
+    needs: release-build
     steps:
       - name: Download artifacts
         uses: actions/download-artifact@v4
