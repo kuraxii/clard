@@ -1191,7 +1191,7 @@ impl APP {
                     ));
                 }
                 'g' => {
-                    // 更新 geo 数据（geoip/geosite，jsdelivr/GitHub → helper 复核 + 原子替换 + 重启）
+                    // 更新 geo 数据（geoip/geosite，GitHub 官方 release → helper 复核 + 原子替换 + 重启）
                     self.confirm = Some(ConfirmState::new(
                         "Update geo data",
                         "Download the latest geoip/geosite data and restart the core? (brief interruption)",
@@ -2188,7 +2188,7 @@ async fn upgrade_core_flow() -> Result<String, String> {
     }
 }
 
-/// 更新 geo 数据（§6.3）：jsdelivr/GitHub 下载 geoip.metadb + geosite.dat →
+/// 更新 geo 数据（§6.3）：GitHub 官方 release 下载 geoip.metadb + geosite.dat →
 /// 自算 sha256 → 写 inbox → 两次 IPC UpdateGeoData（helper 复核 + 原子替换 + 重启）。
 async fn update_geodata_flow() -> Result<String, String> {
     use std::time::{SystemTime, UNIX_EPOCH};
