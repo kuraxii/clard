@@ -270,7 +270,7 @@ pub struct SettingsPatch {
     pub dns_default_nameserver: Option<Vec<String>>,
 }
 
-/// geo 数据类型（§6.3：随 RPM 分发 + TUI 可更新）
+/// geo 数据类型（§6.3：运行时由 TUI 安装，不随 RPM）
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub enum GeoKind {
     Geoip,
@@ -397,6 +397,8 @@ pub enum Response {
         tun_active: bool,
         /// 已安装核心的 sha256（R7.3 展示；helper 侧 `core.sha256` 记录）
         core_sha256: Option<String>,
+        /// geo 数据（geoip.metadb/geosite.dat）缺失或无效（TUI 据此自动安装）
+        geo_missing: bool,
     },
     ProfileList {
         current: Option<String>,

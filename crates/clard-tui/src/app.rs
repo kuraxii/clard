@@ -62,6 +62,8 @@ pub struct APP {
     pub show_help: bool,
     pub lang: Lang,
     traffic_subscription_started: bool,
+    /// geo 数据缺失时自动安装已触发（每 TUI 会话一次，防 Status 轮询反复触发）
+    geo_auto_install_started: bool,
 }
 
 /// 枚举项当前值 → 选择列表初始下标（空/未知值回退到默认项）。
@@ -92,6 +94,7 @@ impl APP {
             show_help: false,
             lang: Lang::En,
             traffic_subscription_started: false,
+            geo_auto_install_started: false,
         }
     }
 
@@ -812,6 +815,7 @@ impl APP {
                 core_version,
                 tun_active,
                 core_sha256,
+                geo_missing,
             }) = rpc::call(&Request::Status).await
             {
                 let _ = sender.send(ClardEvent::CoreStatusReady {
@@ -820,6 +824,7 @@ impl APP {
                     version: core_version,
                     tun_active,
                     core_sha256,
+                    geo_missing,
                 });
             }
         });
@@ -1080,11 +1085,21 @@ impl APP {
                     let _ = sender.send(ClardEvent::Notify(msg));
                 }
                 Err(e) => {
-                    let _ = sender.send(ClardEvent::Error(e));
+                    let _ = sender.send(ClardEvent::Error(format!("geo 安装失败（可 Core 页按 g 重试）: {e}")));
                 }
             }
             send_core_status(&sender).await;
         });
+    }
+
+    /// geo 数据缺失/无效时自动安装（§6.3：不随 RPM 分发；每会话触发一次，
+    /// 失败在消息条提示，`g` 手动兜底）。
+    pub fn on_core_status(&mut self, geo_missing: bool) {
+        if geo_missing && !self.geo_auto_install_started {
+            self.geo_auto_install_started = true;
+            self.message = Some("geo 数据缺失，自动安装中…".to_string());
+            self.update_geodata();
+        }
     }
 
     pub fn create_backup(&mut self) {
@@ -2041,6 +2056,7 @@ async fn send_core_status(sender: &UnboundedSender<ClardEvent>) {
         core_version,
         tun_active,
         core_sha256,
+        geo_missing,
     }) = rpc::call(&Request::Status).await
     {
         let _ = sender.send(ClardEvent::CoreStatusReady {
@@ -2049,6 +2065,7 @@ async fn send_core_status(sender: &UnboundedSender<ClardEvent>) {
             version: core_version,
             tun_active,
             core_sha256,
+            geo_missing,
         });
     }
 }

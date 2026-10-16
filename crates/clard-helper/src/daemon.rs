@@ -4,7 +4,11 @@
 //! 帧格式：u32 BE 长度前缀 + JSON（doc/01 §11）。
 //! 并发：所有状态变更经同一把 `Mutex` 串行（doc/01 §9 单写者）。
 
-use std::{io, path::PathBuf, sync::Arc};
+use std::{
+    io,
+    path::{Path, PathBuf},
+    sync::Arc,
+};
 
 use clard_proto::{Request, Response};
 use tokio::{
@@ -96,16 +100,13 @@ pub async fn run() -> io::Result<()> {
         let settings = settings.clone();
         let events = events_tx.clone();
         tokio::spawn(async move {
-            // §6.3 geo 数据检查：随 RPM 分发到核心 -d 目录（/var/clard/lib/runtime），缺失时
-            // 告警——GEOIP/geosite 规则会失效，且 mihomo 自更新已关闭（防 github 被墙卡启动）
-            for name in ["geoip.metadb", "geosite.dat"] {
-                let p = std::path::Path::new("/var/clard/lib/runtime").join(name);
-                if !p.exists() {
-                    tracing::warn!(
-                        "启动自检：geo 数据缺失 {}（GEOIP/geosite 规则不可用，可在 TUI Core 页更新）",
-                        p.display()
-                    );
-                }
+            // §6.3 geo 数据检查：不随 RPM 分发，由 TUI 安装到核心 -d 目录
+            // （/var/clard/lib/runtime）。缺失/无效时告警——GEOIP/geosite 规则会失效，
+            // 且 mihomo 自更新已关闭（防 github 被墙卡启动）；TUI 检测到 geo_missing 自动安装。
+            if !crate::core::geo_data_ready(Path::new("/var/clard/lib/runtime")) {
+                tracing::warn!(
+                    "启动自检：geo 数据缺失或无效（geoip.metadb/geosite.dat，GEOIP/geosite 规则不可用；TUI 会自动安装，或 Core 页按 g）"
+                );
             }
             // §5.2 启动自检：TUN 残留清理（fail-open，幂等）
             let (clean, residuals) = crate::tun::cleanup_tun(&crate::tun::Tools::system()).await;

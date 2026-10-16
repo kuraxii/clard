@@ -464,6 +464,17 @@ fn verify_inbox_sha256(inbox_path: &Path, expected_sha256: &str) -> Result<fs::F
     Ok(f)
 }
 
+/// geo 数据是否可用（geoip.metadb / geosite.dat 均存在且体积 ≥1MiB；过滤缺失/
+/// 空文件/错误页——MetaCubeX 自定义 metadb 与 varint+protobuf 均无魔数，用体积阈值）。
+pub fn geo_data_ready(root: &Path) -> bool {
+    const MIN_GEO_BYTES: u64 = 1024 * 1024;
+    ["geoip.metadb", "geosite.dat"].iter().all(|name| {
+        std::fs::metadata(root.join(name))
+            .map(|m| m.len() >= MIN_GEO_BYTES)
+            .unwrap_or(false)
+    })
+}
+
 /// geo 数据更新（geoip.metadb / geosite.dat，§6.3）：inbox 校验 → 原子替换
 /// `/var/clard/lib/runtime/<file>`（核心 -d 目录——mihomo 只在 -d 目录找 MMDB；
 /// RPM 分发同路径，`%config` 备份旧文件 .rpmsave 后应用新文件）。
@@ -514,6 +525,27 @@ mod tests {
     use tokio::net::UnixListener;
 
     use super::*;
+
+    #[test]
+    fn geo_data_ready_requires_both_files_large_enough() {
+        let dir = std::env::temp_dir().join(format!("clard-geo-test-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        let big = vec![0u8; 1024 * 1024 + 1];
+        let small = vec![0u8; 10];
+        // 缺失 → 不可用
+        assert!(!geo_data_ready(&dir));
+        // 只有一个且有效 → 仍不可用
+        std::fs::write(dir.join("geoip.metadb"), &big).unwrap();
+        assert!(!geo_data_ready(&dir));
+        // 两个都在但体积不够（空文件/错误页场景）→ 不可用
+        std::fs::write(dir.join("geosite.dat"), &small).unwrap();
+        assert!(!geo_data_ready(&dir));
+        // 两个都有效 → 可用
+        std::fs::write(dir.join("geosite.dat"), &big).unwrap();
+        assert!(geo_data_ready(&dir));
+        let _ = std::fs::remove_dir_all(&dir);
+    }
 
     /// 起一个 unix socket mock HTTP 服务，响应指定 status/body，并记录请求。
     async fn spawn_mock(path: PathBuf, status: &str, body: &str) -> tokio::task::JoinHandle<(String, String, String)> {

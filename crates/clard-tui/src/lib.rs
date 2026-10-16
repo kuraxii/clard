@@ -273,6 +273,7 @@ pub async fn start_clard() -> Result<()> {
                         version,
                         tun_active,
                         core_sha256,
+                        geo_missing,
                     } => {
                         app.settings.apply_core_status(
                             state.clone(),
@@ -281,6 +282,7 @@ pub async fn start_clard() -> Result<()> {
                             core_sha256,
                         );
                         app.home.apply_core_status(state, pid, version, tun_active);
+                        app.on_core_status(geo_missing);
                     }
                     ClardEvent::HelperVersion(version) => {
                         app.home.apply_helper_version(version);

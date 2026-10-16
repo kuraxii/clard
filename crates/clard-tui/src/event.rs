@@ -54,6 +54,8 @@ pub enum ClardEvent {
         tun_active: bool,
         /// 已安装核心的 sha256（R7.3）
         core_sha256: Option<String>,
+        /// geo 数据缺失或无效（TUI 据此自动安装一次）
+        geo_missing: bool,
     },
     BackupsReady(Vec<clard_proto::BackupItem>),
     HelperVersion(String),

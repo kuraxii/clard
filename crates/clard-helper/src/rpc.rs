@@ -61,6 +61,7 @@ pub async fn handle(
                     core_version,
                     tun_active,
                     core_sha256,
+                    geo_missing: !crate::core::geo_data_ready(Path::new("/var/clard/lib/runtime")),
                 },
                 None,
             )
