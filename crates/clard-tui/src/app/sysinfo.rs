@@ -211,7 +211,8 @@ pub fn hex_le_to_ipv4(hex: &str) -> Option<String> {
     let mut octets = [0u8; 4];
     for (i, c) in hex.as_bytes().chunks(2).enumerate() {
         let s = std::str::from_utf8(c).ok()?;
-        octets[i] = u8::from_str_radix(s, 16).ok()?;
+        // hex.len()==8 保证恰 4 组，get_mut 仅用于满足 clippy indexing-slicing（不会为 None）
+        *octets.get_mut(i)? = u8::from_str_radix(s, 16).ok()?;
     }
     // /proc/net/route 的 IP 是主机字节序小端：FE 4F 02 0A → 0A 02 4F FE
     octets.reverse();
