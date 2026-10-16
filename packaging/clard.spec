@@ -10,7 +10,7 @@
 # --no-mihomo）则包内不含，首次使用经 InstallCore 安装。
 
 Name:           clard
-Version:        0.3.1
+Version:        0.3.2
 # 不带 dist 标记（如 fc41）：包名/版本/架构即可，便于跨发行版复用构建产物
 Release:        1
 Summary:        Clard — Linux transparent proxy manager (system helper + TUI client)
@@ -92,6 +92,9 @@ systemctl restart clard-helper.service >/dev/null 2>&1 || :
 %endif
 
 %changelog
+* Fri Oct 16 2026 zjzhu <zjzhu@kuraxii.dev> - 0.3.2-1
+- geo 数据下载：失败分支全覆盖测试（HTTP 状态/空响应/超限/传输错误），修复 200 空响应漏报；传输错误自动重试最多 3 次（退避 300ms×n），HTTP 4xx/5xx 不重试
+- /var/clard 数据目录改为世界可读 0755（spec %post + helper 启动自愈），doc/01 §4.2 同步
 * Fri Oct 16 2026 zjzhu <zjzhu@kuraxii.dev> - 0.3.1-1
 - geo 数据改为运行时安装（不随 RPM）：移除构建期 geo 下载与包内携带，升级永不触碰 /var/clard/lib/runtime 的 geo 文件（v0.3.0 构建期下载被 GitHub 429 把错误页打进包导致核心 MMDB invalid）；首次缺失由 TUI 自动安装，`g` 手动更新
 - AGENTS.md：新增提交信息陈述表达与禁止括号解释规则
