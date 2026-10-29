@@ -88,6 +88,21 @@ async fn run_once(
                         continue;
                     }
                 };
+                // R2.3 无节点防护：订阅商临时抽风返回的报错文本（能被解析成 mapping 但无
+                // `proxies`）不落盘覆盖旧内容，保留旧节点；`updated_at` 不刷新 → 该 profile
+                // 保持到期，下轮（60s）自动重拉，直到拿到含节点的内容（超时自动轮询）。
+                if !clard_config::config_gen::has_proxies(&converted) {
+                    tracing::warn!("auto update {name} 无可用节点（proxies 为空），跳过本轮，下轮自动重试");
+                    audit.result(
+                        "profile.update",
+                        &op_id,
+                        &Actor::system(),
+                        "error",
+                        Some("订阅内容无可用节点（proxies 为空），下轮自动重试"),
+                        None,
+                    );
+                    continue;
+                }
                 let mut st = store.lock().await;
                 let hitting_current = st
                     .list()
