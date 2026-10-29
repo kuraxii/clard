@@ -119,9 +119,12 @@ fn parse_subscription(text: &str) -> Result<Value, ConfigGenError> {
     if t.is_empty() {
         return Err(ConfigGenError::Empty);
     }
-    // 先按 YAML 解析；mapping 直接用，否则看是否节点列表
+    // 先按 YAML 解析；mapping 且含 `proxies` 才视为合法配置，否则看是否节点列表。
+    // 要求 `proxies` 键：订阅商临时抽风返回的报错文本（如
+    // "The following link doesn't contain any valid node info: <url>"）恰好能被
+    // YAML 解析成 mapping，若不加校验会被误判为合法配置存盘，导致节点丢失（doc/05 §2 R2.3）。
     if let Ok(v) = serde_yaml_ng::from_str::<Value>(t) {
-        if v.is_mapping() {
+        if v.is_mapping() && v.get(Value::String("proxies".into())).is_some() {
             return Ok(v);
         }
     }
@@ -407,6 +410,36 @@ mod tests {
             generate("这不是配置也不是节点", None, &opts()),
             Err(ConfigGenError::NotAConfig)
         );
+    }
+
+    #[test]
+    fn generate_subscription_error_text_rejected() {
+        // 订阅商临时返回的报错文本恰好能被 YAML 解析成 mapping，但无 `proxies` 键，
+        // 必须拒绝（防污染 profile 文件导致节点丢失，doc/05 §2 R2.3）。
+        let err_text = "The following link doesn't contain any valid node info: https://api.sub-400.club/link/A2JDReDPX0nuFvib?sub=5&is_neigui=0\n";
+        assert_eq!(generate(err_text, None, &opts()), Err(ConfigGenError::NotAConfig));
+    }
+
+    #[test]
+    fn subscription_to_yaml_rejects_error_text() {
+        let err_text = "The following link doesn't contain any valid node info: https://api.sub-400.club/link/A2JDReDPX0nuFvib?sub=5&is_neigui=0\n";
+        assert_eq!(subscription_to_yaml(err_text), Err(ConfigGenError::NotAConfig));
+    }
+
+    #[test]
+    fn subscription_to_yaml_accepts_mapping_with_proxies() {
+        let yaml = "proxies:\n  - name: n1\n    type: socks5\n    server: 1.2.3.4\n    port: 1080\n";
+        let out = subscription_to_yaml(yaml).unwrap();
+        let m = as_mapping(&out);
+        assert!(get(&m, "proxies").unwrap().is_sequence());
+    }
+
+    #[test]
+    fn subscription_to_yaml_accepts_node_list() {
+        let nodes = "vless://uuid@1.2.3.4:443?encryption=none&type=tcp#香港-01\n";
+        let out = subscription_to_yaml(nodes).unwrap();
+        let m = as_mapping(&out);
+        assert!(get(&m, "proxies").unwrap().is_sequence());
     }
 
     #[test]
